@@ -1480,36 +1480,44 @@
                     
                     logMessage(logId, 'Generowanie danych testowych...', 'info');
                     
-                    // Generuj dane testowe
-                    const testData = generateRandomData(fileSize, 0);
-                    
-                    // Oblicz sumę kontrolną
-                    const checksum = await calculateArrayChecksum(testData);
-                    
-                    // Zmierz czas zapisu
-                    const startTime = performance.now();
-                    
-                    // Zapisz plik
-                    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(testData);
-                    await writable.close();
-                    
-                    const endTime = performance.now();
-                    const timeSeconds = (endTime - startTime) / 1000;
-                    
-                    // Oblicz prędkość w MB/s
-                    const speedMBps = fileSize / (1024 * 1024) / timeSeconds;
-                    
-                    logMessage(logId, `Zakończono zapis: 1,00 MB w ${timeSeconds.toFixed(1)} s (${speedMBps.toFixed(2)} MB/s)`, 'success');
-                    
-                    return {
-                        success: true,
-                        speed: speedMBps,
-                        checksum: checksum
-                    };
-                    
+                    try {
+                        // Generuj dane testowe
+                        const testData = generateRandomData(fileSize, 0);
+                        
+                        if (!testData) {
+                            throw new Error("Wygenerowane dane są puste");
+                        }
+                        
+                        // Oblicz sumę kontrolną
+                        const checksum = await calculateArrayChecksum(testData);
+                        
+                        // Zmierz czas zapisu
+                        const startTime = performance.now();
+                        
+                        // Zapisz plik
+                        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(testData);
+                        await writable.close();
+                        
+                        const endTime = performance.now();
+                        const timeSeconds = (endTime - startTime) / 1000;
+                        
+                        // Oblicz prędkość w MB/s
+                        const speedMBps = fileSize / (1024 * 1024) / timeSeconds;
+                        
+                        logMessage(logId, `Zakończono zapis: 1,00 MB w ${timeSeconds.toFixed(1)} s (${speedMBps.toFixed(2)} MB/s)`, 'success');
+                        
+                        return {
+                            success: true,
+                            speed: speedMBps,
+                            checksum: checksum
+                        };
+                    } catch (dataError) {
+                        throw new Error("Problem z generowaniem lub zapisem danych: " + dataError.message);
+                    }
                 } catch (error) {
+                    console.error("Szczegóły błędu:", error);
                     logMessage(logId, `BŁĄD: Szybki test nie powiódł się! ${error.message}`, 'error');
                     logMessage(logId, 'Możliwy problem z dyskiem lub dostępem do niego.', 'error');
                     
@@ -1525,48 +1533,70 @@
                 try {
                     logMessage(logId, 'Generowanie danych testowych...', 'info');
                     
-                    // Generuj dane testowe
-                    const testData = generateRandomData(size, seed);
-                    
-                    // Oblicz sumę kontrolną
-                    const checksum = await calculateArrayChecksum(testData);
-                    
-                    // Zmierz czas zapisu
-                    const startTime = performance.now();
-                    
-                    // Zapisz plik
-                    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
-                    const writable = await fileHandle.createWritable();
-                    
-                    // Zapisz dane w porcjach
-                    const chunkSize = 8 * 1024 * 1024; // 8MB porcje dla lepszej wydajności
-                    for (let i = 0; i < testData.byteLength; i += chunkSize) {
-                        const chunk = testData.slice(i, Math.min(i + chunkSize, testData.byteLength));
-                        await writable.write(chunk);
+                    try {
+                        // Generuj dane testowe
+                        const testData = generateRandomData(size, seed);
                         
-                        // Pokaż postęp dla dużych plików
-                        if (size > 100 * 1024 * 1024 && i % (32 * 1024 * 1024) === 0) {
-                            logMessage(logId, '.', 'info');
+                        if (!testData) {
+                            throw new Error("Wygenerowane dane są puste");
                         }
+                        
+                        // Oblicz sumę kontrolną
+                        const checksum = await calculateArrayChecksum(testData);
+                        
+                        // Zmierz czas zapisu
+                        const startTime = performance.now();
+                        
+                        // Zapisz plik
+                        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        
+                        // Zmniejszamy rozmiar porcji dla lepszej kompatybilności
+                        // i mniejszego obciążenia pamięci
+                        const chunkSize = 4 * 1024 * 1024; // 4MB porcje dla lepszej wydajności i kompatybilności
+                        
+                        try {
+                            for (let i = 0; i < testData.byteLength; i += chunkSize) {
+                                const end = Math.min(i + chunkSize, testData.byteLength);
+                                const chunk = testData.slice(i, end);
+                                
+                                if (!chunk) {
+                                    throw new Error(`Nie można utworzyć kawałka danych (${i} do ${end})`);
+                                }
+                                
+                                await writable.write(chunk);
+                                
+                                // Pokaż postęp dla dużych plików
+                                if (size > 100 * 1024 * 1024 && i % (32 * 1024 * 1024) === 0) {
+                                    logMessage(logId, '.', 'info');
+                                }
+                            }
+                            
+                            await writable.close();
+                            
+                            const endTime = performance.now();
+                            const timeSeconds = (endTime - startTime) / 1000;
+                            
+                            // Oblicz prędkość w MB/s
+                            const speedMBps = size / (1024 * 1024) / timeSeconds;
+                            
+                            logMessage(logId, `Zakończono zapis: ${formatBytes(size)} w ${timeSeconds.toFixed(1)} s (${speedMBps.toFixed(2)} MB/s)`, 'success');
+                            
+                            return {
+                                success: true,
+                                speed: speedMBps,
+                                checksum: checksum
+                            };
+                        } catch (writeError) {
+                            throw new Error("Błąd podczas zapisu pliku: " + writeError.message);
+                        }
+                    } catch (dataError) {
+                        throw new Error("Problem z generowaniem lub zapisem danych: " + dataError.message);
                     }
-                    
-                    await writable.close();
-                    
-                    const endTime = performance.now();
-                    const timeSeconds = (endTime - startTime) / 1000;
-                    
-                    // Oblicz prędkość w MB/s
-                    const speedMBps = size / (1024 * 1024) / timeSeconds;
-                    
-                    logMessage(logId, `Zakończono zapis: ${formatBytes(size)} w ${timeSeconds.toFixed(1)} s (${speedMBps.toFixed(2)} MB/s)`, 'success');
-                    
-                    return {
-                        success: true,
-                        speed: speedMBps,
-                        checksum: checksum
-                    };
-                    
                 } catch (error) {
+                    console.error("Szczegóły błędu zapisu:", error);
+                    logMessage(logId, `Błąd zapisu: ${error.message}`, 'error');
+                    
                     return {
                         success: false,
                         error: error.message
@@ -1574,27 +1604,56 @@
                 }
             }
             
-            // Generuj losowe dane
+            // Generuj losowe dane 
             function generateRandomData(size, seed) {
-                // Utwórz bufor odpowiedniej wielkości
-                const buffer = new ArrayBuffer(size);
-                const view = new Uint8Array(buffer);
-                
-                // Zainicjuj generator liczb losowych
-                const random = new Math.seedrandom(seed.toString());
-                
-                // Wypełnij bufor losowymi danymi
-                for (let i = 0; i < size; i++) {
-                    view[i] = Math.floor(random() * 256);
+                try {
+                    // Utwórz bufor odpowiedniej wielkości
+                    const buffer = new ArrayBuffer(size);
+                    const view = new Uint8Array(buffer);
+                    
+                    // Prosty generator pseudolosowy bazujący na seedzie
+                    // Implementacja własna zamiast Math.seedrandom do poprawy kompatybilności
+                    const simpleRandom = function(seed) {
+                        let state = seed;
+                        return function() {
+                            // Prosty algorytm LCG (Linear Congruential Generator)
+                            state = (state * 1664525 + 1013904223) % 4294967296;
+                            return state / 4294967296; // Normalizacja do 0-1
+                        };
+                    };
+                    
+                    const random = simpleRandom(seed);
+                    
+                    // Wypełnij bufor losowymi danymi
+                    for (let i = 0; i < size; i++) {
+                        view[i] = Math.floor(random() * 256);
+                    }
+                    
+                    return buffer;
+                } catch (error) {
+                    console.error("Błąd podczas generowania danych:", error);
+                    throw new Error("Nie można wygenerować danych testowych: " + error.message);
                 }
-                
-                return buffer;
             }
             
             // Oblicz sumę kontrolną tablicy
             async function calculateArrayChecksum(buffer) {
-                const hashData = CryptoJS.MD5(CryptoJS.lib.WordArray.create(new Uint8Array(buffer)));
-                return hashData.toString(CryptoJS.enc.Hex);
+                try {
+                    if (!buffer) {
+                        throw new Error("Bufor danych jest pusty");
+                    }
+                    
+                    const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
+                    const byteArray = new Uint8Array(arrayBuffer);
+                    
+                    // Użyj CryptoJS do obliczenia sumy kontrolnej MD5
+                    const wordArray = CryptoJS.lib.WordArray.create(byteArray);
+                    const hashData = CryptoJS.MD5(wordArray);
+                    return hashData.toString(CryptoJS.enc.Hex);
+                } catch (error) {
+                    console.error("Błąd podczas obliczania sumy kontrolnej:", error);
+                    throw new Error("Nie można obliczyć sumy kontrolnej: " + error.message);
+                }
             }
             
             // Oblicz sumę kontrolną pliku
@@ -1891,8 +1950,8 @@
                 return result;
             }
             
-            // Math.seedrandom z npm:seedrandom
-            Math.seedrandom=function(a,b,c){function d(a,b,c){var d=[];b=1==b?{entropy:!0}:b||{};var g=j(f(b.entropy?[a,l(c)]:null==a?k():a,3),d),h=new e(d),i=function(){for(var a=h.g(o),b=p,c=0;a<s;)a=(a+c)*m,b*=m,c=h.g(1);for(;a>=t;)a/=2,b/=2,c>>>=1;return(a+c)/b};return i.int32=function(){return 0|h.g(4)},i.quick=function(){return h.g(4)/4294967296},i.double=i,j(l(h.S),c),(b.pass||n||function(a,b,c,d){return d&&(d.S&&g(d,h),a.state=function(){return g(h,{})}),c?(Math.random=a,b):a})(i,g,"global"in b?b.global:this==Math,b.state)}function e(a){var b,c=a.length,d=this,e=0,f=d.i=d.j=0,g=d.S=[];for(c||(a=[c++]);e<m;)g[e]=e++;for(e=0;e<m;e++)g[e]=g[f=q&f+a[e%c]+(b=g[e])],g[f]=b;(d.g=function(a){for(var b,c=0,e=d.i,f=d.j,g=d.S;a--;)b=g[e=q&e+1],c=c*m+g[q&(g[e]=g[f=q&f+b])+(g[f]=b)];return d.i=e,d.j=f,c})(m)}function f(a,b){var c,d=[],e=typeof a;if(b&&"object"==e)for(c in a)try{d.push(f(a[c],b-1))}catch(a){}return d.length?d:"string"==e?a:a+"\0"}function g(a,b){return b.i=a.i,b.j=a.j,b.S=a.S.slice(),b}function h(a,b){var c,d=[],e=typeof a;if(!b&&"object"==e)for(c in a)try{d.push(h(a[c]))}catch(a){}return d.length?d:"string"==e?a:a+"\0"}function i(a,b){for(var c,d=a+"",e=0;e<d.length;)b[q&e]=q&(c^=19*b[q&e])+d.charCodeAt(e++);return l(b)}function j(a,b){return b.i=a.i,b.j=a.j,b.S=a.S.slice(),b}function k(){for(var a=0;a<m;a++)u[a]=Math.random()*4294967296|0;return l(u)}function l(a){return String.fromCharCode.apply(0,a)}var m=256,n=Math.pow(m,6),o=4,p=Math.pow(2,52),q=m-1,r="random",s=Math.pow(2,63),t=Math.pow(2,53),u=Array(m);if(c){var v=require("crypto"),w=v.randomBytes||v.pseudoRandomBytes,x=w(m);if(x)for(var y=0;y<m;y++)u[y]=x[y]}var z=i("",u);return d(a,b,z)};
+            // Usunięto zewnętrzną bibliotekę Math.seedrandom dla poprawy kompatybilności
+            // Używamy teraz własnej implementacji prostego generatora pseudolosowego w funkcji generateRandomData
             
             // Aktywuj pierwszy przycisk po załadowaniu strony
             document.querySelector('.operation-btn')?.click();
