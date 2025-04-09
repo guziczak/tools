@@ -236,6 +236,22 @@ class DiskDriveVerifier
             long verifiedBytes = 0;
             int fileIndex = 0;
             
+            // Oblicz całkowity rozmiar wszystkich plików do wyświetlenia postępu
+            long totalBytes = 0;
+            foreach (var checksumEntry in savedChecksums)
+            {
+                string sourceFilePath = Path.Combine(testDir, checksumEntry.Key);
+                if (File.Exists(sourceFilePath))
+                {
+                    FileInfo fileInfo = new FileInfo(sourceFilePath);
+                    totalBytes += fileInfo.Length;
+                }
+            }
+            
+            // Dodaj pasek postępu przed pętlą weryfikującą
+            Console.WriteLine("\nPostęp weryfikacji:");
+            DrawProgressBar(0, totalBytes, 50, "Postęp: ");
+            
             foreach (var checksumEntry in savedChecksums)
             {
                 string fileName = checksumEntry.Key;
@@ -252,7 +268,6 @@ class DiskDriveVerifier
                 }
                 
                 FileInfo fileInfo = new FileInfo(sourceFilePath);
-                verifiedBytes += fileInfo.Length;
                 
                 // Tworzenie przyjaznej nazwy pliku
                 string friendlyName = fileName.Equals("quicktest.bin", StringComparison.OrdinalIgnoreCase) 
@@ -298,6 +313,11 @@ class DiskDriveVerifier
                         Console.WriteLine("USZKODZONY");
                         corruptedFiles++;
                     }
+                    
+                    verifiedBytes += fileInfo.Length;
+                    
+                    // Aktualizuj pasek postępu po każdym pliku
+                    DrawProgressBar(verifiedBytes, totalBytes, 50, "Postęp: ");
                 }
                 catch (Exception ex)
                 {
@@ -549,6 +569,10 @@ class DiskDriveVerifier
             long writtenSize = 0;
             bool testFailed = false;
             
+            // Inicjalizacja paska postępu przed pętlą
+            Console.WriteLine("\nPostęp całkowity:");
+            DrawProgressBar(0, testSize, 50, "Postęp: ");
+            
             for (int i = 0; i < totalChunks; i++)
             {
                 if (testFailed)
@@ -581,10 +605,23 @@ class DiskDriveVerifier
                     {
                         byte[] buffer = new byte[BUFFER_SIZE]; // Użyj większego bufora
                         int bytesRead;
+                        long copiedBytes = 0;
+                        
                         while ((bytesRead = sourceStream.Read(buffer, 0, buffer.Length)) > 0)
                         {
                             destStream.Write(buffer, 0, bytesRead);
+                            copiedBytes += bytesRead;
+                            
+                            // Aktualizuj pasek postępu dla bieżącego pliku
+                            if (currentChunkSize > 10 * 1024 * 1024) // tylko dla plików > 10MB
+                            {
+                                Console.Write("\r");
+                                Console.Write($"Kopiowanie: [{new string('#', (int)(30 * copiedBytes / currentChunkSize))}{new string(' ', 30 - (int)(30 * copiedBytes / currentChunkSize))}] {(copiedBytes * 100.0 / currentChunkSize):F1}%");
+                            }
                         }
+                        
+                        if (currentChunkSize > 10 * 1024 * 1024)
+                            Console.WriteLine(); // nowa linia po zakończeniu kopiowania
                     }
                     
                     chunkStopwatch.Stop();
@@ -609,7 +646,9 @@ class DiskDriveVerifier
                     checksums.Add(Path.GetFileName(targetChunkFile), checksum);
                     
                     writtenSize += currentChunkSize;
-                    Console.WriteLine($"Postęp: {FormatBytes(writtenSize)} / {FormatBytes(testSize)} ({(writtenSize * 100.0 / testSize):F1}%)");
+                    
+                    // Aktualizuj główny pasek postępu
+                    DrawProgressBar(writtenSize, testSize, 50, "Postęp: ");
                 }
                 catch (IOException ex)
                 {
@@ -749,6 +788,14 @@ class DiskDriveVerifier
             long totalWritten = 0;
             int chunkIndex = 0;
             
+            // Inicjalizacja paska postępu tylko dla dużych plików
+            bool showProgress = size > 100 * 1024 * 1024;
+            if (showProgress)
+            {
+                Console.WriteLine("Generowanie pliku testowego:");
+                DrawProgressBar(0, size, 40, "Postęp: ");
+            }
+            
             while (remainingBytes > 0)
             {
                 // Określ ile zapisać w tej iteracji
@@ -775,16 +822,19 @@ class DiskDriveVerifier
                 chunkIndex++;
                 
                 // Pokaż postęp dla dużych plików
-                if (size > 100 * 1024 * 1024 && totalWritten % (128 * 1024 * 1024) == 0)
+                if (showProgress && totalWritten % (16 * 1024 * 1024) == 0)
                 {
-                    Console.Write(".");
+                    DrawProgressBar(totalWritten, size, 40, "Postęp: ");
                 }
             }
             
             fs.Flush();
-            if (size > 100 * 1024 * 1024)
+            
+            // Finalizacja paska postępu
+            if (showProgress)
             {
-                Console.WriteLine();
+                DrawProgressBar(size, size, 40, "Postęp: ");
+                Console.WriteLine("Zakończono generowanie pliku testowego.");
             }
         }
     }
@@ -800,6 +850,14 @@ class DiskDriveVerifier
             long totalBytesRead = 0;
             long fileSize = new FileInfo(filePath).Length;
             
+            // Pokaż pasek postępu tylko dla dużych plików
+            bool showProgress = fileSize > 100 * 1024 * 1024;
+            if (showProgress)
+            {
+                Console.WriteLine("Obliczanie sumy kontrolnej:");
+                DrawProgressBar(0, fileSize, 40, "Postęp: ");
+            }
+            
             while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
             {
                 md5.TransformBlock(buffer, 0, bytesRead, buffer, 0);
@@ -807,13 +865,21 @@ class DiskDriveVerifier
                 totalBytesRead += bytesRead;
                 
                 // Pokaż postęp dla dużych plików
-                if (fileSize > 500 * 1024 * 1024 && totalBytesRead % (100 * 1024 * 1024) == 0)
+                if (showProgress && totalBytesRead % (32 * 1024 * 1024) == 0)
                 {
-                    Console.Write(".");
+                    DrawProgressBar(totalBytesRead, fileSize, 40, "Postęp: ");
                 }
             }
             
             md5.TransformFinalBlock(new byte[0], 0, 0);
+            
+            // Finalizacja paska postępu
+            if (showProgress)
+            {
+                DrawProgressBar(fileSize, fileSize, 40, "Postęp: ");
+                Console.WriteLine("Zakończono obliczanie sumy kontrolnej.");
+            }
+            
             return md5.Hash;
         }
     }
@@ -889,7 +955,7 @@ class DiskDriveVerifier
         public double MaxSpeed { get; set; }
     }
     
-    // POPRAWIONA METODA: Agreguj pomiary prędkości dla lepszej wizualizacji
+    // Agreguj pomiary prędkości dla lepszej wizualizacji
     static List<AggregatedSpeedMeasurement> AggregateSpeedMeasurements(List<SpeedMeasurement> measurements, int targetCount)
     {
         List<AggregatedSpeedMeasurement> result = new List<AggregatedSpeedMeasurement>();
@@ -1170,30 +1236,30 @@ class DiskDriveVerifier
                 {
                     char charToDraw = ' ';
                     
-                    // Określ wartości logiczne dla każdej możliwej sytuacji
-                    bool isAtMaxHeight = y == maxHeights[i];
-                    bool isAtMinHeight = y == minHeights[i] && minHeights[i] != barHeights[i];
+                    // POPRAWIONA LOGIKA RYSOWANIA
+                    // Określ wartości logiczne dla różnych pozycji na wykresie
+                    bool isAtMax = y == maxHeights[i];
+                    bool isAtMin = y == minHeights[i] && minHeights[i] != barHeights[i];
                     bool isAtAvgLine = y == avgLineHeight;
-                    bool isWithinBarHeight = barHeights[i] >= y;
-                    bool isBetweenMinAndMax = y <= maxHeights[i] && y >= minHeights[i];
-                    bool shouldDrawVerticalLine = x == barWidth / 2 && !isWithinBarHeight && isBetweenMinAndMax;
+                    bool isBelowOrAtBar = y <= barHeights[i]; // Na lub poniżej średniej (pełne bloki)
+                    bool isAboveBarBelowMax = y > barHeights[i] && y <= maxHeights[i]; // Między średnią a max
                     
                     // Ustal priorytety rysowania (od najwyższego)
-                    if (isAtMaxHeight)
+                    if (isAtMax)
                     {
-                        charToDraw = 'T'; // Górny "wąs" ma najwyższy priorytet
+                        charToDraw = 'T'; // Górny "wąs"
                     }
-                    else if (isAtMinHeight)
+                    else if (isAtMin)
                     {
-                        charToDraw = '┴'; // Dolny "wąs" ma drugi priorytet
+                        charToDraw = '┴'; // Dolny "wąs"
                     }
-                    else if (isWithinBarHeight || isBetweenMinAndMax)
+                    else if (isBelowOrAtBar)
                     {
-                        charToDraw = '█'; // Rysuj blok wszędzie gdzie wysokość słupka pozwala lub między min-max
+                        charToDraw = '█'; // Pełny blok dla części poniżej i na poziomie średniej
                     }
-                    else if (shouldDrawVerticalLine)
+                    else if (isAboveBarBelowMax)
                     {
-                        charToDraw = '│'; // Pionowa linia tylko w środku i poza blokami
+                        charToDraw = '░'; // Lekki blok dla części między średnią a max
                     }
                     else if (isAtAvgLine)
                     {
@@ -1370,7 +1436,42 @@ class DiskDriveVerifier
         // Dodaj legendę dla średniej i wąsów
         Console.WriteLine();
         Console.WriteLine($"─── Linia średniej (ogólna): {weightedAvg:F2} {unit}");
+        Console.WriteLine($"█ Wypełnione bloki kończą się na poziomie średniej dla każdego słupka");
+        Console.WriteLine($"░ Lekkie bloki pokazują przedział od średniej do max");
         Console.WriteLine($"T┴ Wąsy wskazują min-max wartości dla każdego słupka");
+    }
+    
+    // Metoda rysująca pasek postępu
+    static void DrawProgressBar(long current, long total, int width = 50, string prefix = "")
+    {
+        // Oblicz procent ukończenia
+        double percent = (double)current / total;
+        percent = Math.Min(1.0, Math.Max(0.0, percent)); // Upewnij się, że wartość jest w zakresie 0-1
+        
+        int completeWidth = (int)(width * percent);
+        
+        // Stwórz pasek postępu
+        string progressBar = "[";
+        for (int i = 0; i < width; i++)
+        {
+            if (i < completeWidth)
+                progressBar += "█"; // Wypełniona część
+            else if (i == completeWidth && i < width)
+                progressBar += ">"; // Wskaźnik aktualnej pozycji
+            else
+                progressBar += "░"; // Niewypełniona część (użyto jaśniejszego znaku dla lepszego kontrastu)
+        }
+        progressBar += "]";
+        
+        // Stwórz pełny tekst z paskiem, procentem i informacją o rozmiarze
+        string display = $"\r{prefix}{progressBar} {percent:P1} ({FormatBytes(current)}/{FormatBytes(total)})";
+        
+        // Wypisz do konsoli (nadpisując poprzednią linię)
+        Console.Write(display);
+        
+        // Dodaj nową linię jeśli ukończono
+        if (current >= total)
+            Console.WriteLine();
     }
     
     // Metoda pomocnicza do formatowania rozmiarów w bajtach
