@@ -1,0 +1,1961 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USB Drive Verifier</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #3A6EA5;
+            --secondary-color: #004E98;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --light-color: #f8f9fa;
+            --dark-color: #343a40;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1, h2, h3 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+        
+        h1 {
+            text-align: center;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--primary-color);
+        }
+        
+        .divider {
+            height: 2px;
+            background-color: #eee;
+            margin: 20px 0;
+        }
+        
+        .operation-selector {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+            gap: 10px;
+        }
+        
+        .operation-btn {
+            padding: 10px 15px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        .operation-btn:hover {
+            background-color: var(--secondary-color);
+        }
+        
+        .operation-btn.active {
+            background-color: var(--secondary-color);
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+        }
+        
+        .section {
+            display: none;
+            margin: 20px 0;
+        }
+        
+        .section.active {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        #drive-selection {
+            margin: 20px 0;
+        }
+        
+        .drive-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .drive-item {
+            flex: 1;
+            min-width: 250px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .drive-item:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 5px rgba(58, 110, 165, 0.5);
+        }
+        
+        .drive-item.selected {
+            border-color: var(--primary-color);
+            background-color: rgba(58, 110, 165, 0.1);
+        }
+        
+        .drive-info {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        .warning {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #fff3cd;
+            border-left: 4px solid var(--warning-color);
+            border-radius: 4px;
+        }
+        
+        .danger {
+            background-color: #f8d7da;
+            border-left: 4px solid var(--danger-color);
+        }
+        
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--secondary-color);
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        input[type="number"] {
+            width: 100px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .progress-container {
+            margin: 20px 0;
+        }
+        
+        .progress-bar {
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+        
+        .progress-value {
+            height: 100%;
+            background-color: var(--primary-color);
+            width: 0%;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+        }
+        
+        .chart-container {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .chart-title {
+            text-align: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: var(--dark-color);
+        }
+        
+        #speed-chart {
+            width: 100%;
+            height: 300px;
+        }
+        
+        .results {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        .success-result {
+            color: var(--success-color);
+            font-weight: bold;
+        }
+        
+        .error-result {
+            color: var(--danger-color);
+            font-weight: bold;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .log-container {
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+        }
+        
+        .info {
+            color: var(--primary-color);
+        }
+        
+        .error {
+            color: var(--danger-color);
+        }
+        
+        .success {
+            color: var(--success-color);
+        }
+
+        /* Styling for the bar chart */
+        .bar-chart {
+            display: flex;
+            flex-direction: column;
+            height: 300px;
+            margin-top: 20px;
+            position: relative;
+            padding-left: 50px;
+        }
+        
+        .y-axis {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 50px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border-right: 1px solid #ddd;
+        }
+        
+        .y-label {
+            text-align: right;
+            font-size: 12px;
+            padding-right: 5px;
+            color: #666;
+        }
+        
+        .chart-grid {
+            position: absolute;
+            left: 50px;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1;
+        }
+        
+        .grid-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-bottom: 1px dashed #ddd;
+        }
+        
+        .chart-bars {
+            display: flex;
+            height: 100%;
+            align-items: flex-end;
+            position: relative;
+            z-index: 2;
+            padding-bottom: 30px;
+        }
+        
+        .bar-group {
+            display: flex;
+            flex-direction: column;
+            margin: 0 5px;
+            position: relative;
+            flex: 1;
+            min-width: 30px;
+            max-width: 60px;
+        }
+        
+        .bar {
+            width: 100%;
+            background-color: var(--primary-color);
+            position: relative;
+            transition: height 0.5s;
+        }
+        
+        .bar-min-max {
+            position: absolute;
+            width: 2px;
+            background-color: #aaa;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .bar-min, .bar-max {
+            position: absolute;
+            width: 10px;
+            height: 2px;
+            background-color: #aaa;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .bar-avg-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background-color: var(--danger-color);
+            z-index: 3;
+        }
+        
+        .x-axis {
+            display: flex;
+            position: absolute;
+            left: 50px;
+            right: 0;
+            bottom: 0;
+            border-top: 1px solid #ddd;
+        }
+        
+        .x-label {
+            flex: 1;
+            min-width: 30px;
+            max-width: 60px;
+            text-align: center;
+            padding-top: 5px;
+            font-size: 12px;
+            color: #666;
+            margin: 0 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .x-label-full {
+            position: absolute;
+            bottom: -30px;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            transform: translateX(-50%);
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            margin-top: 40px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 0 10px 5px 0;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 10px;
+            margin-right: 5px;
+        }
+        
+        .browser-warning {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            display: block;
+        }
+
+        .browser-fallback {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .browser-fallback h3 {
+            margin-top: 0;
+        }
+
+        .browser-fallback ul {
+            margin-left: 20px;
+        }
+
+        .file-input {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Program do weryfikacji pojemności dysków i pendriveów</h1>
+        
+        <div id="api-not-supported" class="browser-warning">
+            <strong>Uwaga: Brak zgodności przeglądarki!</strong>
+            <p>Ta aplikacja wymaga nowoczesnych funkcji przeglądarki (File System Access API), które nie są dostępne w Twojej przeglądarce.</p>
+            <p>Aby korzystać z tej aplikacji, użyj jednej z następujących przeglądarek:</p>
+            <ul>
+                <li>Google Chrome (wersja 86 lub nowsza)</li>
+                <li>Microsoft Edge (wersja 86 lub nowsza)</li>
+                <li>Opera (wersja 72 lub nowsza)</li>
+            </ul>
+            <div class="browser-fallback">
+                <h3>Dlaczego potrzebny jest File System Access API?</h3>
+                <p>Ta aplikacja weryfikuje rzeczywistą pojemność dysków USB poprzez zapisywanie i odczytywanie dużych ilości danych oraz weryfikację integralności plików. Do wykonania tych operacji potrzebny jest bezpośredni dostęp do systemu plików, który zapewnia tylko nowoczesna funkcja File System Access API.</p>
+                
+                <h3>Alternatywne rozwiązania:</h3>
+                <ol>
+                    <li>Użyj oryginalnej aplikacji .NET<br>
+                        <p>Możesz pobrać i uruchomić oryginalną aplikację konsolową .NET, która nie wymaga specjalnej przeglądarki.</p>
+                    </li>
+                    <li>Użyj innego komputera lub urządzenia z kompatybilną przeglądarką</li>
+                    <li>Zaktualizuj swoją przeglądarkę do najnowszej wersji (jeśli jest to możliwe)</li>
+                </ol>
+            </div>
+        </div>
+
+        <div id="app-content" style="display:none;">
+            <div class="operation-selector">
+                <button class="operation-btn" data-section="write-section">Zapisz dane testowe</button>
+                <button class="operation-btn" data-section="verify-section">Zweryfikuj dane</button>
+                <button class="operation-btn" data-section="partial-section">Sprawdź częściową pojemność</button>
+            </div>
+
+            <div class="section" id="write-section">
+                <h2>Zapisz dane testowe na dysku</h2>
+                <p>Ten test zapisze pliki testowe na wybranym dysku, aby sprawdzić jego rzeczywistą pojemność.</p>
+
+                <div id="drive-selection-write">
+                    <h3>Wybierz folder docelowy</h3>
+                    <p>Kliknij przycisk poniżej, aby wybrać folder na dysku, który chcesz przetestować.</p>
+                    <button id="select-dir-write" class="btn btn-primary">Wybierz folder testowy</button>
+                    
+                    <div id="selected-dir-info-write" class="drive-info hidden">
+                        <h4>Wybrany folder:</h4>
+                        <p id="dir-path-write"></p>
+                        <p id="dir-space-write"></p>
+                    </div>
+
+                    <div class="warning hidden" id="write-warning">
+                        <h4>UWAGA:</h4>
+                        <p>Test spowoduje utworzenie plików testowych w wybranym folderze.</p>
+                        <p>Zalecane jest wykonanie kopii zapasowej ważnych danych.</p>
+                    </div>
+
+                    <div class="warning danger hidden" id="write-danger-warning">
+                        <h4>!!! OSTRZEŻENIE !!!</h4>
+                        <p>Wybrany dysk nie jest dyskiem wymiennym (pendrive).</p>
+                        <p>Test może spowodować intensywne zużycie dysku i skrócić jego żywotność.</p>
+                        <p>Upewnij się, że wybrano właściwy dysk.</p>
+                    </div>
+
+                    <div class="form-group hidden" id="write-confirm">
+                        <p>Czy chcesz kontynuować?</p>
+                        <button id="write-start" class="btn btn-success">Tak, rozpocznij test</button>
+                        <button id="write-cancel" class="btn btn-danger">Anuluj</button>
+                    </div>
+                </div>
+
+                <div id="write-progress" class="progress-container hidden">
+                    <h3>Postęp zapisu</h3>
+                    <div class="progress-bar">
+                        <div id="write-progress-value" class="progress-value">0%</div>
+                    </div>
+                    <p id="write-progress-info">Przygotowywanie testu...</p>
+
+                    <div class="log-container" id="write-log"></div>
+                </div>
+
+                <div id="write-results" class="results hidden">
+                    <h3>Wyniki testu zapisu</h3>
+                    <div id="write-results-content"></div>
+                    
+                    <div id="write-chart-container" class="chart-container hidden">
+                        <div class="chart-title">WYKRES SZYBKOŚCI ZAPISU</div>
+                        <div id="write-speed-chart" class="bar-chart"></div>
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: var(--primary-color);"></div>
+                                <span>Prędkość zapisu</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: var(--danger-color);"></div>
+                                <span>Średnia prędkość</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section" id="verify-section">
+                <h2>Zweryfikuj dane na dysku</h2>
+                <p>Ten test sprawdzi integralność plików testowych na wybranym dysku.</p>
+
+                <div id="drive-selection-verify">
+                    <h3>Wybierz folder testowy</h3>
+                    <p>Kliknij przycisk poniżej, aby wybrać folder, w którym znajdują się pliki testowe.</p>
+                    <button id="select-dir-verify" class="btn btn-primary">Wybierz folder testowy</button>
+                    
+                    <div id="selected-dir-info-verify" class="drive-info hidden">
+                        <h4>Wybrany folder:</h4>
+                        <p id="dir-path-verify"></p>
+                    </div>
+
+                    <div class="form-group hidden" id="verify-confirm">
+                        <p>Czy chcesz rozpocząć weryfikację?</p>
+                        <button id="verify-start" class="btn btn-success">Tak, rozpocznij weryfikację</button>
+                        <button id="verify-cancel" class="btn btn-danger">Anuluj</button>
+                    </div>
+                </div>
+
+                <div id="verify-progress" class="progress-container hidden">
+                    <h3>Postęp weryfikacji</h3>
+                    <div class="progress-bar">
+                        <div id="verify-progress-value" class="progress-value">0%</div>
+                    </div>
+                    <p id="verify-progress-info">Przygotowywanie weryfikacji...</p>
+
+                    <div class="log-container" id="verify-log"></div>
+                </div>
+
+                <div id="verify-results" class="results hidden">
+                    <h3>Wyniki weryfikacji</h3>
+                    <div id="verify-results-content"></div>
+                    
+                    <div id="verify-chart-container" class="chart-container hidden">
+                        <div class="chart-title">WYKRES SZYBKOŚCI ODCZYTU</div>
+                        <div id="verify-speed-chart" class="bar-chart"></div>
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: var(--primary-color);"></div>
+                                <span>Prędkość odczytu</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: var(--danger-color);"></div>
+                                <span>Średnia prędkość</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="verify-cleanup">
+                        <p>Czy chcesz usunąć pliki testowe?</p>
+                        <button id="cleanup-yes" class="btn btn-danger">Tak, usuń pliki testowe</button>
+                        <button id="cleanup-no" class="btn btn-primary">Nie, zachowaj pliki</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section" id="partial-section">
+                <h2>Sprawdź częściową pojemność dysku</h2>
+                <p>Ten test pozwala sprawdzić określony procent pojemności dysku.</p>
+
+                <div id="drive-selection-partial">
+                    <h3>Wybierz folder docelowy</h3>
+                    <p>Kliknij przycisk poniżej, aby wybrać folder na dysku, który chcesz częściowo przetestować.</p>
+                    <button id="select-dir-partial" class="btn btn-primary">Wybierz folder testowy</button>
+                    
+                    <div id="selected-dir-info-partial" class="drive-info hidden">
+                        <h4>Wybrany folder:</h4>
+                        <p id="dir-path-partial"></p>
+                        <p id="dir-space-partial"></p>
+                    </div>
+
+                    <div class="warning hidden" id="partial-warning">
+                        <h4>UWAGA:</h4>
+                        <p>Test spowoduje utworzenie plików testowych w wybranym folderze.</p>
+                        <p>Zalecane jest wykonanie kopii zapasowej ważnych danych.</p>
+                    </div>
+
+                    <div class="warning danger hidden" id="partial-danger-warning">
+                        <h4>!!! OSTRZEŻENIE !!!</h4>
+                        <p>Wybrany dysk nie jest dyskiem wymiennym (pendrive).</p>
+                        <p>Test może spowodować intensywne zużycie dysku i skrócić jego żywotność.</p>
+                        <p>Upewnij się, że wybrano właściwy dysk.</p>
+                    </div>
+
+                    <div class="form-group hidden" id="partial-percent">
+                        <label for="percent-input">Podaj procent pojemności do sprawdzenia (1-100):</label>
+                        <input type="number" id="percent-input" min="1" max="100" value="50">
+                    </div>
+
+                    <div class="form-group hidden" id="partial-confirm">
+                        <p>Czy chcesz kontynuować?</p>
+                        <button id="partial-start" class="btn btn-success">Tak, rozpocznij test</button>
+                        <button id="partial-cancel" class="btn btn-danger">Anuluj</button>
+                    </div>
+                </div>
+
+                <div id="partial-progress" class="progress-container hidden">
+                    <h3>Postęp zapisu</h3>
+                    <div class="progress-bar">
+                        <div id="partial-progress-value" class="progress-value">0%</div>
+                    </div>
+                    <p id="partial-progress-info">Przygotowywanie testu...</p>
+
+                    <div class="log-container" id="partial-log"></div>
+                </div>
+
+                <div id="partial-results" class="results hidden">
+                    <h3>Wyniki testu częściowej pojemności</h3>
+                    <div id="partial-results-content"></div>
+                    
+                    <div id="partial-chart-container" class="chart-container hidden">
+                        <div class="chart-title">WYKRES SZYBKOŚCI ZAPISU</div>
+                        <div id="partial-speed-chart" class="bar-chart"></div>
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: var(--primary-color);"></div>
+                                <span>Prędkość zapisu</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: var(--danger-color);"></div>
+                                <span>Średnia prędkość</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sprawdzenie wsparcia dla File System Access API
+        if (typeof window.showDirectoryPicker === 'function') {
+            // API jest dostępne, pokazujemy aplikację
+            document.getElementById('api-not-supported').style.display = 'none';
+            document.getElementById('app-content').style.display = 'block';
+            initializeApp();
+        } else {
+            // API niedostępne, pokazujemy ostrzeżenie (już widoczne domyślnie)
+            console.log("File System Access API jest niedostępne w tej przeglądarce.");
+        }
+
+        // Główna funkcja inicjalizująca aplikację
+        function initializeApp() {
+            // Stałe
+            const TEST_DIR_NAME = 'VerifyTest';
+            const CHECKSUMS_FILE = 'checksums.dat';
+            const CHUNK_SIZE = 64 * 1024 * 1024; // 64MB
+            const USAGE_PERCENT = 0.95; // 95% dostępnej przestrzeni
+            const BUFFER_SIZE = 8 * 1024 * 1024; // 8MB dla lepszej wydajności w przeglądarce
+
+            // Globalne zmienne
+            let selectedDir = null;
+            let selectedDirHandle = null;
+            let testDirHandle = null;
+            let availableSpace = 0;
+            let totalSpace = 0;
+
+            // ------------- UI Handlers -------------
+            
+            // Obsługa przycisków operacji
+            document.querySelectorAll('.operation-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    // Usuń klasę aktywną ze wszystkich przycisków i sekcji
+                    document.querySelectorAll('.operation-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+                    
+                    // Dodaj klasę aktywną do klikniętego przycisku
+                    button.classList.add('active');
+                    
+                    // Pokaż odpowiednią sekcję
+                    const section = button.dataset.section;
+                    document.getElementById(section).classList.add('active');
+                    
+                    // Resetuj stan aplikacji
+                    resetAppState();
+                });
+            });
+
+            // Wybór folderu dla zapisu danych testowych
+            document.getElementById('select-dir-write').addEventListener('click', async () => {
+                await selectDirectory('write');
+            });
+
+            // Wybór folderu dla weryfikacji danych
+            document.getElementById('select-dir-verify').addEventListener('click', async () => {
+                await selectDirectory('verify');
+            });
+
+            // Wybór folderu dla częściowego testu
+            document.getElementById('select-dir-partial').addEventListener('click', async () => {
+                await selectDirectory('partial');
+            });
+
+            // Przyciski zapisu danych testowych
+            document.getElementById('write-start').addEventListener('click', () => {
+                startWriteTest(100); // 100% pojemności
+            });
+
+            document.getElementById('write-cancel').addEventListener('click', () => {
+                resetSection('write');
+            });
+
+            // Przyciski weryfikacji danych
+            document.getElementById('verify-start').addEventListener('click', () => {
+                startVerifyTest();
+            });
+
+            document.getElementById('verify-cancel').addEventListener('click', () => {
+                resetSection('verify');
+            });
+
+            // Przyciski częściowego testu
+            document.getElementById('partial-start').addEventListener('click', () => {
+                const percentToTest = parseInt(document.getElementById('percent-input').value, 10);
+                if (percentToTest >= 1 && percentToTest <= 100) {
+                    startWriteTest(percentToTest);
+                } else {
+                    logMessage('partial-log', 'Nieprawidłowa wartość procentu. Podaj liczbę od 1 do 100.', 'error');
+                }
+            });
+
+            document.getElementById('partial-cancel').addEventListener('click', () => {
+                resetSection('partial');
+            });
+
+            // Przyciski czyszczenia
+            document.getElementById('cleanup-yes').addEventListener('click', async () => {
+                await cleanupTestFiles();
+            });
+
+            document.getElementById('cleanup-no').addEventListener('click', () => {
+                const cleanupElement = document.getElementById('verify-cleanup');
+                if (cleanupElement) {
+                    cleanupElement.classList.add('hidden');
+                }
+                logMessage('verify-log', 'Pliki testowe pozostawione na dysku.', 'info');
+            });
+
+            // ------------- Funkcje pomocnicze -------------
+            
+            // Resetuj stan aplikacji
+            function resetAppState() {
+                selectedDir = null;
+                selectedDirHandle = null;
+                testDirHandle = null;
+                availableSpace = 0;
+                totalSpace = 0;
+                
+                // Resetuj wszystkie sekcje
+                resetSection('write');
+                resetSection('verify');
+                resetSection('partial');
+            }
+            
+            // Resetuj konkretną sekcję
+            function resetSection(section) {
+                // Bezpiecznie dodajemy klasę 'hidden' do elementów (sprawdzając czy istnieją)
+                const safeHideElement = (id) => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.classList.add('hidden');
+                    }
+                };
+                
+                safeHideElement(`selected-dir-info-${section}`);
+                safeHideElement(`${section}-warning`);
+                
+                if (section === 'write' || section === 'partial') {
+                    safeHideElement(`${section}-danger-warning`);
+                    safeHideElement(`${section}-confirm`);
+                    safeHideElement(`${section}-progress`);
+                    safeHideElement(`${section}-results`);
+                    
+                    if (section === 'partial') {
+                        safeHideElement('partial-percent');
+                    }
+                } else if (section === 'verify') {
+                    safeHideElement('verify-confirm');
+                    safeHideElement('verify-progress');
+                    safeHideElement('verify-results');
+                    safeHideElement('verify-cleanup');
+                }
+                
+                // Wyczyść logi
+                const logElement = document.getElementById(`${section}-log`);
+                if (logElement) {
+                    logElement.innerHTML = '';
+                }
+                
+                // Zresetuj progres
+                const progressElement = document.getElementById(`${section}-progress-value`);
+                if (progressElement) {
+                    progressElement.style.width = '0%';
+                    progressElement.innerText = '0%';
+                }
+            }
+            
+            // Wybór katalogu
+            async function selectDirectory(section) {
+                try {
+                    const dirHandle = await window.showDirectoryPicker({
+                        id: 'disk-verify',
+                        mode: 'readwrite'
+                    });
+                    
+                    selectedDirHandle = dirHandle;
+                    
+                    // Sprawdź uprawnienia do zapisu i odczytu
+                    const permissionRead = await dirHandle.queryPermission({ mode: 'read' });
+                    const permissionWrite = await dirHandle.queryPermission({ mode: 'readwrite' });
+                    
+                    if (permissionRead !== 'granted' || permissionWrite !== 'granted') {
+                        await dirHandle.requestPermission({ mode: 'readwrite' });
+                    }
+                    
+                    // Wyświetl informacje o wybranym katalogu
+                    const pathElement = document.getElementById(`dir-path-${section}`);
+                    if (pathElement) {
+                        pathElement.textContent = dirHandle.name;
+                    }
+                    
+                    const infoElement = document.getElementById(`selected-dir-info-${section}`);
+                    if (infoElement) {
+                        infoElement.classList.remove('hidden');
+                    }
+                    
+                    if (section === 'write' || section === 'partial') {
+                        // Pobierz informacje o przestrzeni dyskowej
+                        try {
+                            const storageEstimate = await navigator.storage.estimate();
+                            availableSpace = storageEstimate.quota - storageEstimate.usage;
+                            totalSpace = storageEstimate.quota;
+                            
+                            // Uwaga: Powyższe wartości są tylko przybliżeniem dostępnym w przeglądarce
+                            // W rzeczywistych zastosowaniach te wartości mogą nie być dokładne
+                            // i mogą dotyczyć tylko przestrzeni przeglądarki, nie rzeczywistej przestrzeni dyskowej
+                            
+                            const spaceElement = document.getElementById(`dir-space-${section}`);
+                            if (spaceElement) {
+                                spaceElement.textContent = 
+                                    `Dostępne miejsce: ${formatBytes(availableSpace)}, Całkowita pojemność: ${formatBytes(totalSpace)}`;
+                            }
+                                
+                            // Pokaż ostrzeżenia i potwierdzenie
+                            const warningElement = document.getElementById(`${section}-warning`);
+                            if (warningElement) {
+                                warningElement.classList.remove('hidden');
+                            }
+                            
+                            // W aplikacji webowej trudno rozpoznać czy dysk jest wymienny
+                            // Zakładamy ostrożnie, że to nie jest dysk wymienny
+                            const dangerElement = document.getElementById(`${section}-danger-warning`);
+                            if (dangerElement) {
+                                dangerElement.classList.remove('hidden');
+                            }
+                            
+                            if (section === 'partial') {
+                                const percentElement = document.getElementById('partial-percent');
+                                if (percentElement) {
+                                    percentElement.classList.remove('hidden');
+                                }
+                            }
+                            
+                            const confirmElement = document.getElementById(`${section}-confirm`);
+                            if (confirmElement) {
+                                confirmElement.classList.remove('hidden');
+                            }
+                        } catch (error) {
+                            logMessage(`${section}-log`, `Błąd podczas pobierania informacji o dysku: ${error.message}`, 'error');
+                        }
+                    } else if (section === 'verify') {
+                        // Sprawdź, czy istnieje katalog testowy
+                        try {
+                            testDirHandle = await getSubdirectory(dirHandle, TEST_DIR_NAME);
+                            
+                            if (testDirHandle) {
+                                // Sprawdź, czy istnieje plik sum kontrolnych
+                                try {
+                                    const checksumFileHandle = await testDirHandle.getFileHandle(CHECKSUMS_FILE);
+                                    const verifyConfirm = document.getElementById('verify-confirm');
+                                    if (verifyConfirm) {
+                                        verifyConfirm.classList.remove('hidden');
+                                    }
+                                } catch (error) {
+                                    logMessage('verify-log', 'Nie znaleziono pliku sum kontrolnych w wybranym folderze.', 'error');
+                                    logMessage('verify-log', 'Upewnij się, że wybrałeś folder zawierający dane testowe utworzone przez ten program.', 'error');
+                                }
+                            } else {
+                                logMessage('verify-log', `Nie znaleziono katalogu testowego "${TEST_DIR_NAME}" w wybranym folderze.`, 'error');
+                                logMessage('verify-log', 'Upewnij się, że wybrałeś właściwy folder i najpierw wykonaj operację zapisu danych testowych.', 'error');
+                            }
+                        } catch (error) {
+                            logMessage('verify-log', `Błąd podczas wyszukiwania katalogu testowego: ${error.message}`, 'error');
+                        }
+                    }
+                } catch (error) {
+                    // Użytkownik anulował wybór lub wystąpił inny błąd
+                    console.error('Błąd podczas wyboru katalogu:', error);
+                    logMessage(`${section}-log`, `Błąd: ${error.message}`, 'error');
+                }
+            }
+            
+            // Pobranie podkatalogu (jeśli istnieje)
+            async function getSubdirectory(dirHandle, name) {
+                try {
+                    return await dirHandle.getDirectoryHandle(name);
+                } catch (error) {
+                    return null;
+                }
+            }
+            
+            // Wyświetlanie wiadomości w logu
+            function logMessage(logElementId, message, type = 'info') {
+                const logElement = document.getElementById(logElementId);
+                if (!logElement) return;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                const logItem = document.createElement('div');
+                logItem.className = type;
+                logItem.textContent = `[${timestamp}] ${message}`;
+                logElement.appendChild(logItem);
+                logElement.scrollTop = logElement.scrollHeight;
+                
+                console.log(`[${type}] ${message}`);
+            }
+            
+            // Formatowanie rozmiaru w bajtach
+            function formatBytes(bytes) {
+                if (bytes === 0) return '0 B';
+                
+                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(1024));
+                
+                return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+            
+            // Aktualizacja paska postępu
+            function updateProgress(elementId, value, max, text = null) {
+                const progressElement = document.getElementById(elementId);
+                if (!progressElement) return;
+                
+                const percent = Math.round((value / max) * 100);
+                progressElement.style.width = percent + '%';
+                progressElement.innerText = percent + '%';
+                
+                if (text) {
+                    const infoElement = document.getElementById(elementId.replace('value', 'info'));
+                    if (infoElement) {
+                        infoElement.textContent = text;
+                    }
+                }
+            }
+            
+            // ------------- Funkcje testów -------------
+            
+            // Rozpoczęcie testu zapisu danych
+            async function startWriteTest(percentToTest) {
+                const section = percentToTest === 100 ? 'write' : 'partial';
+                
+                // Pokaż sekcję postępu
+                const confirmElement = document.getElementById(`${section}-confirm`);
+                if (confirmElement) {
+                    confirmElement.classList.add('hidden');
+                }
+                
+                const progressElement = document.getElementById(`${section}-progress`);
+                if (progressElement) {
+                    progressElement.classList.remove('hidden');
+                }
+                
+                const logId = `${section}-log`;
+                
+                logMessage(logId, `Rozpoczynanie testu zapisu (${percentToTest}% pojemności)...`, 'info');
+                
+                try {
+                    // Utwórz katalog testowy
+                    testDirHandle = await createTestDirectory(selectedDirHandle);
+                    
+                    if (!testDirHandle) {
+                        logMessage(logId, 'Nie można utworzyć katalogu testowego.', 'error');
+                        return;
+                    }
+                    
+                    // Lista do przechowywania pomiarów szybkości
+                    const speedMeasurements = [];
+                    
+                    // Szybki test
+                    logMessage(logId, 'Wykonywanie szybkiego testu zapisu...', 'info');
+                    
+                    const quickTestResult = await performQuickTest(testDirHandle, logId);
+                    
+                    if (!quickTestResult.success) {
+                        logMessage(logId, 'Szybki test nie powiódł się! Przerywanie testu.', 'error');
+                        return;
+                    }
+                    
+                    speedMeasurements.push({
+                        fileName: 'Quick',
+                        fileSize: 1024 * 1024, // 1MB
+                        speedMBps: quickTestResult.speed
+                    });
+                    
+                    // Oblicz rozmiar testu
+                    const testSize = Math.floor(availableSpace * (percentToTest / 100) * USAGE_PERCENT);
+                    
+                    logMessage(logId, `Testowanie ${percentToTest}% pojemności: ${formatBytes(testSize)}`, 'info');
+                    
+                    // Oblicz liczbę plików testowych
+                    const totalChunks = Math.ceil(testSize / CHUNK_SIZE);
+                    logMessage(logId, `Liczba plików testowych: ${totalChunks}`, 'info');
+                    
+                    // Słownik do przechowywania sum kontrolnych
+                    const checksums = {};
+                    checksums[`quicktest.bin`] = quickTestResult.checksum;
+                    
+                    // Rozpocznij pomiar czasu
+                    const totalStartTime = performance.now();
+                    
+                    let writtenSize = 0;
+                    let testFailed = false;
+                    
+                    // Zapisz pliki testowe
+                    for (let i = 0; i < totalChunks && !testFailed; i++) {
+                        // Oblicz bieżący rozmiar porcji
+                        const currentChunkSize = Math.min(CHUNK_SIZE, testSize - writtenSize);
+                        if (currentChunkSize <= 0) break;
+                        
+                        const fileName = `test_${i.toString().padStart(4, '0')}.bin`;
+                        
+                        logMessage(logId, `\nTest ${i+1}/${totalChunks}: Zapisywanie ${formatBytes(currentChunkSize)}...`, 'info');
+                        
+                        try {
+                            // Zapisz plik testowy i zmierz prędkość
+                            const result = await writeTestFile(testDirHandle, fileName, currentChunkSize, i + 1, logId);
+                            
+                            if (result.success) {
+                                // Dodaj pomiar prędkości
+                                speedMeasurements.push({
+                                    fileName: `Plik ${i+1}`,
+                                    fileSize: currentChunkSize,
+                                    speedMBps: result.speed
+                                });
+                                
+                                // Dodaj sumę kontrolną
+                                checksums[fileName] = result.checksum;
+                                
+                                writtenSize += currentChunkSize;
+                                
+                                // Aktualizuj pasek postępu
+                                updateProgress(
+                                    `${section}-progress-value`, 
+                                    writtenSize, 
+                                    testSize, 
+                                    `Postęp: ${formatBytes(writtenSize)} / ${formatBytes(testSize)} (${((writtenSize * 100.0) / testSize).toFixed(1)}%)`
+                                );
+                            } else {
+                                logMessage(logId, `Błąd podczas zapisywania pliku: ${result.error}`, 'error');
+                                testFailed = true;
+                            }
+                        } catch (error) {
+                            logMessage(logId, `Błąd: ${error.message}`, 'error');
+                            testFailed = true;
+                        }
+                    }
+                    
+                    // Zapisz plik sum kontrolnych
+                    if (Object.keys(checksums).length > 0) {
+                        try {
+                            await saveChecksums(testDirHandle, checksums);
+                            logMessage(logId, `Zapisano sumy kontrolne dla ${Object.keys(checksums).length} plików.`, 'info');
+                            
+                            // Zapisz też plik z informacjami o teście
+                            await saveTestInfo(testDirHandle, {
+                                testDate: new Date().toLocaleString(),
+                                driveName: selectedDirHandle.name,
+                                totalCapacity: formatBytes(totalSpace),
+                                testPercent: percentToTest,
+                                writtenData: formatBytes(writtenSize),
+                                fileCount: Object.keys(checksums).length,
+                                totalTime: ((performance.now() - totalStartTime) / 1000).toFixed(1)
+                            });
+                        } catch (error) {
+                            logMessage(logId, `Błąd podczas zapisywania plików informacyjnych: ${error.message}`, 'error');
+                        }
+                    }
+                    
+                    // Wyświetl wyniki
+                    const totalEndTime = performance.now();
+                    const totalTimeSeconds = (totalEndTime - totalStartTime) / 1000;
+                    
+                    const progressElement = document.getElementById(`${section}-progress`);
+                    if (progressElement) {
+                        progressElement.classList.add('hidden');
+                    }
+                    
+                    const resultsElement = document.getElementById(`${section}-results`);
+                    if (resultsElement) {
+                        resultsElement.classList.remove('hidden');
+                    }
+                    
+                    let resultsHTML = '';
+                    
+                    if (!testFailed) {
+                        resultsHTML += `<p class="success-result">✓ ZAPIS ZAKOŃCZONY POMYŚLNIE</p>`;
+                        
+                        if (percentToTest === 100) {
+                            resultsHTML += `<p>Zapisano ${formatBytes(writtenSize)} z deklarowanej pojemności ${formatBytes(totalSpace)}</p>`;
+                        } else {
+                            resultsHTML += `<p>Zapisano ${formatBytes(writtenSize)} (${percentToTest}% pojemności)</p>`;
+                        }
+                        
+                        resultsHTML += `<p>Całkowity czas zapisu: ${totalTimeSeconds.toFixed(1)} sekund</p>`;
+                        
+                        if (percentToTest === 100) {
+                            if (writtenSize >= totalSpace * 0.95) {
+                                resultsHTML += `<p>Pojemność dysku wydaje się być zgodna z deklarowaną.</p>`;
+                            } else {
+                                resultsHTML += `<p>Pojemność dysku może być mniejsza niż deklarowana.</p>`;
+                                resultsHTML += `<p>Zapisano tylko ${((writtenSize * 100.0) / totalSpace).toFixed(1)}% deklarowanej pojemności.</p>`;
+                            }
+                        }
+                        
+                        resultsHTML += `<p>Możesz teraz bezpiecznie odłączyć dysk (jeśli jest wymiennym nośnikiem).</p>`;
+                        resultsHTML += `<p>Aby zweryfikować dane, podłącz ponownie dysk i wybierz opcję 'Zweryfikuj dane'.</p>`;
+                        
+                        // Rysuj wykres szybkości
+                        const chartContainer = document.getElementById(`${section}-chart-container`);
+                        if (chartContainer) {
+                            chartContainer.classList.remove('hidden');
+                            drawSpeedChart(`${section}-speed-chart`, speedMeasurements, 'Szybkość zapisu (MB/s)');
+                        }
+                    } else {
+                        resultsHTML += `<p class="error-result">✗ ZAPIS ZAKOŃCZONY NIEPOWODZENIEM</p>`;
+                        resultsHTML += `<p>Wystąpiły błędy podczas testu. Sprawdź logi powyżej.</p>`;
+                    }
+                    
+                    const resultsContent = document.getElementById(`${section}-results-content`);
+                    if (resultsContent) {
+                        resultsContent.innerHTML = resultsHTML;
+                    }
+                    
+                } catch (error) {
+                    logMessage(logId, `Wystąpił błąd podczas testu: ${error.message}`, 'error');
+                    
+                    const progressElement = document.getElementById(`${section}-progress`);
+                    if (progressElement) {
+                        progressElement.classList.add('hidden');
+                    }
+                    
+                    const resultsElement = document.getElementById(`${section}-results`);
+                    if (resultsElement) {
+                        resultsElement.classList.remove('hidden');
+                    }
+                    
+                    const resultsContent = document.getElementById(`${section}-results-content`);
+                    if (resultsContent) {
+                        resultsContent.innerHTML = 
+                            `<p class="error-result">✗ ZAPIS ZAKOŃCZONY NIEPOWODZENIEM</p>` +
+                            `<p>Wystąpił błąd: ${error.message}</p>`;
+                    }
+                }
+            }
+            
+            // Rozpoczęcie testu weryfikacji danych
+            async function startVerifyTest() {
+                const confirmElement = document.getElementById('verify-confirm');
+                if (confirmElement) {
+                    confirmElement.classList.add('hidden');
+                }
+                
+                const progressElement = document.getElementById('verify-progress');
+                if (progressElement) {
+                    progressElement.classList.remove('hidden');
+                }
+                
+                logMessage('verify-log', 'Rozpoczynanie weryfikacji danych testowych...', 'info');
+                
+                try {
+                    // Sprawdź czy istnieje plik sum kontrolnych
+                    const checksumFileHandle = await testDirHandle.getFileHandle(CHECKSUMS_FILE);
+                    const checksumFile = await checksumFileHandle.getFile();
+                    
+                    // Wczytaj sumy kontrolne
+                    const checksums = await loadChecksums(checksumFile);
+                    
+                    if (Object.keys(checksums).length === 0) {
+                        logMessage('verify-log', 'Błąd: Plik sum kontrolnych jest pusty lub uszkodzony.', 'error');
+                        return;
+                    }
+                    
+                    logMessage('verify-log', `Znaleziono ${Object.keys(checksums).length} plików testowych do weryfikacji.`, 'info');
+                    
+                    // Lista do przechowywania pomiarów szybkości
+                    const speedMeasurements = [];
+                    
+                    // Rozpocznij pomiar czasu
+                    const totalStartTime = performance.now();
+                    
+                    // Weryfikuj każdy plik
+                    let verifiedFiles = 0;
+                    let corruptedFiles = 0;
+                    let missingFiles = 0;
+                    let verifiedBytes = 0;
+                    let fileIndex = 0;
+                    let totalFiles = Object.keys(checksums).length;
+                    
+                    for (const fileName in checksums) {
+                        const expectedChecksum = checksums[fileName];
+                        
+                        try {
+                            // Sprawdź czy plik istnieje
+                            const fileHandle = await testDirHandle.getFileHandle(fileName);
+                            const file = await fileHandle.getFile();
+                            
+                            verifiedBytes += file.size;
+                            
+                            // Tworzenie przyjaznej nazwy pliku
+                            const friendlyName = fileName === 'quicktest.bin' ? 'Quick' : `Plik ${++fileIndex}`;
+                            
+                            logMessage('verify-log', `Weryfikacja pliku ${fileName} (${formatBytes(file.size)})...`, 'info');
+                            
+                            // Mierzenie czasu weryfikacji
+                            const fileStartTime = performance.now();
+                            
+                            // Oblicz sumę kontrolną pliku
+                            const actualChecksum = await calculateFileChecksum(file);
+                            
+                            // Zmierz czas i oblicz prędkość
+                            const fileEndTime = performance.now();
+                            const fileTimeSeconds = (fileEndTime - fileStartTime) / 1000;
+                            const speedMBps = file.size / (1024 * 1024) / fileTimeSeconds;
+                            
+                            // Dodaj pomiar prędkości
+                            speedMeasurements.push({
+                                fileName: friendlyName,
+                                fileSize: file.size,
+                                speedMBps: speedMBps
+                            });
+                            
+                            // Porównaj sumy kontrolne
+                            if (compareChecksums(expectedChecksum, actualChecksum)) {
+                                logMessage('verify-log', `OK (${speedMBps.toFixed(2)} MB/s)`, 'success');
+                                verifiedFiles++;
+                            } else {
+                                logMessage('verify-log', 'USZKODZONY', 'error');
+                                corruptedFiles++;
+                            }
+                        } catch (error) {
+                            if (error.name === 'NotFoundError') {
+                                logMessage('verify-log', `BŁĄD: Brakujący plik: ${fileName}`, 'error');
+                                missingFiles++;
+                            } else {
+                                logMessage('verify-log', `Błąd: ${error.message}`, 'error');
+                                corruptedFiles++;
+                            }
+                        }
+                        
+                        // Aktualizuj pasek postępu
+                        updateProgress(
+                            'verify-progress-value', 
+                            fileIndex, 
+                            totalFiles, 
+                            `Postęp: ${fileIndex} / ${totalFiles} plików`
+                        );
+                    }
+                    
+                    // Zakończ pomiar czasu
+                    const totalEndTime = performance.now();
+                    const totalTimeSeconds = (totalEndTime - totalStartTime) / 1000;
+                    
+                    // Wyświetl podsumowanie
+                    const progressElement = document.getElementById('verify-progress');
+                    if (progressElement) {
+                        progressElement.classList.add('hidden');
+                    }
+                    
+                    const resultsElement = document.getElementById('verify-results');
+                    if (resultsElement) {
+                        resultsElement.classList.remove('hidden');
+                    }
+                    
+                    let resultsHTML = '<h4>--- WYNIKI WERYFIKACJI ---</h4>';
+                    resultsHTML += `<p>Całkowita liczba plików: ${totalFiles}</p>`;
+                    resultsHTML += `<p>Poprawnych plików: ${verifiedFiles}</p>`;
+                    resultsHTML += `<p>Uszkodzonych plików: ${corruptedFiles}</p>`;
+                    resultsHTML += `<p>Brakujących plików: ${missingFiles}</p>`;
+                    resultsHTML += `<p>Zweryfikowano danych: ${formatBytes(verifiedBytes)}</p>`;
+                    resultsHTML += `<p>Całkowity czas odczytu: ${totalTimeSeconds.toFixed(1)} sekund</p>`;
+                    
+                    if (corruptedFiles === 0 && missingFiles === 0) {
+                        resultsHTML += `<p class="success-result">✓ WERYFIKACJA ZAKOŃCZONA POMYŚLNIE</p>`;
+                        resultsHTML += `<p>Wszystkie dane na dysku są poprawne.</p>`;
+                    } else {
+                        resultsHTML += `<p class="error-result">✗ WERYFIKACJA ZAKOŃCZONA NIEPOWODZENIEM</p>`;
+                        resultsHTML += `<p>Dysk może być uszkodzony lub sfałszowany.</p>`;
+                    }
+                    
+                    const resultsContent = document.getElementById('verify-results-content');
+                    if (resultsContent) {
+                        resultsContent.innerHTML = resultsHTML;
+                    }
+                    
+                    // Rysuj wykres szybkości odczytu
+                    const chartContainer = document.getElementById('verify-chart-container');
+                    if (chartContainer) {
+                        chartContainer.classList.remove('hidden');
+                        drawSpeedChart('verify-speed-chart', speedMeasurements, 'Szybkość odczytu (MB/s)');
+                    }
+                    
+                    // Pokaż opcję usunięcia plików testowych
+                    const cleanupElement = document.getElementById('verify-cleanup');
+                    if (cleanupElement) {
+                        cleanupElement.classList.remove('hidden');
+                    }
+                    
+                } catch (error) {
+                    logMessage('verify-log', `Wystąpił błąd podczas weryfikacji: ${error.message}`, 'error');
+                    
+                    const progressElement = document.getElementById('verify-progress');
+                    if (progressElement) {
+                        progressElement.classList.add('hidden');
+                    }
+                    
+                    const resultsElement = document.getElementById('verify-results');
+                    if (resultsElement) {
+                        resultsElement.classList.remove('hidden');
+                    }
+                    
+                    const resultsContent = document.getElementById('verify-results-content');
+                    if (resultsContent) {
+                        resultsContent.innerHTML = 
+                            `<p class="error-result">✗ WERYFIKACJA ZAKOŃCZONA NIEPOWODZENIEM</p>` +
+                            `<p>Wystąpił błąd: ${error.message}</p>`;
+                    }
+                }
+            }
+            
+            // Usunięcie plików testowych
+            async function cleanupTestFiles() {
+                logMessage('verify-log', 'Usuwanie plików testowych...', 'info');
+                
+                try {
+                    // Pobierz listę wszystkich plików w katalogu testowym
+                    for await (const entry of testDirHandle.values()) {
+                        try {
+                            if (entry.kind === 'file') {
+                                await testDirHandle.removeEntry(entry.name);
+                            }
+                        } catch (error) {
+                            logMessage('verify-log', `Nie można usunąć pliku ${entry.name}: ${error.message}`, 'error');
+                        }
+                    }
+                    
+                    // Spróbuj usunąć katalog testowy
+                    try {
+                        await selectedDirHandle.removeEntry(TEST_DIR_NAME, { recursive: true });
+                        logMessage('verify-log', 'Katalog testowy został usunięty.', 'success');
+                    } catch (error) {
+                        logMessage('verify-log', `Nie można usunąć katalogu testowego: ${error.message}`, 'error');
+                    }
+                    
+                    const cleanupElement = document.getElementById('verify-cleanup');
+                    if (cleanupElement) {
+                        cleanupElement.classList.add('hidden');
+                    }
+                    
+                } catch (error) {
+                    logMessage('verify-log', `Błąd podczas usuwania plików: ${error.message}`, 'error');
+                }
+            }
+            
+            // ------------- Funkcje operacji na plikach -------------
+            
+            // Utwórz katalog testowy
+            async function createTestDirectory(parentDirHandle) {
+                try {
+                    // Sprawdź, czy katalog już istnieje
+                    try {
+                        const existingDir = await parentDirHandle.getDirectoryHandle(TEST_DIR_NAME);
+                        
+                        // Jeśli istnieje, usuń go
+                        await parentDirHandle.removeEntry(TEST_DIR_NAME, { recursive: true });
+                    } catch (error) {
+                        // Katalog nie istnieje, to dobrze
+                    }
+                    
+                    // Utwórz nowy katalog
+                    return await parentDirHandle.getDirectoryHandle(TEST_DIR_NAME, { create: true });
+                    
+                } catch (error) {
+                    console.error('Błąd podczas tworzenia katalogu testowego:', error);
+                    return null;
+                }
+            }
+            
+            // Wykonaj szybki test zapisu
+            async function performQuickTest(dirHandle, logId) {
+                try {
+                    const fileName = 'quicktest.bin';
+                    const fileSize = 1024 * 1024; // 1MB
+                    
+                    logMessage(logId, 'Generowanie danych testowych...', 'info');
+                    
+                    try {
+                        // Generuj dane testowe
+                        const testData = generateRandomData(fileSize, 0);
+                        
+                        if (!testData) {
+                            throw new Error("Wygenerowane dane są puste");
+                        }
+                        
+                        // Oblicz sumę kontrolną
+                        const checksum = await calculateArrayChecksum(testData);
+                        
+                        // Zmierz czas zapisu
+                        const startTime = performance.now();
+                        
+                        // Zapisz plik
+                        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(testData);
+                        await writable.close();
+                        
+                        const endTime = performance.now();
+                        const timeSeconds = (endTime - startTime) / 1000;
+                        
+                        // Oblicz prędkość w MB/s
+                        const speedMBps = fileSize / (1024 * 1024) / timeSeconds;
+                        
+                        logMessage(logId, `Zakończono zapis: 1,00 MB w ${timeSeconds.toFixed(1)} s (${speedMBps.toFixed(2)} MB/s)`, 'success');
+                        
+                        return {
+                            success: true,
+                            speed: speedMBps,
+                            checksum: checksum
+                        };
+                    } catch (dataError) {
+                        throw new Error("Problem z generowaniem lub zapisem danych: " + dataError.message);
+                    }
+                } catch (error) {
+                    console.error("Szczegóły błędu:", error);
+                    logMessage(logId, `BŁĄD: Szybki test nie powiódł się! ${error.message}`, 'error');
+                    logMessage(logId, 'Możliwy problem z dyskiem lub dostępem do niego.', 'error');
+                    
+                    return {
+                        success: false,
+                        error: error.message
+                    };
+                }
+            }
+            
+            // Zapisz plik testowy
+            async function writeTestFile(dirHandle, fileName, size, seed, logId) {
+                try {
+                    logMessage(logId, 'Generowanie danych testowych...', 'info');
+                    
+                    try {
+                        // Generuj dane testowe
+                        const testData = generateRandomData(size, seed);
+                        
+                        if (!testData) {
+                            throw new Error("Wygenerowane dane są puste");
+                        }
+                        
+                        // Oblicz sumę kontrolną
+                        const checksum = await calculateArrayChecksum(testData);
+                        
+                        // Zmierz czas zapisu
+                        const startTime = performance.now();
+                        
+                        // Zapisz plik
+                        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        
+                        // Zmniejszamy rozmiar porcji dla lepszej kompatybilności
+                        // i mniejszego obciążenia pamięci
+                        const chunkSize = 4 * 1024 * 1024; // 4MB porcje dla lepszej wydajności i kompatybilności
+                        
+                        try {
+                            for (let i = 0; i < testData.byteLength; i += chunkSize) {
+                                const end = Math.min(i + chunkSize, testData.byteLength);
+                                const chunk = testData.slice(i, end);
+                                
+                                if (!chunk) {
+                                    throw new Error(`Nie można utworzyć kawałka danych (${i} do ${end})`);
+                                }
+                                
+                                await writable.write(chunk);
+                                
+                                // Pokaż postęp dla dużych plików
+                                if (size > 100 * 1024 * 1024 && i % (32 * 1024 * 1024) === 0) {
+                                    logMessage(logId, '.', 'info');
+                                }
+                            }
+                            
+                            await writable.close();
+                            
+                            const endTime = performance.now();
+                            const timeSeconds = (endTime - startTime) / 1000;
+                            
+                            // Oblicz prędkość w MB/s
+                            const speedMBps = size / (1024 * 1024) / timeSeconds;
+                            
+                            logMessage(logId, `Zakończono zapis: ${formatBytes(size)} w ${timeSeconds.toFixed(1)} s (${speedMBps.toFixed(2)} MB/s)`, 'success');
+                            
+                            return {
+                                success: true,
+                                speed: speedMBps,
+                                checksum: checksum
+                            };
+                        } catch (writeError) {
+                            throw new Error("Błąd podczas zapisu pliku: " + writeError.message);
+                        }
+                    } catch (dataError) {
+                        throw new Error("Problem z generowaniem lub zapisem danych: " + dataError.message);
+                    }
+                } catch (error) {
+                    console.error("Szczegóły błędu zapisu:", error);
+                    logMessage(logId, `Błąd zapisu: ${error.message}`, 'error');
+                    
+                    return {
+                        success: false,
+                        error: error.message
+                    };
+                }
+            }
+            
+            // Generuj losowe dane 
+            function generateRandomData(size, seed) {
+                try {
+                    // Utwórz bufor odpowiedniej wielkości
+                    const buffer = new ArrayBuffer(size);
+                    const view = new Uint8Array(buffer);
+                    
+                    // Prosty generator pseudolosowy bazujący na seedzie
+                    // Implementacja własna zamiast Math.seedrandom do poprawy kompatybilności
+                    const simpleRandom = function(seed) {
+                        let state = seed;
+                        return function() {
+                            // Prosty algorytm LCG (Linear Congruential Generator)
+                            state = (state * 1664525 + 1013904223) % 4294967296;
+                            return state / 4294967296; // Normalizacja do 0-1
+                        };
+                    };
+                    
+                    const random = simpleRandom(seed);
+                    
+                    // Wypełnij bufor losowymi danymi
+                    for (let i = 0; i < size; i++) {
+                        view[i] = Math.floor(random() * 256);
+                    }
+                    
+                    return buffer;
+                } catch (error) {
+                    console.error("Błąd podczas generowania danych:", error);
+                    throw new Error("Nie można wygenerować danych testowych: " + error.message);
+                }
+            }
+            
+            // Oblicz sumę kontrolną tablicy
+            async function calculateArrayChecksum(buffer) {
+                try {
+                    if (!buffer) {
+                        throw new Error("Bufor danych jest pusty");
+                    }
+                    
+                    const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
+                    const byteArray = new Uint8Array(arrayBuffer);
+                    
+                    // Użyj CryptoJS do obliczenia sumy kontrolnej MD5
+                    const wordArray = CryptoJS.lib.WordArray.create(byteArray);
+                    const hashData = CryptoJS.MD5(wordArray);
+                    return hashData.toString(CryptoJS.enc.Hex);
+                } catch (error) {
+                    console.error("Błąd podczas obliczania sumy kontrolnej:", error);
+                    throw new Error("Nie można obliczyć sumy kontrolnej: " + error.message);
+                }
+            }
+            
+            // Oblicz sumę kontrolną pliku
+            async function calculateFileChecksum(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        const buffer = e.target.result;
+                        const hashData = CryptoJS.MD5(CryptoJS.lib.WordArray.create(new Uint8Array(buffer)));
+                        resolve(hashData.toString(CryptoJS.enc.Hex));
+                    };
+                    
+                    reader.onerror = function(e) {
+                        reject(new Error('Błąd podczas odczytu pliku'));
+                    };
+                    
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+            
+            // Porównaj sumy kontrolne
+            function compareChecksums(checksum1, checksum2) {
+                return checksum1 === checksum2;
+            }
+            
+            // Zapisz sumy kontrolne
+            async function saveChecksums(dirHandle, checksums) {
+                // Nie mamy bezpośredniego dostępu do binarnego zapisu w JS jak w C#
+                // Zapisujemy jako JSON, co jest bezpieczniejsze w środowisku przeglądarki
+                
+                const fileHandle = await dirHandle.getFileHandle(CHECKSUMS_FILE, { create: true });
+                const writable = await fileHandle.createWritable();
+                
+                // Zapisz jako JSON
+                await writable.write(JSON.stringify(checksums));
+                await writable.close();
+            }
+            
+            // Wczytaj sumy kontrolne
+            async function loadChecksums(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        try {
+                            const checksums = JSON.parse(e.target.result);
+                            resolve(checksums);
+                        } catch (error) {
+                            reject(new Error('Nie można wczytać pliku sum kontrolnych'));
+                        }
+                    };
+                    
+                    reader.onerror = function() {
+                        reject(new Error('Błąd podczas odczytu pliku sum kontrolnych'));
+                    };
+                    
+                    reader.readAsText(file);
+                });
+            }
+            
+            // Zapisz informacje o teście
+            async function saveTestInfo(dirHandle, info) {
+                const fileHandle = await dirHandle.getFileHandle('test_info.txt', { create: true });
+                const writable = await fileHandle.createWritable();
+                
+                let content = '';
+                for (const [key, value] of Object.entries(info)) {
+                    content += `${key}: ${value}\n`;
+                }
+                
+                await writable.write(content);
+                await writable.close();
+            }
+            
+            // ------------- Funkcje wykresów -------------
+            
+            // Narysuj wykres szybkości
+            function drawSpeedChart(containerId, measurements, yAxisLabel) {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                
+                container.innerHTML = '';
+                
+                // Filtruj pomiary bez szybkiego testu
+                const filteredMeasurements = measurements.filter(m => m.fileName !== 'Quick');
+                
+                if (filteredMeasurements.length === 0) return;
+                
+                // Oblicz średnią ważoną
+                const totalSize = filteredMeasurements.reduce((sum, m) => sum + m.fileSize, 0);
+                let weightedAvg = 0;
+                
+                filteredMeasurements.forEach(m => {
+                    const weight = m.fileSize / totalSize;
+                    weightedAvg += m.speedMBps * weight;
+                });
+                
+                // Agreguj pomiary jeśli jest ich za dużo
+                const MAX_DISPLAY_BARS = 10;
+                let displayMeasurements;
+                
+                if (filteredMeasurements.length > MAX_DISPLAY_BARS) {
+                    displayMeasurements = aggregateSpeedMeasurements(filteredMeasurements, MAX_DISPLAY_BARS);
+                } else {
+                    displayMeasurements = filteredMeasurements.map(m => ({
+                        fileName: m.fileName,
+                        fileSize: m.fileSize,
+                        speedMBps: m.speedMBps,
+                        minSpeed: m.speedMBps,
+                        maxSpeed: m.speedMBps
+                    }));
+                }
+                
+                // Oblicz statystyki
+                const originalMin = Math.min(...filteredMeasurements.map(m => m.speedMBps));
+                const originalMax = Math.max(...filteredMeasurements.map(m => m.speedMBps));
+                
+                const minSpeed = 0;
+                const maxSpeed = Math.ceil(Math.max(originalMax, weightedAvg) * 1.1 / 5) * 5;
+                
+                // Dodaj informacje o statystykach
+                const statsDiv = document.createElement('div');
+                statsDiv.innerHTML = `Min: ${originalMin.toFixed(2)} MB/s, Max: ${originalMax.toFixed(2)} MB/s<br>` +
+                                    `Średnia: ${weightedAvg.toFixed(2)} MB/s`;
+                container.appendChild(statsDiv);
+                
+                // Utwórz osie Y i siatkę
+                const yAxis = document.createElement('div');
+                yAxis.className = 'y-axis';
+                
+                const chartGrid = document.createElement('div');
+                chartGrid.className = 'chart-grid';
+                
+                const numYTicks = 5;
+                const speedRange = maxSpeed - minSpeed;
+                
+                for (let i = 0; i <= numYTicks; i++) {
+                    const value = minSpeed + (i / numYTicks) * speedRange;
+                    const percent = 100 - (i / numYTicks * 100);
+                    
+                    const yLabel = document.createElement('div');
+                    yLabel.className = 'y-label';
+                    yLabel.textContent = value.toFixed(1);
+                    yLabel.style.position = 'absolute';
+                    yLabel.style.top = `${percent}%`;
+                    yAxis.appendChild(yLabel);
+                    
+                    const gridLine = document.createElement('div');
+                    gridLine.className = 'grid-line';
+                    gridLine.style.top = `${percent}%`;
+                    chartGrid.appendChild(gridLine);
+                }
+                
+                container.appendChild(yAxis);
+                container.appendChild(chartGrid);
+                
+                // Utwórz kontener dla słupków
+                const chartBars = document.createElement('div');
+                chartBars.className = 'chart-bars';
+                
+                // Dodaj średnią linię
+                const avgLinePosition = 100 - ((weightedAvg - minSpeed) / speedRange * 100);
+                const avgLine = document.createElement('div');
+                avgLine.className = 'bar-avg-line';
+                avgLine.style.top = `${avgLinePosition}%`;
+                chartBars.appendChild(avgLine);
+                
+                // Dodaj słupki
+                displayMeasurements.forEach(m => {
+                    const barGroup = document.createElement('div');
+                    barGroup.className = 'bar-group';
+                    
+                    // Normalizuj wysokości
+                    const normalizedHeight = ((m.speedMBps - minSpeed) / speedRange) * 100;
+                    const normalizedMin = ((m.minSpeed - minSpeed) / speedRange) * 100;
+                    const normalizedMax = ((m.maxSpeed - minSpeed) / speedRange) * 100;
+                    
+                    // Dodaj słupek
+                    const bar = document.createElement('div');
+                    bar.className = 'bar';
+                    bar.style.height = `${normalizedHeight}%`;
+                    bar.title = `${m.speedMBps.toFixed(2)} MB/s`;
+                    
+                    // Dodaj linię min-max
+                    if (m.minSpeed !== m.maxSpeed) {
+                        const minMaxLine = document.createElement('div');
+                        minMaxLine.className = 'bar-min-max';
+                        minMaxLine.style.height = `${normalizedMax - normalizedMin}%`;
+                        minMaxLine.style.bottom = `${normalizedMin}%`;
+                        
+                        const minTick = document.createElement('div');
+                        minTick.className = 'bar-min';
+                        minTick.style.bottom = '0';
+                        minMaxLine.appendChild(minTick);
+                        
+                        const maxTick = document.createElement('div');
+                        maxTick.className = 'bar-max';
+                        maxTick.style.top = '0';
+                        minMaxLine.appendChild(maxTick);
+                        
+                        barGroup.appendChild(minMaxLine);
+                    }
+                    
+                    barGroup.appendChild(bar);
+                    chartBars.appendChild(barGroup);
+                });
+                
+                container.appendChild(chartBars);
+                
+                // Dodaj oś X
+                const xAxis = document.createElement('div');
+                xAxis.className = 'x-axis';
+                
+                displayMeasurements.forEach(m => {
+                    const xLabel = document.createElement('div');
+                    xLabel.className = 'x-label';
+                    xLabel.textContent = m.fileName;
+                    xLabel.title = m.fileName;
+                    xAxis.appendChild(xLabel);
+                });
+                
+                container.appendChild(xAxis);
+            }
+            
+            // Agreguj pomiary prędkości
+            function aggregateSpeedMeasurements(measurements, targetCount) {
+                if (measurements.length <= targetCount) {
+                    return measurements.map(m => ({
+                        fileName: m.fileName,
+                        fileSize: m.fileSize,
+                        speedMBps: m.speedMBps,
+                        minSpeed: m.speedMBps,
+                        maxSpeed: m.speedMBps
+                    }));
+                }
+                
+                const result = [];
+                const groupSize = Math.ceil(measurements.length / targetCount);
+                
+                for (let i = 0; i < measurements.length; i += groupSize) {
+                    const group = measurements.slice(i, i + groupSize);
+                    
+                    if (group.length > 0) {
+                        // Oblicz średnią ważoną, ważoną rozmiarem pliku
+                        const totalSizeInGroup = group.reduce((sum, m) => sum + m.fileSize, 0);
+                        let weightedAvgSpeed = 0;
+                        const minSpeed = Math.min(...group.map(m => m.speedMBps));
+                        const maxSpeed = Math.max(...group.map(m => m.speedMBps));
+                        
+                        group.forEach(m => {
+                            const weight = m.fileSize / totalSizeInGroup;
+                            weightedAvgSpeed += m.speedMBps * weight;
+                        });
+                        
+                        // Określ zakres plików w tej grupie
+                        let startIdx = Infinity;
+                        let endIdx = -Infinity;
+                        
+                        group.forEach(m => {
+                            if (m.fileName.startsWith('Plik ')) {
+                                const num = parseInt(m.fileName.substring(5), 10);
+                                if (!isNaN(num)) {
+                                    startIdx = Math.min(startIdx, num);
+                                    endIdx = Math.max(endIdx, num);
+                                }
+                            }
+                        });
+                        
+                        // Jeśli nie udało się ustalić zakresu, użyj numeru indeksu grupy
+                        if (startIdx === Infinity || endIdx === -Infinity) {
+                            startIdx = Math.floor(i / groupSize) + 1;
+                            endIdx = startIdx;
+                        }
+                        
+                        // Utwórz nazwę
+                        let fileName;
+                        if (startIdx === endIdx) {
+                            fileName = `${startIdx}`;
+                        } else {
+                            fileName = `${startIdx}-${endIdx}`;
+                        }
+                        
+                        result.push({
+                            fileName: fileName,
+                            fileSize: totalSizeInGroup,
+                            speedMBps: weightedAvgSpeed,
+                            minSpeed: minSpeed,
+                            maxSpeed: maxSpeed
+                        });
+                    }
+                }
+                
+                return result;
+            }
+            
+            // Usunięto zewnętrzną bibliotekę Math.seedrandom dla poprawy kompatybilności
+            // Używamy teraz własnej implementacji prostego generatora pseudolosowego w funkcji generateRandomData
+            
+            // Aktywuj pierwszy przycisk po załadowaniu strony
+            document.querySelector('.operation-btn')?.click();
+        }
+    </script>
+</body>
+</html>
