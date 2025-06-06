@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  claude-code:
+    build: .
+    container_name: claude-code-container
+    stdin_open: true
+    tty: true
+    volumes:
+      - C:/:/c
+    working_dir: /c
