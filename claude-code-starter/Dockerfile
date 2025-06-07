@@ -1,10 +1,10 @@
 FROM node:20-slim
 
 # Instalacja Claude Code
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code && \
+    npm cache clean --force
 
-# Ustawienie katalogu roboczego
-WORKDIR /workspace
+WORKDIR /c
 
-# Uruchomienie bash shell
-CMD ["/bin/bash"]
+# Użycie exec form dla szybszego startu
+ENTRYPOINT ["/bin/bash"]

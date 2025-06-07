@@ -1,11 +1,15 @@
+version: '3.8'
 services:
   claude-code:
-    build: .
+    build:
+      context: .
+      cache_from:
+        - node:20-slim
+    image: claude-code-container
     container_name: claude-code-container
     stdin_open: true
     tty: true
     volumes:
-      # Mapping available Windows drives
-      - C:/:/mnt/c
-      - D:/:/mnt/d
-    working_dir: /workspace
+      - C:/:/c
+    working_dir: /c
+    restart: unless-stopped
