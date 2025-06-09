@@ -3,8 +3,7 @@ services:
   claude-code:
     build:
       context: .
-      cache_from:
-        - node:20-slim
+      dockerfile: Dockerfile
     image: claude-code-container
     container_name: claude-code-container
     stdin_open: true
@@ -13,3 +12,4 @@ services:
       - C:/:/c
     working_dir: /c
     restart: unless-stopped
+    command: tail -f /dev/null  # Utrzymuje kontener działający
