@@ -85,10 +85,10 @@ def main():
     ] + args
 
     try:
-        # Wykonanie claude
+        # Uruchom Claude normalnie
         subprocess.run(docker_cmd, check=False)
+
     except KeyboardInterrupt:
-        # Graceful handling of Ctrl+C
         print("\n👋 Do zobaczenia!")
     except Exception as e:
         print(f"❌ Błąd: {e}")

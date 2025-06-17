@@ -35,6 +35,8 @@ RUN apt-get update && apt-get install -y \
     # LaTeX/TeX
     texlive texlive-latex-extra texlive-fonts-recommended \
     texlive-lang-polish biber latexmk \
+    # Chrome/Chromium dla Selenium
+    chromium-browser chromium-chromedriver \
     && ln -s /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
@@ -53,16 +55,37 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 RUN npm install -g @anthropic-ai/claude-code && \
     npm cache clean --force
 
-# Podstawowe pakiety Python (tylko najpotrzebniejsze)
+# Podstawowe pakiety Python (rozszerzone o nowe zależności)
 RUN pip3 install --no-cache-dir \
     requests beautifulsoup4 \
     pytest black flake8 \
-    easyocr
+    easyocr \
+    selenium==4.18.1 \
+    fastapi==0.109.2 \
+    uvicorn==0.27.1 \
+    anthropic==0.18.1 \
+    pydantic==2.6.1 \
+    pyyaml==6.0.1 \
+    lxml==5.1.0 \
+    aiofiles==23.2.1 \
+    python-multipart==0.0.9 \
+    httpx==0.26.0 \
+    websockets==12.0 \
+    rich==13.7.0
 
 # Podstawowe pakiety Node.js (tylko najpotrzebniejsze)
 RUN npm install -g \
     typescript \
     eslint prettier
+
+# Ustawienia dla Selenium z Chromium
+ENV CHROME_BIN=/usr/bin/chromium-browser \
+    CHROME_DRIVER=/usr/bin/chromedriver
+
+# Ustawienia środowiskowe dla Claude Code
+ENV CLAUDE_DEFAULT_MODEL=opus \
+    CLAUDE_MODEL=opus \
+    ANTHROPIC_MODEL=opus
 
 WORKDIR /c
 
