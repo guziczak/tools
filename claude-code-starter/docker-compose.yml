@@ -13,3 +13,5 @@ services:
     working_dir: /c
     restart: unless-stopped
     command: tail -f /dev/null  # Utrzymuje kontener działający
+    environment:
+      - DOCKER_BUILDKIT=1
