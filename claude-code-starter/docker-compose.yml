@@ -9,21 +9,23 @@ services:
     stdin_open: true
     tty: true
     volumes:
-      # Montuj cały dysk użytkownika dla dostępu do wszystkich projektów
+      # Montuj dyski - bubblewrap będzie kontrolował dostęp
       - /c:/c
       - /d:/d
       - /e:/e
-      # Socket Dockera jeśli potrzebny
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Nie montujemy docker socket - bezpieczeństwo!
     working_dir: /workspace
     restart: unless-stopped
-    command: tail -f /dev/null  # Utrzymuje kontener działający
+    command: sleep infinity  # Best practice zamiast tail -f /dev/null
     environment:
       - DOCKER_BUILDKIT=1
-    # Dodaj capabilities dla bubblewrap
+    # Minimalne capabilities
+    cap_drop:
+      - ALL  # Najpierw zabierz wszystko
     cap_add:
-      - SYS_ADMIN
-      - SYS_PTRACE
+      - SYS_ADMIN  # Potrzebne dla bubblewrap mount namespace
+      - SETUID     # Potrzebne dla bubblewrap user namespace
+      - SETGID     # Potrzebne dla bubblewrap user namespace
     security_opt:
-      - apparmor:unconfined
-      - seccomp:unconfined
+      - no-new-privileges:true  # Brak eskalacji uprawnień
+      # apparmor i seccomp pozostają domyślne (confined)

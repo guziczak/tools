@@ -4,6 +4,7 @@ import subprocess
 import os
 import sys
 import time
+from pathlib import Path
 
 # Włączamy BuildKit globalnie
 os.environ['DOCKER_BUILDKIT'] = '1'
@@ -57,18 +58,36 @@ def check_container():
 
 
 def get_container_path(windows_path):
-    """Konwertuje ścieżkę Windows na ścieżkę w kontenerze."""
-    # Sprawdzenie ścieżek UNC (\\server\share)
-    if sys.platform == "win32" and windows_path.startswith('\\\\'):
+    """Bezpieczna konwersja ścieżek z walidacją."""
+    try:
+        path = Path(windows_path).resolve()
+    except Exception as e:
+        print(f"BŁĄD: Nieprawidłowa ścieżka: {windows_path}")
+        print(f"Szczegóły: {e}")
+        sys.exit(1)
+    
+    # Walidacja istnienia
+    if not path.exists():
+        print(f"BŁĄD: Ścieżka nie istnieje: {path}")
+        sys.exit(1)
+    
+    if not path.is_dir():
+        print(f"BŁĄD: Ścieżka nie jest katalogiem: {path}")
+        sys.exit(1)
+    
+    # Sprawdzenie ścieżek UNC
+    if sys.platform == "win32" and str(path).startswith('\\\\'):
         print("BŁĄD: Ścieżki sieciowe UNC nie są wspierane!")
         print("Proszę skopiować pliki lokalnie lub zamapować dysk sieciowy.")
         sys.exit(1)
     
-    if sys.platform == "win32" and len(windows_path) > 1 and windows_path[1] == ':':
-        # C:\path\to\dir -> /c/path/to/dir
-        return f"/{windows_path[0].lower()}{windows_path[2:].replace(chr(92), '/')}"
+    if sys.platform == "win32":
+        # Użyj pathlib do konwersji
+        drive = path.drive[0].lower() if path.drive else 'c'
+        path_without_drive = str(path).replace(path.drive, '', 1)
+        return f"/{drive}{path_without_drive.replace(os.sep, '/')}"
     else:
-        return windows_path
+        return str(path)
 
 def main():
     # Sprawdzenie kontenera

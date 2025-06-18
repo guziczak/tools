@@ -47,8 +47,10 @@ RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     ln -s /usr/local/lib/node_modules/eslint/bin/eslint.js /usr/local/bin/eslint 2>/dev/null || true && \
     ln -s /usr/local/lib/node_modules/prettier/bin/prettier.cjs /usr/local/bin/prettier 2>/dev/null || true
 
-# Instalacja podstawowych pakietów (pełna lista jak w oryginale)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Instalacja podstawowych pakietów z cache mount dla szybszego rebuildu
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     # Podstawowe (niezbędne)
     curl wget ca-certificates gnupg lsb-release \
     software-properties-common apt-transport-https \
@@ -126,19 +128,30 @@ set -euo pipefail
 PROJECT_PATH="${1:-/workspace}"
 shift || true
 
-# Generuj unikalny ID sesji
-SESSION_ID=$(echo "$PROJECT_PATH" | md5sum | cut -d' ' -f1)
-LOCK_FILE="/var/run/claude-sessions/${SESSION_ID}.lock"
-
-# Sprawdź czy Claude istnieje
-if ! command -v claude >/dev/null 2>&1; then
-    echo "Error: Claude not found. Running check-claude..."
-    /usr/local/bin/check-claude
-    if ! command -v claude >/dev/null 2>&1; then
-        echo "Error: Claude still not found after installation attempt"
-        exit 1
-    fi
+# Walidacja ścieżki
+if [ ! -d "$PROJECT_PATH" ]; then
+    echo "Error: Project path does not exist: $PROJECT_PATH" >&2
+    exit 1
 fi
+
+# Generuj unikalny ID sesji używając UUID
+SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])")
+SESSION_FILE="/var/run/claude-sessions/${SESSION_ID}.session"
+
+# Zapisz informacje o sesji
+echo "{\"path\": \"$PROJECT_PATH\", \"pid\": $$, \"time\": $(date +%s)}" > "$SESSION_FILE"
+
+# Przygotuj bashrc dla projektu
+cat > /tmp/project-bashrc-$SESSION_ID << 'BASHRC'
+# Project environment
+export PS1="\[\033[01;32m\][sandbox]\[\033[00m\] \[\033[01;34m\]\w\[\033[00m\] $ "
+export PROJECT_ROOT="$PROJECT_ROOT"
+alias ll="ls -la"
+alias ..="cd .."
+echo "🔒 Sandboxed session for: $PROJECT_ROOT"
+echo "📦 Available tools: python, node, java, ruby, php"
+echo "💡 Type 'exit' to leave sandbox"
+BASHRC
 
 # Uruchom w sandboxie z bubblewrap
 exec bwrap \
@@ -147,6 +160,7 @@ exec bwrap \
     --tmpfs /root \
     --tmpfs /tmp \
     --bind "$PROJECT_PATH" /workspace \
+    --bind "/tmp/project-bashrc-$SESSION_ID" /etc/project-bashrc \
     --chdir /workspace \
     --unshare-pid \
     --dev /dev \
@@ -154,7 +168,7 @@ exec bwrap \
     --setenv PATH "$PATH" \
     --setenv HOME /workspace \
     --setenv PROJECT_ROOT "$PROJECT_PATH" \
-    claude "$@"
+    bash --rcfile /etc/project-bashrc "$@"
 SCRIPT
 chmod +x /usr/local/bin/claude-session
 
@@ -164,5 +178,5 @@ WORKDIR /workspace
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD echo "OK" || exit 1
 
-# Utrzymanie kontenera - TAK, to jest potrzebne!
-CMD ["tail", "-f", "/dev/null"]
+# Utrzymanie kontenera - używamy sleep infinity (best practice)
+CMD ["sleep", "infinity"]
