@@ -53,118 +53,26 @@ def run_command(cmd, check=True, show_output=False):
             print(f"Blad wykonania komendy: {e}")
         return False
 
-def find_and_setup_claude_config():
-    """Znajdź i skonfiguruj Claude Code aby używał Opus."""
+def check_claude_installation():
+    """Sprawdza czy Claude Code jest zainstalowany."""
     print("\nSprawdzanie instalacji Claude Code...")
-
-    # Najpierw sprawdź czy claude w ogóle istnieje
-    # Używamy 'command -v' zamiast 'which' bo działa w więcej shellach
+    
     check_result = subprocess.run(
-        'docker exec claude-code-container sh -c "command -v claude || which claude || echo"',
-        shell=True,
+        ["docker", "exec", "claude-code-container", "which", "claude"],
         capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
+        text=True
     )
-
-    if not check_result.stdout.strip():
-        print("   UWAGA: Claude Code nie jest zainstalowany!")
-        print("\n   Probuję zainstalować Claude Code...")
-
-        # Próba instalacji
-        install_cmd = 'docker exec claude-code-container bash -c "npm install -g @anthropic-ai/claude-code 2>&1"'
-        install_result = subprocess.run(
-            install_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace'
-        )
-
-        if install_result.returncode != 0:
-            print("   Instalacja globalna nie powiodła się.")
-            print("\n   Kontener działa jako środowisko deweloperskie z:")
-            print("   - Node.js, Python, Java, Ruby, PHP")
-            print("   - Selenium, Chrome/Chromium")
-            print("   - LaTeX (pełny zestaw)")
-            print("   - Docker CLI, Git, vim, nano")
-            print("   - Wszystkie biblioteki Python (anthropic, fastapi, etc.)")
-            return False
-        else:
-            print("   Claude Code zainstalowany pomyślnie!")
-            # Odśwież PATH
-            run_command('docker exec claude-code-container bash -c "hash -r"', show_output=False)
-    else:
+    
+    if check_result.returncode == 0:
         print(f"   Claude znaleziony: {check_result.stdout.strip()}")
-
-    # Konfiguracja modelu na Opus - różne podejścia
-    print("\nKonfiguracja modelu na Opus...")
-
-    # 1. Przez zmienne środowiskowe (już ustawione w Dockerfile)
-    print("   - Zmienne środowiskowe CLAUDE_MODEL=opus ustawione")
-
-    # 2. Uruchom claude raz żeby utworzył pliki konfiguracyjne
-    print("   - Inicjalizacja plików konfiguracyjnych...")
-    run_command('docker exec claude-code-container bash -c "timeout 2 claude --help 2>/dev/null || true"', show_output=False)
-    time.sleep(1)
-
-    # 3. Szukaj plików konfiguracyjnych w różnych lokalizacjach
-    config_locations = [
-        "/root/.claude",
-        "/root/.config/claude",
-        "/root/.config/claude-code",
-        "/root/.anthropic",
-        "/usr/local/lib/node_modules/@anthropic-ai/claude-code/config",
-        "/usr/local/lib/node_modules/@anthropic-ai/claude-code/.config"
-    ]
-
-    for location in config_locations:
-        print(f"   - Sprawdzam {location}...")
-        find_cmd = f'docker exec claude-code-container find {location} -name "*.json" -o -name "*.yml" -o -name "*.yaml" 2>/dev/null'
-        find_result = subprocess.run(
-            find_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace'
-        )
-
-        if find_result.stdout:
-            for config_file in find_result.stdout.strip().split('\n'):
-                if config_file:
-                    print(f"     Znaleziono: {config_file}")
-
-                    # Sprawdź zawartość
-                    cat_cmd = f'docker exec claude-code-container cat "{config_file}"'
-                    content = subprocess.run(
-                        cat_cmd,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        encoding='utf-8',
-                        errors='replace'
-                    )
-
-                    if content.stdout and ("model" in content.stdout.lower() or "claude" in content.stdout.lower()):
-                        # Aktualizuj plik
-                        if config_file.endswith('.json'):
-                            update_cmd = f'''docker exec claude-code-container bash -c "cp '{config_file}' '{config_file}.bak' && sed -i 's/\\"model\\"[[:space:]]*:[[:space:]]*\\"[^\\"]*\\"/\\"model\\": \\"opus\\"/g; s/\\"defaultModel\\"[[:space:]]*:[[:space:]]*\\"[^\\"]*\\"/\\"defaultModel\\": \\"opus\\"/g; s/\\"claude-[^\\"]*\\"/\\"claude-opus-4\\"/g' '{config_file}'"'''
-                        else:  # YAML
-                            update_cmd = f'''docker exec claude-code-container bash -c "cp '{config_file}' '{config_file}.bak' && sed -i 's/model:[[:space:]]*[^[:space:]]*/model: opus/g; s/defaultModel:[[:space:]]*[^[:space:]]*/defaultModel: opus/g' '{config_file}'"'''
-
-                        if run_command(update_cmd, show_output=False):
-                            print(f"     Zaktualizowano na model opus")
-
-    # 4. Sprawdź czy istnieje plik .claude-coderc
-    print("   - Tworzenie .claude-coderc z modelem opus...")
-    create_rc_cmd = '''docker exec claude-code-container bash -c "echo '{\\"model\\": \\"opus\\", \\"defaultModel\\": \\"opus\\"}' > /root/.claude-coderc"'''
-    run_command(create_rc_cmd, show_output=False)
-
-    print("\nKonfiguracja zakończona.")
-    return True
+        return True
+    else:
+        print("   UWAGA: Claude Code nie jest zainstalowany!")
+        print("   Kontener działa jako środowisko deweloperskie.")
+        print("\n   Możesz spróbować zainstalować ręcznie:")
+        print("   docker exec -it claude-code-container bash")
+        print("   npm install -g @anthropic-ai/claude-code")
+        return False
 
 def main():
     print("=== Setup Claude Code Container ===\n")
@@ -239,10 +147,9 @@ def main():
         print("   Wskazowka: Aby przebudowac z nowymi zaleznosci uzyj:")
         print("      docker compose build --no-cache")
 
-    # Uruchamianie kontenera (bez woluminów - będą montowane dynamicznie)
+    # Uruchamianie kontenera
     print("\nUruchamianie kontenera...")
-    print("UWAGA: Kontener uruchamia się BEZ zamontowanych katalogów.")
-    print("Katalogi będą montowane automatycznie przy pierwszym użyciu claude.py")
+    print("Montowanie dysków C:, D:, E: do kontenera...")
     
     if not run_command("docker compose up -d", show_output=True):
         print("Blad podczas uruchamiania kontenera!")
@@ -277,8 +184,8 @@ def main():
         print("   Sprawdz logi: docker logs claude-code-container")
         sys.exit(1)
 
-    # Próba automatycznej konfiguracji Opus
-    find_and_setup_claude_config()
+    # Sprawdzenie instalacji Claude
+    check_claude_installation()
 
     # Pełna ścieżka do claude.py
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -300,11 +207,10 @@ def main():
     print(f"   python {claude_py_path}              # Uruchom Claude Code")
     print(f"   python {claude_py_path} [komenda]    # Z argumentami")
     
-    print("\n⚠️  WAŻNA ZMIANA - Bezpieczeństwo:")
-    print("   - Kontener NIE ma dostępu do żadnych plików na starcie")
-    print("   - Przy pierwszym uruchomieniu claude.py zostanie zamontowany")
-    print("     TYLKO bieżący katalog roboczy")
-    print("   - Każdy nowy katalog wymaga restartu kontenera z nowym montowaniem")
+    print("\n⚠️  Bezpieczeństwo sesji:")
+    print("   - Każda sesja Claude widzi TYLKO swój katalog projektu")
+    print("   - Narzędzia i instalacje są współdzielone między sesjami")
+    print("   - Możesz pracować na wielu projektach jednocześnie")
 
     print("\nDodane narzędzia i biblioteki:")
     print("   Języki programowania:")
@@ -330,47 +236,39 @@ def main():
 
     # Diagnostyka końcowa
     print("\nDiagnostyka:")
-
-    # Sprawdź claude
-    claude_check = subprocess.run(
-        'docker exec claude-code-container sh -c "command -v claude || which claude || echo"',
-        shell=True,
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
+    
+    # Sprawdź podstawowe narzędzia
+    tools = [
+        ("Node.js", "node --version"),
+        ("Python", "python --version"),
+        ("Java", "java --version | head -1"),
+        ("Bubblewrap", "bwrap --version")
+    ]
+    
+    for tool_name, cmd in tools:
+        result = subprocess.run(
+            f"docker exec claude-code-container {cmd}",
+            shell=True,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip().split('\n')[0]
+            print(f"   {tool_name}: {version}")
+        else:
+            print(f"   {tool_name}: NIE ZNALEZIONY")
+    
+    # Sprawdź session manager
+    sm_check = subprocess.run(
+        ["docker", "exec", "claude-code-container", "test", "-x", "/usr/local/bin/claude-session"],
+        capture_output=True
     )
-
-    if claude_check.stdout.strip():
-        print(f"   claude: {claude_check.stdout.strip()}")
-        # Sprawdź czy to symlink czy plik
-        run_command('docker exec claude-code-container sh -c "ls -la $(command -v claude || which claude)"', show_output=True)
+    if sm_check.returncode == 0:
+        print("   Session Manager: ZAINSTALOWANY")
     else:
-        print("   claude: NIE ZNALEZIONY!")
-        print("\n   Szukam w alternatywnych lokalizacjach...")
-        run_command('docker exec claude-code-container find /usr/local -name "claude" -type f 2>/dev/null | head -5', show_output=True)
-        run_command('docker exec claude-code-container ls -la /usr/local/lib/node_modules/.bin/ 2>/dev/null | grep claude || echo "Brak claude w .bin"', show_output=True)
-
-    run_command('docker exec claude-code-container node --version', show_output=True)
-    run_command('docker exec claude-code-container python --version', show_output=True)
-
-    # Pokaż PATH
-    print("\n   PATH w kontenerze:")
-    run_command('docker exec claude-code-container echo $PATH', show_output=True)
-
-    # Pokaż zmienne Claude
-    print("\n   Zmienne środowiskowe Claude:")
-    env_result = subprocess.run(
-        ['docker', 'exec', 'claude-code-container', 'env'],
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
-    )
-    if env_result.stdout:
-        claude_vars = [line for line in env_result.stdout.split('\n') if 'claude' in line.lower()]
-        for var in claude_vars:
-            print(f"   {var}")
+        print("   Session Manager: BRAK!")
 
 if __name__ == "__main__":
     main()

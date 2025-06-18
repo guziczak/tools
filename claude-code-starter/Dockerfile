@@ -78,6 +78,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # LaTeX - pełny zestaw
     texlive texlive-latex-extra texlive-fonts-recommended \
     texlive-lang-polish biber latexmk \
+    # Bubblewrap dla sandboxowania
+    bubblewrap \
     # Czyszczenie
     && ln -s /usr/bin/python3 /usr/bin/python \
     && apt-get clean \
@@ -113,6 +115,48 @@ if ! which claude >/dev/null 2>&1; then\n\
     echo "Claude Code installed successfully!" || \\\n\
     echo "Failed to install Claude Code"\n\
 fi' > /usr/local/bin/check-claude && chmod +x /usr/local/bin/check-claude
+
+# Session manager dla sandboxowania
+RUN mkdir -p /var/run/claude-sessions && \
+    cat > /usr/local/bin/claude-session << 'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+# Pobierz argumenty
+PROJECT_PATH="${1:-/workspace}"
+shift || true
+
+# Generuj unikalny ID sesji
+SESSION_ID=$(echo "$PROJECT_PATH" | md5sum | cut -d' ' -f1)
+LOCK_FILE="/var/run/claude-sessions/${SESSION_ID}.lock"
+
+# Sprawdź czy Claude istnieje
+if ! command -v claude >/dev/null 2>&1; then
+    echo "Error: Claude not found. Running check-claude..."
+    /usr/local/bin/check-claude
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "Error: Claude still not found after installation attempt"
+        exit 1
+    fi
+fi
+
+# Uruchom w sandboxie z bubblewrap
+exec bwrap \
+    --bind / / \
+    --tmpfs /home \
+    --tmpfs /root \
+    --tmpfs /tmp \
+    --bind "$PROJECT_PATH" /workspace \
+    --chdir /workspace \
+    --unshare-pid \
+    --dev /dev \
+    --proc /proc \
+    --setenv PATH "$PATH" \
+    --setenv HOME /workspace \
+    --setenv PROJECT_ROOT "$PROJECT_PATH" \
+    claude "$@"
+SCRIPT
+chmod +x /usr/local/bin/claude-session
 
 WORKDIR /workspace
 

@@ -56,44 +56,19 @@ def check_container():
         return False, f"Blad: {str(e)}"
 
 
-def ensure_directory_mounted(cwd, container_dir):
-    """Sprawdza czy katalog jest zamontowany w kontenerze i montuje go jeśli nie."""
-    try:
-        # Sprawdź czy katalog istnieje w kontenerze
-        check_cmd = ["docker", "exec", "claude-code-container", "test", "-d", container_dir]
-        result = subprocess.run(check_cmd, capture_output=True)
-        
-        if result.returncode != 0:
-            print(f"Montowanie katalogu: {cwd}")
-            
-            # Zatrzymaj istniejący kontener
-            subprocess.run(["docker", "stop", "claude-code-container"], capture_output=True)
-            subprocess.run(["docker", "rm", "claude-code-container"], capture_output=True)
-            
-            # Uruchom kontener z nowym montowaniem
-            # WAŻNE: Cytowanie ścieżek dla obsługi spacji w Windows
-            run_cmd = [
-                "docker", "run", "-d",
-                "--name", "claude-code-container",
-                "-v", f"{cwd}:{container_dir}",
-                "-v", "/var/run/docker.sock:/var/run/docker.sock",  # Dla Docker CLI w kontenerze
-                "claude-code-container",
-                "tail", "-f", "/dev/null"
-            ]
-            
-            result = subprocess.run(run_cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                print(f"Błąd podczas montowania: {result.stderr}")
-                return False
-                
-            # Poczekaj aż kontener się uruchomi
-            time.sleep(2)
-            print("Katalog zamontowany pomyślnie!")
-            
-        return True
-    except Exception as e:
-        print(f"Błąd podczas montowania katalogu: {e}")
-        return False
+def get_container_path(windows_path):
+    """Konwertuje ścieżkę Windows na ścieżkę w kontenerze."""
+    # Sprawdzenie ścieżek UNC (\\server\share)
+    if sys.platform == "win32" and windows_path.startswith('\\\\'):
+        print("BŁĄD: Ścieżki sieciowe UNC nie są wspierane!")
+        print("Proszę skopiować pliki lokalnie lub zamapować dysk sieciowy.")
+        sys.exit(1)
+    
+    if sys.platform == "win32" and len(windows_path) > 1 and windows_path[1] == ':':
+        # C:\path\to\dir -> /c/path/to/dir
+        return f"/{windows_path[0].lower()}{windows_path[2:].replace(chr(92), '/')}"
+    else:
+        return windows_path
 
 def main():
     # Sprawdzenie kontenera
@@ -119,33 +94,16 @@ def main():
 
     # Konwersja ścieżki dla Windows
     cwd = os.getcwd()
-    
-    # Sprawdzenie ścieżek UNC (\\server\share)
-    if sys.platform == "win32" and cwd.startswith('\\\\'):
-        print("BŁĄD: Ścieżki sieciowe UNC nie są wspierane!")
-        print("Proszę skopiować pliki lokalnie lub zamapować dysk sieciowy.")
-        sys.exit(1)
-    
-    if sys.platform == "win32" and len(cwd) > 1 and cwd[1] == ':':
-        # C:\path\to\dir -> /c/path/to/dir
-        container_dir = f"/{cwd[0].lower()}{cwd[2:].replace(chr(92), '/')}"
-    else:
-        container_dir = cwd
-
-    # Upewnij się, że katalog jest zamontowany
-    if not ensure_directory_mounted(cwd, container_dir):
-        print("Nie udało się zamontować katalogu!")
-        sys.exit(1)
+    container_dir = get_container_path(cwd)
 
     # Przygotowanie argumentów
     args = sys.argv[1:] if len(sys.argv) > 1 else []
 
-    # Budowanie komendy
+    # Budowanie komendy z session managerem
     docker_cmd = [
         "docker", "exec", "-it",
-        "-w", container_dir,
         "claude-code-container",
-        "claude"
+        "claude-session", container_dir
     ] + args
 
     try:
@@ -168,65 +126,13 @@ def main():
             if npm_list.stdout:
                 print(npm_list.stdout)
 
-            print("\n2. Sprawdzam /usr/local/lib/node_modules/.bin/...")
-            bin_check = subprocess.run(
-                ["docker", "exec", "claude-code-container", "ls", "-la", "/usr/local/lib/node_modules/.bin/"],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace'
-            )
-            if bin_check.stdout:
-                for line in bin_check.stdout.split('\n'):
-                    if 'claude' in line:
-                        print(f"   ZNALEZIONO: {line}")
-
-            print("\n3. Szukam plików claude...")
-            find_check = subprocess.run(
-                ["docker", "exec", "claude-code-container", "find", "/usr/local",
-                 "-name", "*claude*", "-type", "f", "-o", "-type", "l"],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace'
-            )
-
-            if find_check.stdout:
-                lines = find_check.stdout.strip().split('\n')
-                claude_files = [l for l in lines if 'claude' in l and ('bin' in l or '.js' in l)]
-                if claude_files:
-                    print(f"Znaleziono {len(claude_files)} plików claude:")
-                    for f in claude_files[:5]:  # Pokaż max 5
-                        print(f"   {f}")
-
-                    # Spróbuj uruchomić pierwszy znaleziony
-                    for file_path in claude_files:
-                        if '/claude-code/' in file_path and file_path.endswith('.js'):
-                            print(f"\n4. Próbuję uruchomić: {file_path}")
-                            alt_docker_cmd = [
-                                "docker", "exec", "-it",
-                                "-w", container_dir,
-                                "claude-code-container",
-                                "node", file_path
-                            ] + args
-
-                            subprocess.run(alt_docker_cmd, check=False)
-                            return
-                        elif file_path.endswith('/claude') and '/bin/' in file_path:
-                            print(f"\n4. Próbuję uruchomić bezpośrednio: {file_path}")
-                            alt_docker_cmd = [
-                                "docker", "exec", "-it",
-                                "-w", container_dir,
-                                "claude-code-container",
-                                file_path
-                            ] + args
-
-                            subprocess.run(alt_docker_cmd, check=False)
-                            return
-
-            print("\n5. Nie znaleziono działającego claude.")
-            print("   Uruchom: docker compose build --no-cache")
-            print("   Następnie: python setup.py")
+            print("\n2. Claude Code nie jest zainstalowany w kontenerze.")
+            print("   Spróbuj:")
+            print("   - docker compose build --no-cache")
+            print("   - python setup.py")
+            print("\n   Lub ręcznie w kontenerze:")
+            print("   - docker exec -it claude-code-container bash")
+            print("   - npm install -g @anthropic-ai/claude-code")
 
     except KeyboardInterrupt:
         print("\nDo zobaczenia!")

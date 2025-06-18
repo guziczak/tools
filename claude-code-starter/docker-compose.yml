@@ -8,10 +8,22 @@ services:
     container_name: claude-code-container
     stdin_open: true
     tty: true
-    # Woluminy będą montowane dynamicznie przez claude.py
-    # volumes: - usunięte dla bezpieczeństwa
+    volumes:
+      # Montuj cały dysk użytkownika dla dostępu do wszystkich projektów
+      - /c:/c
+      - /d:/d
+      - /e:/e
+      # Socket Dockera jeśli potrzebny
+      - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /workspace
     restart: unless-stopped
     command: tail -f /dev/null  # Utrzymuje kontener działający
     environment:
       - DOCKER_BUILDKIT=1
+    # Dodaj capabilities dla bubblewrap
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
