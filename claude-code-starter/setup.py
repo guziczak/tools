@@ -15,6 +15,12 @@ def run_command(cmd, check=True, show_output=False):
         # Wymuszamy kodowanie UTF-8 dla subprocess
         env = os.environ.copy()
         env['PYTHONIOENCODING'] = 'utf-8'
+        
+        # Zastąp Unix-owe przekierowania na Windows
+        if sys.platform == "win32" and isinstance(cmd, str):
+            cmd = cmd.replace(' > /dev/null 2>&1', ' >NUL 2>&1')
+            cmd = cmd.replace(' 2>/dev/null', ' 2>NUL')
+            cmd = cmd.replace(' >/dev/null', ' >NUL')
 
         if show_output:
             # Dla komend gdzie chcemy widzieć output
@@ -52,8 +58,9 @@ def find_and_setup_claude_config():
     print("\nSprawdzanie instalacji Claude Code...")
 
     # Najpierw sprawdź czy claude w ogóle istnieje
+    # Używamy 'command -v' zamiast 'which' bo działa w więcej shellach
     check_result = subprocess.run(
-        'docker exec claude-code-container which claude',
+        'docker exec claude-code-container sh -c "command -v claude || which claude || echo"',
         shell=True,
         capture_output=True,
         text=True,
@@ -164,7 +171,13 @@ def main():
 
     # Szybkie sprawdzenie Dockera
     print("Sprawdzanie Dockera...")
-    if not run_command("docker version > /dev/null 2>&1", check=False):
+    # Używamy listy argumentów zamiast stringa shell - działa na wszystkich platformach
+    docker_check = subprocess.run(
+        ["docker", "version"],
+        capture_output=True,
+        text=True
+    )
+    if docker_check.returncode != 0:
         print("Docker nie jest zainstalowany lub nie dziala!")
         print("Upewnij sie, ze Docker Desktop jest uruchomiony.")
         sys.exit(1)
@@ -226,8 +239,11 @@ def main():
         print("   Wskazowka: Aby przebudowac z nowymi zaleznosci uzyj:")
         print("      docker compose build --no-cache")
 
-    # Uruchamianie kontenera
+    # Uruchamianie kontenera (bez woluminów - będą montowane dynamicznie)
     print("\nUruchamianie kontenera...")
+    print("UWAGA: Kontener uruchamia się BEZ zamontowanych katalogów.")
+    print("Katalogi będą montowane automatycznie przy pierwszym użyciu claude.py")
+    
     if not run_command("docker compose up -d", show_output=True):
         print("Blad podczas uruchamiania kontenera!")
         print("   Sprawdz logi: docker compose logs")
@@ -273,12 +289,22 @@ def main():
     print("\nKonfiguracja IntelliJ IDEA:")
     print("1. Settings -> Tools -> Terminal")
     print("2. W 'Shell path' wpisz:\n")
-    print(f"   python {claude_py_path}\n")
+    # Cytujemy ścieżkę jeśli zawiera spacje
+    if ' ' in claude_py_path:
+        print(f'   python "{claude_py_path}"\n')
+    else:
+        print(f"   python {claude_py_path}\n")
     print("3. OK -> nowy terminal")
 
     print("\nUzycie:")
     print(f"   python {claude_py_path}              # Uruchom Claude Code")
     print(f"   python {claude_py_path} [komenda]    # Z argumentami")
+    
+    print("\n⚠️  WAŻNA ZMIANA - Bezpieczeństwo:")
+    print("   - Kontener NIE ma dostępu do żadnych plików na starcie")
+    print("   - Przy pierwszym uruchomieniu claude.py zostanie zamontowany")
+    print("     TYLKO bieżący katalog roboczy")
+    print("   - Każdy nowy katalog wymaga restartu kontenera z nowym montowaniem")
 
     print("\nDodane narzędzia i biblioteki:")
     print("   Języki programowania:")
@@ -307,7 +333,7 @@ def main():
 
     # Sprawdź claude
     claude_check = subprocess.run(
-        'docker exec claude-code-container which claude',
+        'docker exec claude-code-container sh -c "command -v claude || which claude || echo"',
         shell=True,
         capture_output=True,
         text=True,
@@ -318,7 +344,7 @@ def main():
     if claude_check.stdout.strip():
         print(f"   claude: {claude_check.stdout.strip()}")
         # Sprawdź czy to symlink czy plik
-        run_command('docker exec claude-code-container ls -la $(which claude)', show_output=True)
+        run_command('docker exec claude-code-container sh -c "ls -la $(command -v claude || which claude)"', show_output=True)
     else:
         print("   claude: NIE ZNALEZIONY!")
         print("\n   Szukam w alternatywnych lokalizacjach...")
@@ -334,7 +360,17 @@ def main():
 
     # Pokaż zmienne Claude
     print("\n   Zmienne środowiskowe Claude:")
-    run_command('docker exec claude-code-container env | grep -i claude', show_output=True)
+    env_result = subprocess.run(
+        ['docker', 'exec', 'claude-code-container', 'env'],
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace'
+    )
+    if env_result.stdout:
+        claude_vars = [line for line in env_result.stdout.split('\n') if 'claude' in line.lower()]
+        for var in claude_vars:
+            print(f"   {var}")
 
 if __name__ == "__main__":
     main()

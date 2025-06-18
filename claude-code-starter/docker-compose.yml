@@ -8,9 +8,9 @@ services:
     container_name: claude-code-container
     stdin_open: true
     tty: true
-    volumes:
-      - C:/:/c
-    working_dir: /c
+    # Woluminy będą montowane dynamicznie przez claude.py
+    # volumes: - usunięte dla bezpieczeństwa
+    working_dir: /workspace
     restart: unless-stopped
     command: tail -f /dev/null  # Utrzymuje kontener działający
     environment:

@@ -34,10 +34,14 @@ COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 # Tworzenie symlinków
 RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    # Próba utworzenia symlinku dla claude jeśli istnieje
-    (find /usr/local/lib/node_modules/.bin -name "claude" -type f -o -type l | head -1 | xargs -I {} ln -sf {} /usr/local/bin/claude 2>/dev/null || \
-     find /usr/local/lib/node_modules/@anthropic-ai/claude-code -name "claude*" -type f | grep -E "(bin|cli)" | head -1 | xargs -I {} ln -sf {} /usr/local/bin/claude 2>/dev/null || \
-     echo "Claude Code not found, skipping symlink") && \
+    # Tworzenie symlinku dla claude
+    if [ -f "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js" ]; then \
+        ln -sf /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js /usr/local/bin/claude && \
+        chmod +x /usr/local/bin/claude && \
+        echo "Claude symlink created successfully"; \
+    else \
+        echo "Claude Code cli.js not found"; \
+    fi && \
     # Symlinki dla innych narzędzi
     ln -s /usr/local/lib/node_modules/typescript/bin/tsc /usr/local/bin/tsc 2>/dev/null || true && \
     ln -s /usr/local/lib/node_modules/eslint/bin/eslint.js /usr/local/bin/eslint 2>/dev/null || true && \
@@ -110,7 +114,7 @@ if ! which claude >/dev/null 2>&1; then\n\
     echo "Failed to install Claude Code"\n\
 fi' > /usr/local/bin/check-claude && chmod +x /usr/local/bin/check-claude
 
-WORKDIR /c
+WORKDIR /workspace
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

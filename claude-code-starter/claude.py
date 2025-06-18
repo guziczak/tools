@@ -55,6 +55,46 @@ def check_container():
     except Exception as e:
         return False, f"Blad: {str(e)}"
 
+
+def ensure_directory_mounted(cwd, container_dir):
+    """Sprawdza czy katalog jest zamontowany w kontenerze i montuje go jeśli nie."""
+    try:
+        # Sprawdź czy katalog istnieje w kontenerze
+        check_cmd = ["docker", "exec", "claude-code-container", "test", "-d", container_dir]
+        result = subprocess.run(check_cmd, capture_output=True)
+        
+        if result.returncode != 0:
+            print(f"Montowanie katalogu: {cwd}")
+            
+            # Zatrzymaj istniejący kontener
+            subprocess.run(["docker", "stop", "claude-code-container"], capture_output=True)
+            subprocess.run(["docker", "rm", "claude-code-container"], capture_output=True)
+            
+            # Uruchom kontener z nowym montowaniem
+            # WAŻNE: Cytowanie ścieżek dla obsługi spacji w Windows
+            run_cmd = [
+                "docker", "run", "-d",
+                "--name", "claude-code-container",
+                "-v", f"{cwd}:{container_dir}",
+                "-v", "/var/run/docker.sock:/var/run/docker.sock",  # Dla Docker CLI w kontenerze
+                "claude-code-container",
+                "tail", "-f", "/dev/null"
+            ]
+            
+            result = subprocess.run(run_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Błąd podczas montowania: {result.stderr}")
+                return False
+                
+            # Poczekaj aż kontener się uruchomi
+            time.sleep(2)
+            print("Katalog zamontowany pomyślnie!")
+            
+        return True
+    except Exception as e:
+        print(f"Błąd podczas montowania katalogu: {e}")
+        return False
+
 def main():
     # Sprawdzenie kontenera
     is_running, message = check_container()
@@ -79,11 +119,23 @@ def main():
 
     # Konwersja ścieżki dla Windows
     cwd = os.getcwd()
+    
+    # Sprawdzenie ścieżek UNC (\\server\share)
+    if sys.platform == "win32" and cwd.startswith('\\\\'):
+        print("BŁĄD: Ścieżki sieciowe UNC nie są wspierane!")
+        print("Proszę skopiować pliki lokalnie lub zamapować dysk sieciowy.")
+        sys.exit(1)
+    
     if sys.platform == "win32" and len(cwd) > 1 and cwd[1] == ':':
         # C:\path\to\dir -> /c/path/to/dir
         container_dir = f"/{cwd[0].lower()}{cwd[2:].replace(chr(92), '/')}"
     else:
         container_dir = cwd
+
+    # Upewnij się, że katalog jest zamontowany
+    if not ensure_directory_mounted(cwd, container_dir):
+        print("Nie udało się zamontować katalogu!")
+        sys.exit(1)
 
     # Przygotowanie argumentów
     args = sys.argv[1:] if len(sys.argv) > 1 else []
