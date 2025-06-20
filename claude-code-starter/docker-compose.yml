@@ -12,7 +12,8 @@ services:
     volumes:
       # Montuj tylko dysk C - bubblewrap będzie kontrolował dostęp
       - /c:/c
-      # Nie montujemy docker socket - bezpieczeństwo!
+      # Wspólny wolumin dla narzędzi instalowanych przez różne sesje
+      - claude-shared-tools:/opt/claude-shared
     working_dir: /workspace
     restart: unless-stopped
     command: sleep infinity  # Best practice zamiast tail -f /dev/null
@@ -28,3 +29,8 @@ services:
     security_opt:
       - no-new-privileges:true  # Brak eskalacji uprawnień
       # apparmor i seccomp pozostają domyślne (confined)
+
+# Definicja woluminu dla wspólnych narzędzi
+volumes:
+  claude-shared-tools:
+    name: claude-shared-tools

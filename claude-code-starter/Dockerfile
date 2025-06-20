@@ -118,8 +118,8 @@ RUN echo '#!/bin/bash' > /usr/local/bin/check-claude && \
     echo 'fi' >> /usr/local/bin/check-claude && \
     chmod +x /usr/local/bin/check-claude
 
-# Session manager
-RUN mkdir -p /var/run/claude-sessions && \
+# Session manager z właściwą izolacją
+RUN mkdir -p /var/run/claude-sessions /opt/claude-shared/{bin,lib,share} && \
     echo '#!/bin/bash' > /usr/local/bin/claude-session && \
     echo 'set -euo pipefail' >> /usr/local/bin/claude-session && \
     echo '' >> /usr/local/bin/claude-session && \
@@ -133,46 +133,54 @@ RUN mkdir -p /var/run/claude-sessions && \
     echo '    exit 1' >> /usr/local/bin/claude-session && \
     echo 'fi' >> /usr/local/bin/claude-session && \
     echo '' >> /usr/local/bin/claude-session && \
-    echo '# Generuj unikalny ID sesji używając UUID' >> /usr/local/bin/claude-session && \
+    echo '# Przygotuj katalog tymczasowy dla sesji' >> /usr/local/bin/claude-session && \
     echo 'SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])")' >> /usr/local/bin/claude-session && \
-    echo 'SESSION_FILE="/var/run/claude-sessions/${SESSION_ID}.session"' >> /usr/local/bin/claude-session && \
+    echo 'SESSION_TMP="/tmp/claude-session-$SESSION_ID"' >> /usr/local/bin/claude-session && \
+    echo 'mkdir -p "$SESSION_TMP"' >> /usr/local/bin/claude-session && \
     echo '' >> /usr/local/bin/claude-session && \
     echo '# Cleanup przy wyjściu' >> /usr/local/bin/claude-session && \
-    echo 'trap "rm -f $SESSION_FILE /tmp/project-bashrc-$SESSION_ID" EXIT' >> /usr/local/bin/claude-session && \
+    echo 'trap "rm -rf $SESSION_TMP" EXIT' >> /usr/local/bin/claude-session && \
     echo '' >> /usr/local/bin/claude-session && \
-    echo '# Zapisz informacje o sesji' >> /usr/local/bin/claude-session && \
-    echo 'echo "{\"path\": \"$PROJECT_PATH\", \"pid\": $$, \"time\": $(date +%s)}" > "$SESSION_FILE"' >> /usr/local/bin/claude-session && \
+    echo '# Sprawdź czy claude istnieje' >> /usr/local/bin/claude-session && \
+    echo 'if ! which claude >/dev/null 2>&1; then' >> /usr/local/bin/claude-session && \
+    echo '    echo "Claude Code not found. Please install it first." >&2' >> /usr/local/bin/claude-session && \
+    echo '    exit 1' >> /usr/local/bin/claude-session && \
+    echo 'fi' >> /usr/local/bin/claude-session && \
     echo '' >> /usr/local/bin/claude-session && \
-    echo '# Przygotuj bashrc dla projektu' >> /usr/local/bin/claude-session && \
-    echo 'cat > /tmp/project-bashrc-$SESSION_ID << '\''BASHRC'\''' >> /usr/local/bin/claude-session && \
-    echo '# Project environment' >> /usr/local/bin/claude-session && \
-    echo 'export PS1="\[\033[01;32m\][sandbox]\[\033[00m\] \[\033[01;34m\]\w\[\033[00m\] $ "' >> /usr/local/bin/claude-session && \
-    echo 'export PROJECT_ROOT="$PROJECT_ROOT"' >> /usr/local/bin/claude-session && \
-    echo 'alias ll="ls -la"' >> /usr/local/bin/claude-session && \
-    echo 'alias ..="cd .."' >> /usr/local/bin/claude-session && \
-    echo 'echo "🔒 Sandboxed session for: $PROJECT_ROOT"' >> /usr/local/bin/claude-session && \
-    echo 'echo "📦 Available tools: python, node, java, maven"' >> /usr/local/bin/claude-session && \
-    echo 'echo "💡 Type '\''exit'\'' to leave sandbox"' >> /usr/local/bin/claude-session && \
-    echo 'BASHRC' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Uruchom w sandboxie z bubblewrap' >> /usr/local/bin/claude-session && \
+    echo '# Uruchom claude z bubblewrap - mocna izolacja' >> /usr/local/bin/claude-session && \
     echo 'exec bwrap \' >> /usr/local/bin/claude-session && \
-    echo '    --bind / / \' >> /usr/local/bin/claude-session && \
+    echo '    --ro-bind /usr /usr \' >> /usr/local/bin/claude-session && \
+    echo '    --ro-bind /lib /lib \' >> /usr/local/bin/claude-session && \
+    echo '    --ro-bind /lib64 /lib64 \' >> /usr/local/bin/claude-session && \
+    echo '    --ro-bind /bin /bin \' >> /usr/local/bin/claude-session && \
+    echo '    --ro-bind /sbin /sbin \' >> /usr/local/bin/claude-session && \
+    echo '    --ro-bind /etc /etc \' >> /usr/local/bin/claude-session && \
+    echo '    --bind /opt/claude-shared /opt/claude-shared \' >> /usr/local/bin/claude-session && \
+    echo '    --bind "$PROJECT_PATH" "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
+    echo '    --bind "$SESSION_TMP" /tmp \' >> /usr/local/bin/claude-session && \
     echo '    --tmpfs /home \' >> /usr/local/bin/claude-session && \
     echo '    --tmpfs /root \' >> /usr/local/bin/claude-session && \
-    echo '    --tmpfs /tmp \' >> /usr/local/bin/claude-session && \
-    echo '    --bind "$PROJECT_PATH" /workspace \' >> /usr/local/bin/claude-session && \
-    echo '    --bind "/tmp/project-bashrc-$SESSION_ID" /etc/project-bashrc \' >> /usr/local/bin/claude-session && \
-    echo '    --chdir /workspace \' >> /usr/local/bin/claude-session && \
+    echo '    --tmpfs /var \' >> /usr/local/bin/claude-session && \
+    echo '    --tmpfs /run \' >> /usr/local/bin/claude-session && \
+    echo '    --proc /proc \' >> /usr/local/bin/claude-session && \
+    echo '    --dev /dev \' >> /usr/local/bin/claude-session && \
+    echo '    --chdir "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
     echo '    --unshare-pid \' >> /usr/local/bin/claude-session && \
     echo '    --die-with-parent \' >> /usr/local/bin/claude-session && \
-    echo '    --dev /dev \' >> /usr/local/bin/claude-session && \
-    echo '    --proc /proc \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv PATH "$PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv HOME /workspace \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv PROJECT_ROOT "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    bash --rcfile /etc/project-bashrc "$@"' >> /usr/local/bin/claude-session && \
+    echo '    --setenv PATH "/opt/claude-shared/bin:$PATH" \' >> /usr/local/bin/claude-session && \
+    echo '    --setenv PYTHONPATH "/opt/claude-shared/lib/python3/site-packages:$PYTHONPATH" \' >> /usr/local/bin/claude-session && \
+    echo '    --setenv NODE_PATH "/opt/claude-shared/lib/node_modules:$NODE_PATH" \' >> /usr/local/bin/claude-session && \
+    echo '    --setenv HOME "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
+    echo '    --setenv TMPDIR "/tmp" \' >> /usr/local/bin/claude-session && \
+    echo '    claude "$@"' >> /usr/local/bin/claude-session && \
     chmod +x /usr/local/bin/claude-session
+
+# Konfiguracja dla wspólnych narzędzi
+RUN echo 'export PATH="/opt/claude-shared/bin:$PATH"' >> /etc/bash.bashrc && \
+    echo 'export PYTHONPATH="/opt/claude-shared/lib/python3/site-packages:$PYTHONPATH"' >> /etc/bash.bashrc && \
+    echo 'export NODE_PATH="/opt/claude-shared/lib/node_modules:$NODE_PATH"' >> /etc/bash.bashrc && \
+    echo 'export PIP_TARGET="/opt/claude-shared/lib/python3/site-packages"' >> /etc/bash.bashrc && \
+    echo 'export NPM_CONFIG_PREFIX="/opt/claude-shared"' >> /etc/bash.bashrc
 
 WORKDIR /workspace
 
