@@ -1,18 +1,17 @@
-version: '3.8'
 services:
   claude-code:
     build:
       context: .
       dockerfile: Dockerfile
-    image: claude-code-container
+      args:
+        BUILD_VERSION: ${DOCKER_TARGET:-full}
+    image: claude-code-container:${DOCKER_TARGET:-full}
     container_name: claude-code-container
     stdin_open: true
     tty: true
     volumes:
-      # Montuj dyski - bubblewrap będzie kontrolował dostęp
+      # Montuj tylko dysk C - bubblewrap będzie kontrolował dostęp
       - /c:/c
-      - /d:/d
-      - /e:/e
       # Nie montujemy docker socket - bezpieczeństwo!
     working_dir: /workspace
     restart: unless-stopped

@@ -82,8 +82,15 @@ def get_container_path(windows_path):
         sys.exit(1)
     
     if sys.platform == "win32":
-        # Użyj pathlib do konwersji
+        # Sprawdzenie czy ścieżka jest na dysku C:
         drive = path.drive[0].lower() if path.drive else 'c'
+        if drive != 'c':
+            print(f"BŁĄD: Tylko dysk C: jest zamontowany w kontenerze!")
+            print(f"Twoja ścieżka: {path}")
+            print(f"Przenieś projekt na dysk C: lub zmodyfikuj docker-compose.yml")
+            sys.exit(1)
+
+        # Użyj pathlib do konwersji
         path_without_drive = str(path).replace(path.drive, '', 1)
         return f"/{drive}{path_without_drive.replace(os.sep, '/')}"
     else:

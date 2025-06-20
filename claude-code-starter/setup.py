@@ -120,7 +120,22 @@ def main():
 
     if not image_exists:
         print("Budowanie obrazu (pierwsze uruchomienie)...")
-        print("\n   Opcje budowania:")
+
+        # Wybór wersji
+        print("\n   Wybierz wersję:")
+        print("   1. Slim (Claude Code + Java/Maven) ~800MB")
+        print("   2. Full (wszystkie narzędzia) ~3GB")
+
+        version_choice = input("\nWybór (1-2) [2]: ").strip() or "2"
+
+        if version_choice == "1":
+            os.environ['DOCKER_TARGET'] = 'slim'
+            target = "slim"
+        else:
+            os.environ['DOCKER_TARGET'] = 'full'
+            target = "full"
+
+        print(f"\n   Opcje budowania ({target}):")
         print("   1. Normalne (z cache) - szybsze")
         print("   2. Pelne (--no-cache) - swieze pakiety")
 
@@ -129,10 +144,10 @@ def main():
         print("\nDocker BuildKit wlaczony automatycznie dla szybszego budowania!")
 
         if build_choice == "2":
-            print("\nBudowanie pelnego obrazu (bez cache)...")
+            print(f"\nBudowanie pelnego obrazu {target} (bez cache)...")
             build_cmd = "docker compose build --no-cache"
         else:
-            print("\nBudowanie obrazu (z cache)...")
+            print(f"\nBudowanie obrazu {target} (z cache)...")
             build_cmd = "docker compose build"
 
         start_time = time.time()
@@ -146,11 +161,13 @@ def main():
         print("Obraz juz istnieje")
         print("   Wskazowka: Aby przebudowac z nowymi zaleznosci uzyj:")
         print("      docker compose build --no-cache")
+        print("   Aby zbudowac inna wersje, najpierw usun obraz:")
+        print("      docker rmi claude-code-container")
 
     # Uruchamianie kontenera
     print("\nUruchamianie kontenera...")
-    print("Montowanie dysków C:, D:, E: do kontenera...")
-    
+    print("Montowanie dysku C: do kontenera...")
+
     if not run_command("docker compose up -d", show_output=True):
         print("Blad podczas uruchamiania kontenera!")
         print("   Sprawdz logi: docker compose logs")
@@ -206,33 +223,53 @@ def main():
     print("\nUzycie:")
     print(f"   python {claude_py_path}              # Uruchom Claude Code")
     print(f"   python {claude_py_path} [komenda]    # Z argumentami")
-    
+
     print("\n⚠️  Bezpieczeństwo sesji:")
     print("   - Każda sesja Claude widzi TYLKO swój katalog projektu")
     print("   - Narzędzia i instalacje są współdzielone między sesjami")
     print("   - Możesz pracować na wielu projektach jednocześnie")
 
-    print("\nDodane narzędzia i biblioteki:")
-    print("   Języki programowania:")
-    print("   - Node.js 20 + npm")
-    print("   - Python 3 + pip")
-    print("   - Java 17 (OpenJDK) + Maven + Gradle")
-    print("   - Ruby")
-    print("   - PHP + Composer")
-    print("\n   Narzędzia deweloperskie:")
-    print("   - Git, vim, nano")
-    print("   - ripgrep, fd-find, fzf")
-    print("   - Docker CLI")
-    print("   - shellcheck")
-    print("\n   Python biblioteki:")
-    print("   - anthropic, selenium, fastapi, uvicorn")
-    print("   - beautifulsoup4, requests, pytest, black")
-    print("   - pydantic, pyyaml, lxml, rich")
-    print("\n   Inne:")
-    print("   - Chromium + ChromeDriver (dla Selenium)")
-    print("   - LaTeX (texlive-full z polskim wsparciem)")
-    print("   - ImageMagick, ffmpeg")
-    print("   - SQLite3")
+    # Sprawdzamy która wersja jest uruchomiona
+    version_check = subprocess.run(
+        'docker images claude-code-container --format "{{.Tag}}"',
+        shell=True,
+        capture_output=True,
+        text=True
+    ).stdout.strip()
+
+    version = "full"  # domyślnie
+    if "slim" in version_check:
+        version = "slim"
+
+    if version == "slim":
+        print("\n📦 Wersja SLIM - dostępne narzędzia:")
+        print("   - Node.js 20 + npm")
+        print("   - Python 3 + pip (requests, beautifulsoup4, anthropic)")
+        print("   - Java 17 (OpenJDK) + Maven")
+        print("   - Git, vim, nano")
+        print("   - Bubblewrap (sandboxing)")
+    else:
+        print("\nDodane narzędzia i biblioteki (wersja FULL):")
+        print("   Języki programowania:")
+        print("   - Node.js 20 + npm")
+        print("   - Python 3 + pip")
+        print("   - Java 17 (OpenJDK) + Maven + Gradle")
+        print("   - Ruby")
+        print("   - PHP + Composer")
+        print("\n   Narzędzia deweloperskie:")
+        print("   - Git, vim, nano")
+        print("   - ripgrep, fd-find, fzf")
+        print("   - Docker CLI")
+        print("   - shellcheck")
+        print("\n   Python biblioteki:")
+        print("   - anthropic, selenium, fastapi, uvicorn")
+        print("   - beautifulsoup4, requests, pytest, black")
+        print("   - pydantic, pyyaml, lxml, rich")
+        print("\n   Inne:")
+        print("   - Chromium + ChromeDriver (dla Selenium)")
+        print("   - LaTeX (texlive-full z polskim wsparciem)")
+        print("   - ImageMagick, ffmpeg")
+        print("   - SQLite3")
 
     # Diagnostyka końcowa
     print("\nDiagnostyka:")
