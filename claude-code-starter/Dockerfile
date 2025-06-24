@@ -51,18 +51,31 @@ RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     ln -s /usr/local/lib/node_modules/prettier/bin/prettier.cjs /usr/local/bin/prettier 2>/dev/null || true && \
     # Podstawowe pakiety - instalujemy tylko to czego nie ma
     apt-get update && apt-get install -y --no-install-recommends \
+    sudo util-linux \
     curl wget \
     gnupg lsb-release \
     software-properties-common apt-transport-https \
     git vim nano zip unzip xz-utils \
     python3 python3-pip python3-venv python3-dev \
     build-essential pkg-config \
-    bubblewrap \
     # Java i Maven - zawsze (potrzebne nawet w slim)
     openjdk-17-jdk-headless maven \
     && ln -s /usr/bin/python3 /usr/bin/python \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Tworzenie użytkownika claude z sudo i odpowiednimi uprawnieniami
+RUN useradd -m -s /bin/bash claude && \
+    usermod -aG sudo claude && \
+    usermod -aG root claude && \
+    echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/claude && \
+    chmod 0440 /etc/sudoers.d/claude && \
+    # Uprawnienia dla apt - claude może instalować pakiety
+    chmod -R g+w /var/lib/apt /var/cache/apt && \
+    chgrp -R root /var/lib/apt /var/cache/apt && \
+    # Uprawnienia dla innych katalogów systemowych które mogą być potrzebne
+    chmod g+w /usr/local/bin /usr/local/lib && \
+    chgrp root /usr/local/bin /usr/local/lib
 
 # Warunkowa instalacja dodatkowych pakietów (tylko dla full)
 RUN if [ "$BUILD_VERSION" = "full" ]; then \
@@ -118,71 +131,81 @@ RUN echo '#!/bin/bash' > /usr/local/bin/check-claude && \
     echo 'fi' >> /usr/local/bin/check-claude && \
     chmod +x /usr/local/bin/check-claude
 
-# Session manager z właściwą izolacją
-RUN mkdir -p /var/run/claude-sessions /opt/claude-shared/{bin,lib,share} && \
-    echo '#!/bin/bash' > /usr/local/bin/claude-session && \
-    echo 'set -euo pipefail' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Pobierz argumenty' >> /usr/local/bin/claude-session && \
-    echo 'PROJECT_PATH="${1:-/workspace}"' >> /usr/local/bin/claude-session && \
-    echo 'shift || true' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Walidacja ścieżki' >> /usr/local/bin/claude-session && \
-    echo 'if [ ! -d "$PROJECT_PATH" ]; then' >> /usr/local/bin/claude-session && \
-    echo '    echo "Error: Project path does not exist: $PROJECT_PATH" >&2' >> /usr/local/bin/claude-session && \
-    echo '    exit 1' >> /usr/local/bin/claude-session && \
-    echo 'fi' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Przygotuj katalog tymczasowy dla sesji' >> /usr/local/bin/claude-session && \
-    echo 'SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])")' >> /usr/local/bin/claude-session && \
-    echo 'SESSION_TMP="/tmp/claude-session-$SESSION_ID"' >> /usr/local/bin/claude-session && \
-    echo 'mkdir -p "$SESSION_TMP"' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Cleanup przy wyjściu' >> /usr/local/bin/claude-session && \
-    echo 'trap "rm -rf $SESSION_TMP" EXIT' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Sprawdź czy claude istnieje' >> /usr/local/bin/claude-session && \
-    echo 'if ! which claude >/dev/null 2>&1; then' >> /usr/local/bin/claude-session && \
-    echo '    echo "Claude Code not found. Please install it first." >&2' >> /usr/local/bin/claude-session && \
-    echo '    exit 1' >> /usr/local/bin/claude-session && \
-    echo 'fi' >> /usr/local/bin/claude-session && \
-    echo '' >> /usr/local/bin/claude-session && \
-    echo '# Uruchom claude z bubblewrap - mocna izolacja' >> /usr/local/bin/claude-session && \
-    echo 'exec bwrap \' >> /usr/local/bin/claude-session && \
-    echo '    --ro-bind /usr /usr \' >> /usr/local/bin/claude-session && \
-    echo '    --ro-bind /lib /lib \' >> /usr/local/bin/claude-session && \
-    echo '    --ro-bind /lib64 /lib64 \' >> /usr/local/bin/claude-session && \
-    echo '    --ro-bind /bin /bin \' >> /usr/local/bin/claude-session && \
-    echo '    --ro-bind /sbin /sbin \' >> /usr/local/bin/claude-session && \
-    echo '    --ro-bind /etc /etc \' >> /usr/local/bin/claude-session && \
-    echo '    --bind /opt/claude-shared /opt/claude-shared \' >> /usr/local/bin/claude-session && \
-    echo '    --bind "$PROJECT_PATH" "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --bind "$SESSION_TMP" /tmp \' >> /usr/local/bin/claude-session && \
-    echo '    --tmpfs /home \' >> /usr/local/bin/claude-session && \
-    echo '    --tmpfs /root \' >> /usr/local/bin/claude-session && \
-    echo '    --tmpfs /var \' >> /usr/local/bin/claude-session && \
-    echo '    --tmpfs /run \' >> /usr/local/bin/claude-session && \
-    echo '    --proc /proc \' >> /usr/local/bin/claude-session && \
-    echo '    --dev /dev \' >> /usr/local/bin/claude-session && \
-    echo '    --chdir "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --unshare-pid \' >> /usr/local/bin/claude-session && \
-    echo '    --die-with-parent \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv PATH "/opt/claude-shared/bin:$PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv PYTHONPATH "/opt/claude-shared/lib/python3/site-packages:$PYTHONPATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv NODE_PATH "/opt/claude-shared/lib/node_modules:$NODE_PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv HOME "$PROJECT_PATH" \' >> /usr/local/bin/claude-session && \
-    echo '    --setenv TMPDIR "/tmp" \' >> /usr/local/bin/claude-session && \
-    echo '    claude "$@"' >> /usr/local/bin/claude-session && \
-    chmod +x /usr/local/bin/claude-session
+# Create directory structure for shared tools
+RUN mkdir -p /opt/claude-shared/{bin,lib,share} \
+    /opt/claude-shared/lib/{python3/site-packages,node_modules} && \
+    chown -R claude:claude /opt/claude-shared && \
+    chmod -R g+w /opt/claude-shared && \
+    chgrp -R root /opt/claude-shared
 
-# Konfiguracja dla wspólnych narzędzi
-RUN echo 'export PATH="/opt/claude-shared/bin:$PATH"' >> /etc/bash.bashrc && \
+# Create namespace launcher script
+RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
+    echo '# Claude namespace launcher - creates isolated mount namespace per session' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '# Get project path from environment' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'PROJECT_PATH="${PROJECT_PATH}"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'SESSION_ID="${SESSION_ID}"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '# Check if project path provided' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'if [ -z "$PROJECT_PATH" ]; then' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    echo "Error: No project path provided"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    exit 1' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'fi' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '# Create new mount namespace and run Claude' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'exec unshare --mount bash -c '"'"'' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Inside new namespace' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Check which host mount to use' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    if [ -d "/host${PROJECT_PATH}" ]; then' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        # Linux style mount' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        PROJECT_SOURCE="/host${PROJECT_PATH}"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    elif [ -d "/host_c${PROJECT_PATH#/c}" ] && [[ "$PROJECT_PATH" == /c/* ]]; then' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        # Windows C: drive' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        PROJECT_SOURCE="/host_c${PROJECT_PATH#/c}"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    elif [ -d "/host_d${PROJECT_PATH#/d}" ] && [[ "$PROJECT_PATH" == /d/* ]]; then' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        # Windows D: drive' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        PROJECT_SOURCE="/host_d${PROJECT_PATH#/d}"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    else' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        echo "Error: Cannot find project at any expected mount point"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        echo "Looking for: $PROJECT_PATH"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        echo "Tried: /host${PROJECT_PATH}, /host_c${PROJECT_PATH#/c}, /host_d${PROJECT_PATH#/d}"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        exit 1' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    fi' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Create project mount point' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mkdir -p /project' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Bind mount the project' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mount --bind "$PROJECT_SOURCE" /project' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mount -o remount,rw /project' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Hide host mounts from the user' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Create empty directories to hide the mounts' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mkdir -p /tmp/empty' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mount --bind /tmp/empty /host 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mount --bind /tmp/empty /host_c 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    mount --bind /tmp/empty /host_d 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Switch to claude user and run claude' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    cd /project' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    exec sudo -u claude -E HOME=/home/claude bash -c "cd /project && claude $*"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo ''"'"' "$@"' >> /usr/local/bin/claude-namespace-launcher && \
+    chmod +x /usr/local/bin/claude-namespace-launcher
+
+# Simple session starter script
+RUN printf '#!/bin/bash\ncd "${1:-/project}"\nshift\nexec claude "$@"\n' > /usr/local/bin/claude-session && \
+    chmod +x /usr/local/bin/claude-session && \
+    # Konfiguracja dla wspólnych narzędzi
+    echo 'export PATH="/opt/claude-shared/bin:$PATH"' >> /etc/bash.bashrc && \
     echo 'export PYTHONPATH="/opt/claude-shared/lib/python3/site-packages:$PYTHONPATH"' >> /etc/bash.bashrc && \
     echo 'export NODE_PATH="/opt/claude-shared/lib/node_modules:$NODE_PATH"' >> /etc/bash.bashrc && \
     echo 'export PIP_TARGET="/opt/claude-shared/lib/python3/site-packages"' >> /etc/bash.bashrc && \
     echo 'export NPM_CONFIG_PREFIX="/opt/claude-shared"' >> /etc/bash.bashrc
 
-WORKDIR /workspace
+# Przełączenie na użytkownika claude
+USER claude
+WORKDIR /home/claude
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

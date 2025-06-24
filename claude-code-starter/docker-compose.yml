@@ -5,32 +5,115 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_VERSION: ${DOCKER_TARGET:-full}
+      cache_from:
+        - claude-code-container:${DOCKER_TARGET:-full}
+        - claude-code-container:latest
     image: claude-code-container:${DOCKER_TARGET:-full}
-    container_name: claude-code-container
+    container_name: claude-persistent
+    hostname: claude-container
     stdin_open: true
     tty: true
+
+    # Root user for mount namespace capabilities
+    user: root
+
+    # Security capabilities for namespace operations
+    cap_add:
+      - SYS_ADMIN
+      - SETUID
+      - SETGID
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+
+    # Volume configuration
     volumes:
-      # Montuj tylko dysk C - bubblewrap będzie kontrolował dostęp
-      - /c:/c
-      # Wspólny wolumin dla narzędzi instalowanych przez różne sesje
-      - claude-shared-tools:/opt/claude-shared
-    working_dir: /workspace
+      # Host filesystem mounts - adjust based on OS
+      # For Windows, mount specific drives
+      - type: bind
+        source: C:/
+        target: /host_c
+        read_only: true
+
+      # Uncomment if you have D: drive
+      # - type: bind
+      #   source: D:/
+      #   target: /host_d
+      #   read_only: true
+
+      # For Linux/Mac, use this instead:
+      # - type: bind
+      #   source: /
+      #   target: /host
+      #   read_only: true
+
+      # Shared volume for tools installed across sessions
+      - type: volume
+        source: claude-shared-tools
+        target: /opt/claude-shared
+
+      # Shared system directories for apt packages
+      - type: volume
+        source: claude-apt-cache
+        target: /var/cache/apt
+
+      - type: volume
+        source: claude-apt-lib
+        target: /var/lib/apt
+
+      - type: volume
+        source: claude-usr-local
+        target: /usr/local
+
+    # Working directory
+    working_dir: /home/claude
+
+    # Restart policy
     restart: unless-stopped
-    command: sleep infinity  # Best practice zamiast tail -f /dev/null
+
+    # Keep container running
+    command: ["sleep", "infinity"]
+
+    # Environment variables
     environment:
       - DOCKER_BUILDKIT=1
-    # Minimalne capabilities
-    cap_drop:
-      - ALL  # Najpierw zabierz wszystko
-    cap_add:
-      - SYS_ADMIN  # Potrzebne dla bubblewrap mount namespace
-      - SETUID     # Potrzebne dla bubblewrap user namespace
-      - SETGID     # Potrzebne dla bubblewrap user namespace
-    security_opt:
-      - no-new-privileges:true  # Brak eskalacji uprawnień
-      # apparmor i seccomp pozostają domyślne (confined)
+      - COMPOSE_DOCKER_CLI_BUILD=1
+      - CLAUDE_CONTAINER_VERSION=${DOCKER_TARGET:-full}
+      - TZ=${TZ:-UTC}
 
-# Definicja woluminu dla wspólnych narzędzi
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '${CLAUDE_CPU_LIMIT:-4}'
+          memory: ${CLAUDE_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: '${CLAUDE_CPU_RESERVATION:-1}'
+          memory: ${CLAUDE_MEMORY_RESERVATION:-2G}
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "test", "-f", "/usr/local/bin/claude-session"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=claude-code"
+
+# Definicja woluminów
 volumes:
   claude-shared-tools:
     name: claude-shared-tools
+  claude-apt-cache:
+    name: claude-apt-cache
+  claude-apt-lib:
+    name: claude-apt-lib
+  claude-usr-local:
+    name: claude-usr-local

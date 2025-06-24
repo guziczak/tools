@@ -1,311 +1,364 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Setup script for Claude Code Docker image."""
+
 import subprocess
 import sys
 import os
 import time
+import logging
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+from enum import Enum
+from dataclasses import dataclass
 
-# Włączamy BuildKit globalnie
+# Enable BuildKit globally
 os.environ['DOCKER_BUILDKIT'] = '1'
 os.environ['COMPOSE_DOCKER_CLI_BUILD'] = '1'
 
-def run_command(cmd, check=True, show_output=False):
-    """Uruchamia komendę z opcją pokazywania outputu."""
-    try:
-        # Wymuszamy kodowanie UTF-8 dla subprocess
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s'  # Simplified for user-facing output
+)
+logger = logging.getLogger(__name__)
+
+
+class BuildTarget(Enum):
+    """Build target options."""
+    SLIM = "slim"
+    FULL = "full"
+
+
+@dataclass
+class SetupConfig:
+    """Configuration for setup process."""
+    build_target: BuildTarget = BuildTarget.FULL
+    no_cache: bool = False
+    image_name: str = "claude-code-container"
+    container_name: str = "claude-persistent"
+
+
+class CommandRunner:
+    """Handles command execution with proper error handling."""
+
+    @staticmethod
+    def run(cmd: str, check: bool = True, show_output: bool = False) -> bool:
+        """Execute command with optional output display."""
+        try:
+            # Force UTF-8 encoding
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+
+            # Replace Unix redirections on Windows
+            if sys.platform == "win32" and isinstance(cmd, str):
+                cmd = cmd.replace(' > /dev/null 2>&1', ' >NUL 2>&1')
+                cmd = cmd.replace(' 2>/dev/null', ' 2>NUL')
+                cmd = cmd.replace(' >/dev/null', ' >NUL')
+
+            if show_output:
+                # For commands where we want to see output
+                if sys.platform == "win32":
+                    # Hide console window on Windows
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    result = subprocess.run(cmd, shell=True, env=env, startupinfo=startupinfo)
+                else:
+                    result = subprocess.run(cmd, shell=True, env=env)
+                return result.returncode == 0
+            else:
+                # For silent commands
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    env=env
+                )
+                if check and result.returncode != 0:
+                    if result.stderr:
+                        logger.error(f"Error: {result.stderr}")
+                    return False
+                return True
+        except Exception as e:
+            if check:
+                logger.error(f"Command execution error: {e}")
+            return False
+
+    @staticmethod
+    def run_list(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
+        """Run command as list (safer than shell=True)."""
         env = os.environ.copy()
         env['PYTHONIOENCODING'] = 'utf-8'
-        
-        # Zastąp Unix-owe przekierowania na Windows
-        if sys.platform == "win32" and isinstance(cmd, str):
-            cmd = cmd.replace(' > /dev/null 2>&1', ' >NUL 2>&1')
-            cmd = cmd.replace(' 2>/dev/null', ' 2>NUL')
-            cmd = cmd.replace(' >/dev/null', ' >NUL')
 
-        if show_output:
-            # Dla komend gdzie chcemy widzieć output
-            if sys.platform == "win32":
-                # Na Windows używamy startupinfo żeby ukryć okno konsoli
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                result = subprocess.run(cmd, shell=True, env=env, startupinfo=startupinfo)
-            else:
-                result = subprocess.run(cmd, shell=True, env=env)
-            return result.returncode == 0
-        else:
-            # Dla cichych komend
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            env=env,
+            check=check
+        )
+
+
+class DockerChecker:
+    """Checks Docker availability and status."""
+
+    @staticmethod
+    def is_docker_running() -> bool:
+        """Check if Docker is running."""
+        try:
             result = subprocess.run(
-                cmd,
-                shell=True,
+                ["docker", "version"],
                 capture_output=True,
                 text=True,
-                encoding='utf-8',
-                errors='replace',
-                env=env
+                timeout=5
             )
-            if check and result.returncode != 0:
-                if result.stderr:
-                    print(f"Blad: {result.stderr}")
-                return False
-            return True
-    except Exception as e:
-        if check:
-            print(f"Blad wykonania komendy: {e}")
-        return False
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
 
-def check_claude_installation():
-    """Sprawdza czy Claude Code jest zainstalowany."""
-    print("\nSprawdzanie instalacji Claude Code...")
-    
-    check_result = subprocess.run(
-        ["docker", "exec", "claude-code-container", "which", "claude"],
-        capture_output=True,
-        text=True
-    )
-    
-    if check_result.returncode == 0:
-        print(f"   Claude znaleziony: {check_result.stdout.strip()}")
+    @staticmethod
+    def image_exists(image_name: str) -> bool:
+        """Check if Docker image exists."""
+        result = subprocess.run(
+            ["docker", "images", "-q", image_name],
+            capture_output=True,
+            text=True
+        )
+        return bool(result.stdout.strip())
+
+    @staticmethod
+    def container_exists(container_name: str) -> bool:
+        """Check if Docker container exists."""
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True
+        )
+        return container_name in result.stdout.splitlines()
+
+
+class ImageSetup:
+    """Main setup class for Claude Code Docker image."""
+
+    def __init__(self, config: SetupConfig):
+        self.config = config
+        self.command_runner = CommandRunner()
+        self.docker_checker = DockerChecker()
+
+    def run(self) -> None:
+        """Run the complete setup process."""
+        logger.info("=== Claude Code Docker Image Setup ===\n")
+
+        # Check Docker
+        if not self._check_docker():
+            return
+
+        # Build or check image
+        if not self._setup_image():
+            return
+
+        # Ensure container exists
+        self._ensure_container()
+
+        # Display final instructions
+        self._display_instructions()
+
+    def _check_docker(self) -> bool:
+        """Check Docker availability."""
+        logger.info("Checking Docker...")
+
+        if not self.docker_checker.is_docker_running():
+            logger.error("Docker is not installed or not running!")
+            logger.error("Please ensure Docker Desktop is running.")
+            return False
+
+        logger.info("Docker is running")
         return True
-    else:
-        print("   UWAGA: Claude Code nie jest zainstalowany!")
-        print("   Kontener działa jako środowisko deweloperskie.")
-        print("\n   Możesz spróbować zainstalować ręcznie:")
-        print("   docker exec -it claude-code-container bash")
-        print("   npm install -g @anthropic-ai/claude-code")
-        return False
 
-def main():
-    print("=== Setup Claude Code Container ===\n")
+    def _setup_image(self) -> bool:
+        """Build or verify Docker image."""
+        logger.info("\nChecking Docker image...")
 
-    # Szybkie sprawdzenie Dockera
-    print("Sprawdzanie Dockera...")
-    # Używamy listy argumentów zamiast stringa shell - działa na wszystkich platformach
-    docker_check = subprocess.run(
-        ["docker", "version"],
-        capture_output=True,
-        text=True
-    )
-    if docker_check.returncode != 0:
-        print("Docker nie jest zainstalowany lub nie dziala!")
-        print("Upewnij sie, ze Docker Desktop jest uruchomiony.")
-        sys.exit(1)
-    print("Docker dziala")
+        if self.docker_checker.image_exists(f"{self.config.image_name}:{self.config.build_target.value}"):
+            logger.info("Image already exists")
+            logger.info("  Tip: To rebuild with new dependencies use:")
+            logger.info("       docker compose build --no-cache")
+            logger.info("  To build different version, first remove image:")
+            logger.info(f"       docker rmi {self.config.image_name}")
+            return True
 
-    # Sprawdzenie i czyszczenie starego kontenera
-    print("\nSprawdzanie istniejacych kontenerow...")
-    existing = subprocess.run(
-        "docker ps -aq -f name=claude-code-container",
-        shell=True,
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
-    ).stdout.strip()
+        return self._build_image()
 
-    if existing:
-        print("Usuwanie starego kontenera...")
-        if not run_command("docker rm -f claude-code-container", show_output=True):
-            print("Nie udalo sie usunac starego kontenera, kontynuuje...")
+    def _build_image(self) -> bool:
+        """Build Docker image with user preferences."""
+        logger.info("Building image (first run)...")
 
-    # Sprawdzenie obrazu
-    print("\nSprawdzanie obrazu Docker...")
-    image_exists = subprocess.run(
-        "docker images -q claude-code-container",
-        shell=True,
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
-    ).stdout.strip()
+        # Get build preferences
+        build_target = self._get_build_target()
+        use_cache = self._get_cache_preference()
 
-    if not image_exists:
-        print("Budowanie obrazu (pierwsze uruchomienie)...")
+        # Set environment
+        os.environ['DOCKER_TARGET'] = build_target.value
 
-        # Wybór wersji
-        print("\n   Wybierz wersję:")
-        print("   1. Slim (Claude Code + Java/Maven) ~800MB")
-        print("   2. Full (wszystkie narzędzia) ~3GB")
+        # Build command
+        build_cmd = "docker compose build"
+        if not use_cache:
+            build_cmd += " --no-cache"
 
-        version_choice = input("\nWybór (1-2) [2]: ").strip() or "2"
-
-        if version_choice == "1":
-            os.environ['DOCKER_TARGET'] = 'slim'
-            target = "slim"
-        else:
-            os.environ['DOCKER_TARGET'] = 'full'
-            target = "full"
-
-        print(f"\n   Opcje budowania ({target}):")
-        print("   1. Normalne (z cache) - szybsze")
-        print("   2. Pelne (--no-cache) - swieze pakiety")
-
-        build_choice = input("\nWybor (1-2) [1]: ").strip() or "1"
-
-        print("\nDocker BuildKit wlaczony automatycznie dla szybszego budowania!")
-
-        if build_choice == "2":
-            print(f"\nBudowanie pelnego obrazu {target} (bez cache)...")
-            build_cmd = "docker compose build --no-cache"
-        else:
-            print(f"\nBudowanie obrazu {target} (z cache)...")
-            build_cmd = "docker compose build"
+        logger.info(f"\nBuilding {build_target.value} image...")
+        logger.info("Docker BuildKit enabled for faster builds!")
 
         start_time = time.time()
-        if not run_command(build_cmd, show_output=True):
-            print("Blad podczas budowania obrazu!")
-            sys.exit(1)
+        success = self.command_runner.run(build_cmd, show_output=True)
 
-        build_time = time.time() - start_time
-        print(f"\nBudowanie zakonczone w {build_time:.0f} sekund ({build_time/60:.1f} minut)")
-    else:
-        print("Obraz juz istnieje")
-        print("   Wskazowka: Aby przebudowac z nowymi zaleznosci uzyj:")
-        print("      docker compose build --no-cache")
-        print("   Aby zbudowac inna wersje, najpierw usun obraz:")
-        print("      docker rmi claude-code-container")
-
-    # Uruchamianie kontenera
-    print("\nUruchamianie kontenera...")
-    print("Montowanie dysku C: do kontenera...")
-
-    if not run_command("docker compose up -d", show_output=True):
-        print("Blad podczas uruchamiania kontenera!")
-        print("   Sprawdz logi: docker compose logs")
-        sys.exit(1)
-
-    # Czekanie aż kontener będzie gotowy
-    print("\nCzekanie na gotowosc kontenera...")
-    max_attempts = 10
-    for i in range(max_attempts):
-        # Sprawdzenie czy kontener działa
-        status = subprocess.run(
-            'docker ps -f name=claude-code-container --format "{{.Status}}"',
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace'
-        ).stdout.strip()
-
-        if "Up" in status:
-            # Sprawdzenie czy można wykonać komendę w kontenerze
-            if run_command('docker exec claude-code-container echo "ready"', check=False):
-                print("Kontener gotowy!")
-                break
-
-        print(f"   Proba {i+1}/{max_attempts}...")
-        time.sleep(1)
-    else:
-        print("Kontener nie odpowiada po 10 sekundach!")
-        print("   Sprawdz status: docker ps")
-        print("   Sprawdz logi: docker logs claude-code-container")
-        sys.exit(1)
-
-    # Sprawdzenie instalacji Claude
-    check_claude_installation()
-
-    # Pełna ścieżka do claude.py
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    claude_py_path = os.path.join(current_dir, "claude.py")
-
-    print("\nWszystko gotowe!")
-
-    print("\nKonfiguracja IntelliJ IDEA:")
-    print("1. Settings -> Tools -> Terminal")
-    print("2. W 'Shell path' wpisz:\n")
-    # Cytujemy ścieżkę jeśli zawiera spacje
-    if ' ' in claude_py_path:
-        print(f'   python "{claude_py_path}"\n')
-    else:
-        print(f"   python {claude_py_path}\n")
-    print("3. OK -> nowy terminal")
-
-    print("\nUzycie:")
-    print(f"   python {claude_py_path}              # Uruchom Claude Code")
-    print(f"   python {claude_py_path} [komenda]    # Z argumentami")
-
-    print("\n⚠️  Bezpieczeństwo sesji:")
-    print("   - Każda sesja Claude widzi TYLKO swój katalog projektu")
-    print("   - Narzędzia i instalacje są współdzielone między sesjami")
-    print("   - Możesz pracować na wielu projektach jednocześnie")
-
-    # Sprawdzamy która wersja jest uruchomiona
-    version_check = subprocess.run(
-        'docker images claude-code-container --format "{{.Tag}}"',
-        shell=True,
-        capture_output=True,
-        text=True
-    ).stdout.strip()
-
-    version = "full"  # domyślnie
-    if "slim" in version_check:
-        version = "slim"
-
-    if version == "slim":
-        print("\n📦 Wersja SLIM - dostępne narzędzia:")
-        print("   - Node.js 20 + npm")
-        print("   - Python 3 + pip (requests, beautifulsoup4, anthropic)")
-        print("   - Java 17 (OpenJDK) + Maven")
-        print("   - Git, vim, nano")
-        print("   - Bubblewrap (sandboxing)")
-    else:
-        print("\nDodane narzędzia i biblioteki (wersja FULL):")
-        print("   Języki programowania:")
-        print("   - Node.js 20 + npm")
-        print("   - Python 3 + pip")
-        print("   - Java 17 (OpenJDK) + Maven + Gradle")
-        print("   - Ruby")
-        print("   - PHP + Composer")
-        print("\n   Narzędzia deweloperskie:")
-        print("   - Git, vim, nano")
-        print("   - ripgrep, fd-find, fzf")
-        print("   - Docker CLI")
-        print("   - shellcheck")
-        print("\n   Python biblioteki:")
-        print("   - anthropic, selenium, fastapi, uvicorn")
-        print("   - beautifulsoup4, requests, pytest, black")
-        print("   - pydantic, pyyaml, lxml, rich")
-        print("\n   Inne:")
-        print("   - Chromium + ChromeDriver (dla Selenium)")
-        print("   - LaTeX (texlive-full z polskim wsparciem)")
-        print("   - ImageMagick, ffmpeg")
-        print("   - SQLite3")
-
-    # Diagnostyka końcowa
-    print("\nDiagnostyka:")
-    
-    # Sprawdź podstawowe narzędzia
-    tools = [
-        ("Node.js", "node --version"),
-        ("Python", "python --version"),
-        ("Java", "java --version | head -1"),
-        ("Bubblewrap", "bwrap --version")
-    ]
-    
-    for tool_name, cmd in tools:
-        result = subprocess.run(
-            f"docker exec claude-code-container {cmd}",
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace'
-        )
-        if result.returncode == 0:
-            version = result.stdout.strip().split('\n')[0]
-            print(f"   {tool_name}: {version}")
+        if success:
+            build_time = time.time() - start_time
+            logger.info(f"\nBuild completed in {build_time:.0f} seconds ({build_time/60:.1f} minutes)")
         else:
-            print(f"   {tool_name}: NIE ZNALEZIONY")
-    
-    # Sprawdź session manager
-    sm_check = subprocess.run(
-        ["docker", "exec", "claude-code-container", "test", "-x", "/usr/local/bin/claude-session"],
-        capture_output=True
-    )
-    if sm_check.returncode == 0:
-        print("   Session Manager: ZAINSTALOWANY")
-    else:
-        print("   Session Manager: BRAK!")
+            logger.error("Build failed!")
+
+        return success
+
+    def _ensure_container(self) -> None:
+        """Ensure persistent container exists."""
+        logger.info("\nChecking persistent container...")
+
+        if self.docker_checker.container_exists(self.config.container_name):
+            logger.info("Persistent container already exists")
+        else:
+            logger.info("Creating persistent container...")
+            # Container will be created on first run of claude.py
+            logger.info("Container will be created on first Claude session")
+
+    def _get_build_target(self) -> BuildTarget:
+        """Get build target from user."""
+        logger.info("\n  Choose version:")
+        logger.info("  1. Slim (Claude Code + Java/Maven) ~800MB")
+        logger.info("  2. Full (all tools) ~3GB")
+
+        choice = input("\nChoice (1-2) [2]: ").strip() or "2"
+
+        if choice == "1":
+            return BuildTarget.SLIM
+        else:
+            return BuildTarget.FULL
+
+    def _get_cache_preference(self) -> bool:
+        """Get cache preference from user."""
+        logger.info("\n  Build options:")
+        logger.info("  1. Normal (with cache) - faster")
+        logger.info("  2. Full (--no-cache) - fresh packages")
+
+        choice = input("\nChoice (1-2) [1]: ").strip() or "1"
+        return choice == "1"
+
+    def _display_instructions(self) -> None:
+        """Display final setup instructions."""
+        # Get script paths
+        current_dir = Path(__file__).parent
+        claude_py_path = current_dir / "claude.py"
+
+        logger.info("\nImage built successfully!")
+        logger.info("\n=== NEW: Persistent Container Architecture ===")
+        logger.info("Claude now uses a single persistent container where:")
+        logger.info("  ✅ System packages (apt-get) are shared between sessions")
+        logger.info("  ✅ Each project is isolated and sees only its own files")
+        logger.info("  ✅ Tools installed in one session are available in all")
+
+        logger.info("\nIntelliJ IDEA Configuration:")
+        logger.info("1. Settings -> Tools -> Terminal")
+        logger.info("2. In 'Shell path' enter:\n")
+
+        # Quote path if it contains spaces
+        if ' ' in str(claude_py_path):
+            logger.info(f'   python "{claude_py_path}"\n')
+        else:
+            logger.info(f"   python {claude_py_path}\n")
+
+        logger.info("3. OK -> new terminal")
+
+        logger.info("\nUsage:")
+        logger.info(f"  python {claude_py_path}              # Run Claude Code in current directory")
+        logger.info(f"  python {claude_py_path} [command]    # With arguments")
+
+        logger.info("\n✅ Project Isolation:")
+        logger.info("  - Each Claude session sees ONLY the current project directory")
+        logger.info("  - Other projects on disk are completely hidden")
+        logger.info("  - Full sudo access for installing tools as needed")
+        logger.info("  - Installed tools persist and are shared between all sessions")
+
+        # Display available tools based on version
+        self._display_available_tools()
+
+        logger.info("\nDocker volumes:")
+        logger.info("  - claude-shared-tools: User-installed packages")
+        logger.info("  - claude-apt-cache: APT package cache")
+        logger.info("  - claude-usr-local: System-wide installations")
+        logger.info("  - Project directory: Mounted isolated in container")
+
+        logger.info("\nReady to use! Just run claude.py from any project directory.")
+
+    def _display_available_tools(self) -> None:
+        """Display available tools based on build target."""
+        # Check which version was built
+        result = self.command_runner.run_list([
+            "docker", "images", f"{self.config.image_name}",
+            "--format", "{{.Tag}}"
+        ])
+
+        version = "full"  # default
+        if "slim" in result.stdout:
+            version = "slim"
+
+        if version == "slim":
+            logger.info("\n📦 SLIM Version - Available tools:")
+            logger.info("  - Node.js 20 + npm")
+            logger.info("  - Python 3 + pip (requests, beautifulsoup4, anthropic)")
+            logger.info("  - Java 17 (OpenJDK) + Maven")
+            logger.info("  - Git, vim, nano")
+            logger.info("  - Sudo (full access)")
+        else:
+            logger.info("\n📦 FULL Version - Available tools:")
+            logger.info("  Programming languages:")
+            logger.info("  - Node.js 20 + npm")
+            logger.info("  - Python 3 + pip")
+            logger.info("  - Java 17 (OpenJDK) + Maven + Gradle")
+            logger.info("  - Ruby")
+            logger.info("  - PHP + Composer")
+            logger.info("\n  Development tools:")
+            logger.info("  - Git, vim, nano")
+            logger.info("  - ripgrep, fd-find, fzf")
+            logger.info("  - Docker CLI")
+            logger.info("  - shellcheck")
+            logger.info("\n  Python libraries:")
+            logger.info("  - anthropic, selenium, fastapi, uvicorn")
+            logger.info("  - beautifulsoup4, requests, pytest, black")
+            logger.info("  - pydantic, pyyaml, lxml, rich")
+            logger.info("\n  Other:")
+            logger.info("  - Chromium + ChromeDriver (for Selenium)")
+            logger.info("  - LaTeX (texlive-full with Polish support)")
+            logger.info("  - ImageMagick, ffmpeg")
+            logger.info("  - SQLite3")
+
+
+def main() -> None:
+    """Main entry point."""
+    try:
+        config = SetupConfig()
+        setup = ImageSetup(config)
+        setup.run()
+    except KeyboardInterrupt:
+        logger.info("\nSetup interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
