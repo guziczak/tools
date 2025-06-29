@@ -1,0 +1,127 @@
+services:
+  gemini-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_VERSION: ${DOCKER_TARGET:-full}
+      cache_from:
+        - gemini-cli-container:${DOCKER_TARGET:-full}
+        - gemini-cli-container:latest
+    image: gemini-cli-container:${DOCKER_TARGET:-full}
+    container_name: gemini-persistent
+    hostname: gemini-container
+    stdin_open: true
+    tty: true
+
+    # Root user for mount namespace capabilities
+    user: root
+
+    # Security capabilities for namespace operations
+    cap_add:
+      - SYS_ADMIN
+      - SETUID
+      - SETGID
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+
+    # Volume configuration
+    volumes:
+      # Host filesystem mounts - adjust based on OS
+      # For Windows, mount specific drives
+      - type: bind
+        source: C:/
+        target: /host_c
+        read_only: true
+
+      # Uncomment if you have D: drive
+      # - type: bind
+      #   source: D:/
+      #   target: /host_d
+      #   read_only: true
+
+      # For Linux/Mac, use this instead:
+      # - type: bind
+      #   source: /
+      #   target: /host
+      #   read_only: true
+
+      # Shared volume for tools installed across sessions
+      - type: volume
+        source: gemini-shared-tools
+        target: /opt/gemini-shared
+
+      # Shared system directories for apt packages
+      - type: volume
+        source: gemini-apt-cache
+        target: /var/cache/apt
+
+      - type: volume
+        source: gemini-apt-lib
+        target: /var/lib/apt
+
+      - type: volume
+        source: gemini-usr-local
+        target: /usr/local
+
+      # Node modules persistence
+      - type: volume
+        source: gemini-node-modules
+        target: /usr/lib/node_modules
+
+    # Working directory
+    working_dir: /home/gemini
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Keep container running
+    command: ["sleep", "infinity"]
+
+    # Environment variables
+    environment:
+      - DOCKER_BUILDKIT=1
+      - COMPOSE_DOCKER_CLI_BUILD=1
+      - GEMINI_CONTAINER_VERSION=${DOCKER_TARGET:-full}
+      - TZ=${TZ:-UTC}
+      - NODE_ENV=production
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '${GEMINI_CPU_LIMIT:-4}'
+          memory: ${GEMINI_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: '${GEMINI_CPU_RESERVATION:-1}'
+          memory: ${GEMINI_MEMORY_RESERVATION:-2G}
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "which", "gemini"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=gemini-cli"
+
+# Volume definitions
+volumes:
+  gemini-shared-tools:
+    name: gemini-shared-tools
+  gemini-apt-cache:
+    name: gemini-apt-cache
+  gemini-apt-lib:
+    name: gemini-apt-lib
+  gemini-usr-local:
+    name: gemini-usr-local
+  gemini-node-modules:
+    name: gemini-node-modules
