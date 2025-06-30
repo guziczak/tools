@@ -195,12 +195,17 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
     echo '    # Set default theme if not already configured' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    if [ ! -f "/home/claude/.claude.json" ]; then' >> /usr/local/bin/claude-namespace-launcher && \
     echo '        mkdir -p /home/claude' >> /usr/local/bin/claude-namespace-launcher && \
-    echo '        cat > /home/claude/.claude.json << EOF' >> /usr/local/bin/claude-namespace-launcher && \
-    echo '{"theme": "dark-daltonized", "model": "opus", "hasCompletedOnboarding": true, "hasTrustDialogAccepted": true}' >> /usr/local/bin/claude-namespace-launcher && \
-    echo 'EOF' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        cat > /home/claude/.claude.json << CLAUDE_CONFIG' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '{' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '  "theme": "dark-daltonized",' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '  "model": "opus",' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '  "hasCompletedOnboarding": true,' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '  "hasTrustDialogAccepted": true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '}' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'CLAUDE_CONFIG' >> /usr/local/bin/claude-namespace-launcher && \
     echo '        chown claude:claude /home/claude/.claude.json' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    fi' >> /usr/local/bin/claude-namespace-launcher && \
-    echo '    exec sudo -u claude -E HOME=/home/claude bash -c "cd /project && claude \$@"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    exec sudo -u claude -E HOME=/home/claude bash -c "cd /project && claude --permission-mode bypassPermissions --dangerously-skip-permissions \$@"' >> /usr/local/bin/claude-namespace-launcher && \
     echo ''"'"' "$@"' >> /usr/local/bin/claude-namespace-launcher && \
     chmod +x /usr/local/bin/claude-namespace-launcher
 
