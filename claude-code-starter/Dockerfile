@@ -16,8 +16,7 @@ RUN npm install -g typescript eslint prettier && \
 # ===== GŁÓWNY OBRAZ =====
 FROM ubuntu:24.04
 
-# Build argument dla wyboru wersji
-ARG BUILD_VERSION=full
+# Pełna wersja ze wszystkimi narzędziami
 
 # Ustawienia środowiskowe
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -27,8 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CLAUDE_DEFAULT_MODEL=opus \
     CLAUDE_MODEL=opus \
     ANTHROPIC_MODEL=opus \
-    PATH="/usr/local/lib/node_modules/.bin:${PATH}" \
-    BUILD_VERSION=${BUILD_VERSION}
+    PATH="/usr/local/lib/node_modules/.bin:${PATH}"
 
 # Kopiowanie Node.js i pakietów z pierwszego stage'a
 COPY --from=node-builder /usr/local/bin/node /usr/local/bin/
@@ -58,7 +56,7 @@ RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     git vim nano zip unzip xz-utils \
     python3 python3-pip python3-venv python3-dev \
     build-essential pkg-config \
-    # Java i Maven - zawsze (potrzebne nawet w slim)
+    # Java i Maven
     openjdk-17-jdk-headless maven \
     && ln -s /usr/bin/python3 /usr/bin/python \
     && apt-get clean \
@@ -77,51 +75,51 @@ RUN useradd -m -s /bin/bash claude && \
     chmod g+w /usr/local/bin /usr/local/lib && \
     chgrp root /usr/local/bin /usr/local/lib
 
-# Warunkowa instalacja dodatkowych pakietów (tylko dla full)
-RUN if [ "$BUILD_VERSION" = "full" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
-        # Gradle
-        gradle \
-        # Pozostałe języki
-        ruby \
-        php php-cli php-mbstring php-xml php-curl php-zip composer \
-        # Narzędzia deweloperskie
-        tree jq net-tools iputils-ping htop \
-        ripgrep fd-find fzf shellcheck \
-        # Chrome dla Selenium
-        chromium-browser chromium-chromedriver \
-        # Docker CLI
-        docker.io \
-        # Media
-        imagemagick ffmpeg \
-        # Database
-        sqlite3 \
-        # LaTeX - pełny zestaw
-        texlive texlive-latex-extra texlive-fonts-recommended \
-        texlive-lang-polish biber latexmk \
-        && apt-get clean \
-        && rm -rf /var/lib/apt/lists/* ; \
-    fi
+# Instalacja dodatkowych pakietów
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Gradle
+    gradle \
+    # Pozostałe języki
+    ruby \
+    php php-cli php-mbstring php-xml php-curl php-zip composer \
+    # Narzędzia deweloperskie
+    tree jq net-tools iputils-ping htop \
+    ripgrep fd-find fzf shellcheck \
+    # Chrome dla Selenium
+    chromium-browser chromium-chromedriver \
+    # Docker CLI
+    docker.io \
+    # Media
+    imagemagick ffmpeg \
+    # Database
+    sqlite3 \
+    # LaTeX - pełny zestaw z dodatkami
+    texlive texlive-latex-extra texlive-fonts-recommended \
+    texlive-lang-polish biber latexmk \
+    texlive-xetex texlive-fonts-extra fonts-roboto \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Python packages - dla Ubuntu 24.04, nie aktualizujemy systemowych pakietów
 RUN python3 -m pip install --break-system-packages --no-cache-dir \
-        requests beautifulsoup4 anthropic && \
-    if [ "$BUILD_VERSION" = "full" ]; then \
-        python3 -m pip install --break-system-packages --no-cache-dir \
-            pytest black flake8 \
-            selenium==4.18.1 fastapi==0.109.2 uvicorn==0.27.1 \
-            pydantic==2.6.1 pyyaml==6.0.1 \
-            lxml==5.1.0 aiofiles==23.2.1 python-multipart==0.0.9 \
-            httpx==0.26.0 websockets==12.0 rich==13.7.0 ; \
-    fi
+    requests beautifulsoup4 anthropic \
+    pytest black flake8 \
+    selenium==4.18.1 fastapi==0.109.2 uvicorn==0.27.1 \
+    pydantic==2.6.1 pyyaml==6.0.1 \
+    lxml==5.1.0 aiofiles==23.2.1 python-multipart==0.0.9 \
+    httpx==0.26.0 websockets==12.0 rich==13.7.0 \
+    seaborn matplotlib pandas numpy scipy
 
-# Chrome environment variables (tylko jeśli full)
-RUN if [ "$BUILD_VERSION" = "full" ]; then \
-        echo 'export CHROME_BIN=/usr/bin/chromium-browser' >> /etc/bash.bashrc && \
-        echo 'export CHROME_DRIVER=/usr/bin/chromedriver' >> /etc/bash.bashrc ; \
-    fi
+# PyTorch osobno z własnym indeksem - opcjonalne, może się nie udać
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || \
+    echo "Warning: PyTorch installation failed, continuing without it"
 
-# Skrypt pomocniczy do instalacji Claude Code
+# Chrome environment variables
+RUN echo 'export CHROME_BIN=/usr/bin/chromium-browser' >> /etc/bash.bashrc && \
+    echo 'export CHROME_DRIVER=/usr/bin/chromedriver' >> /etc/bash.bashrc
+
+# Skrypt pomocniczy do instalacji Claude Code + fix permissions dla auto-update
 RUN echo '#!/bin/bash' > /usr/local/bin/check-claude && \
     echo 'if ! which claude >/dev/null 2>&1; then' >> /usr/local/bin/check-claude && \
     echo '    echo "Claude Code not found. Attempting to install..."' >> /usr/local/bin/check-claude && \
@@ -129,7 +127,12 @@ RUN echo '#!/bin/bash' > /usr/local/bin/check-claude && \
     echo '    echo "Claude Code installed successfully!" || \' >> /usr/local/bin/check-claude && \
     echo '    echo "Failed to install Claude Code"' >> /usr/local/bin/check-claude && \
     echo 'fi' >> /usr/local/bin/check-claude && \
-    chmod +x /usr/local/bin/check-claude
+    chmod +x /usr/local/bin/check-claude && \
+    # Fix npm permissions for claude user to allow auto-updates
+    mkdir -p /usr/local/lib/node_modules/.npm && \
+    chown -R claude:claude /usr/local/lib/node_modules/.npm && \
+    chmod -R g+w /usr/local/lib/node_modules && \
+    chgrp -R root /usr/local/lib/node_modules
 
 # Create directory structure for shared tools
 RUN mkdir -p /opt/claude-shared/{bin,lib,share} \
@@ -189,7 +192,15 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
     echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    # Switch to claude user and run claude' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    cd /project' >> /usr/local/bin/claude-namespace-launcher && \
-    echo '    exec sudo -u claude -E HOME=/home/claude bash -c "cd /project && claude $*"' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Set default theme if not already configured' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    if [ ! -f "/home/claude/.claude.json" ]; then' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        mkdir -p /home/claude' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        cat > /home/claude/.claude.json << EOF' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '{"theme": "dark-daltonized", "model": "opus", "hasCompletedOnboarding": true, "hasTrustDialogAccepted": true}' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'EOF' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '        chown claude:claude /home/claude/.claude.json' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    fi' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    exec sudo -u claude -E HOME=/home/claude bash -c "cd /project && claude \$@"' >> /usr/local/bin/claude-namespace-launcher && \
     echo ''"'"' "$@"' >> /usr/local/bin/claude-namespace-launcher && \
     chmod +x /usr/local/bin/claude-namespace-launcher
 

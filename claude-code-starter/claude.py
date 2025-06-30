@@ -87,20 +87,17 @@ class DockerManager:
 
     @classmethod
     def get_available_image(cls) -> str:
-        """Find available image tag (full or slim)."""
-        base_name = "claude-code-container"
+        """Find available image."""
+        image_name = "claude-code-container:latest"
+        
+        if cls.check_image_exists(image_name):
+            logger.debug(f"Found image: {image_name}")
+            return image_name
 
-        # Check in preferred order
-        for tag in ["full", "slim"]:
-            image_name = f"{base_name}:{tag}"
-            if cls.check_image_exists(image_name):
-                logger.debug(f"Found image: {image_name}")
-                return image_name
-
-        # If no tagged version found, raise error
+        # If image not found, raise error
         raise DockerContainerError(
             "No Claude Code image found!\n"
-            "Expected: claude-code-container:full or claude-code-container:slim\n"
+            "Expected: claude-code-container:latest\n"
             "Run: python setup.py"
         )
 

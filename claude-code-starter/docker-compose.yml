@@ -3,12 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        BUILD_VERSION: ${DOCKER_TARGET:-full}
-      cache_from:
-        - claude-code-container:${DOCKER_TARGET:-full}
-        - claude-code-container:latest
-    image: claude-code-container:${DOCKER_TARGET:-full}
+    image: claude-code-container:latest
     container_name: claude-persistent
     hostname: claude-container
     stdin_open: true
@@ -78,7 +73,6 @@ services:
     environment:
       - DOCKER_BUILDKIT=1
       - COMPOSE_DOCKER_CLI_BUILD=1
-      - CLAUDE_CONTAINER_VERSION=${DOCKER_TARGET:-full}
       - TZ=${TZ:-UTC}
 
     # Resource limits

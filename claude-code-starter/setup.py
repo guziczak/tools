@@ -9,7 +9,6 @@ import time
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from enum import Enum
 from dataclasses import dataclass
 
 # Enable BuildKit globally
@@ -24,16 +23,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class BuildTarget(Enum):
-    """Build target options."""
-    SLIM = "slim"
-    FULL = "full"
-
-
 @dataclass
 class SetupConfig:
     """Configuration for setup process."""
-    build_target: BuildTarget = BuildTarget.FULL
     no_cache: bool = False
     image_name: str = "claude-code-container"
     container_name: str = "claude-persistent"
@@ -184,12 +176,12 @@ class ImageSetup:
         """Build or verify Docker image."""
         logger.info("\nChecking Docker image...")
 
-        if self.docker_checker.image_exists(f"{self.config.image_name}:{self.config.build_target.value}"):
+        if self.docker_checker.image_exists(f"{self.config.image_name}:latest"):
             logger.info("Image already exists")
             logger.info("  Tip: To rebuild with new dependencies use:")
             logger.info("       docker compose build --no-cache")
-            logger.info("  To build different version, first remove image:")
-            logger.info(f"       docker rmi {self.config.image_name}")
+            logger.info("  To remove and rebuild image:")
+            logger.info(f"       docker rmi {self.config.image_name}:latest")
             return True
 
         return self._build_image()
@@ -199,18 +191,14 @@ class ImageSetup:
         logger.info("Building image (first run)...")
 
         # Get build preferences
-        build_target = self._get_build_target()
         use_cache = self._get_cache_preference()
-
-        # Set environment
-        os.environ['DOCKER_TARGET'] = build_target.value
 
         # Build command
         build_cmd = "docker compose build"
         if not use_cache:
             build_cmd += " --no-cache"
 
-        logger.info(f"\nBuilding {build_target.value} image...")
+        logger.info("\nBuilding full image...")
         logger.info("Docker BuildKit enabled for faster builds!")
 
         start_time = time.time()
@@ -234,19 +222,6 @@ class ImageSetup:
             logger.info("Creating persistent container...")
             # Container will be created on first run of claude.py
             logger.info("Container will be created on first Claude session")
-
-    def _get_build_target(self) -> BuildTarget:
-        """Get build target from user."""
-        logger.info("\n  Choose version:")
-        logger.info("  1. Slim (Claude Code + Java/Maven) ~800MB")
-        logger.info("  2. Full (all tools) ~3GB")
-
-        choice = input("\nChoice (1-2) [2]: ").strip() or "2"
-
-        if choice == "1":
-            return BuildTarget.SLIM
-        else:
-            return BuildTarget.FULL
 
     def _get_cache_preference(self) -> bool:
         """Get cache preference from user."""
@@ -304,46 +279,29 @@ class ImageSetup:
         logger.info("\nReady to use! Just run claude.py from any project directory.")
 
     def _display_available_tools(self) -> None:
-        """Display available tools based on build target."""
-        # Check which version was built
-        result = self.command_runner.run_list([
-            "docker", "images", f"{self.config.image_name}",
-            "--format", "{{.Tag}}"
-        ])
-
-        version = "full"  # default
-        if "slim" in result.stdout:
-            version = "slim"
-
-        if version == "slim":
-            logger.info("\n📦 SLIM Version - Available tools:")
-            logger.info("  - Node.js 20 + npm")
-            logger.info("  - Python 3 + pip (requests, beautifulsoup4, anthropic)")
-            logger.info("  - Java 17 (OpenJDK) + Maven")
-            logger.info("  - Git, vim, nano")
-            logger.info("  - Sudo (full access)")
-        else:
-            logger.info("\n📦 FULL Version - Available tools:")
-            logger.info("  Programming languages:")
-            logger.info("  - Node.js 20 + npm")
-            logger.info("  - Python 3 + pip")
-            logger.info("  - Java 17 (OpenJDK) + Maven + Gradle")
-            logger.info("  - Ruby")
-            logger.info("  - PHP + Composer")
-            logger.info("\n  Development tools:")
-            logger.info("  - Git, vim, nano")
-            logger.info("  - ripgrep, fd-find, fzf")
-            logger.info("  - Docker CLI")
-            logger.info("  - shellcheck")
-            logger.info("\n  Python libraries:")
-            logger.info("  - anthropic, selenium, fastapi, uvicorn")
-            logger.info("  - beautifulsoup4, requests, pytest, black")
-            logger.info("  - pydantic, pyyaml, lxml, rich")
-            logger.info("\n  Other:")
-            logger.info("  - Chromium + ChromeDriver (for Selenium)")
-            logger.info("  - LaTeX (texlive-full with Polish support)")
-            logger.info("  - ImageMagick, ffmpeg")
-            logger.info("  - SQLite3")
+        """Display available tools."""
+        logger.info("\n📦 Available tools:")
+        logger.info("  Programming languages:")
+        logger.info("  - Node.js 20 + npm")
+        logger.info("  - Python 3 + pip")
+        logger.info("  - Java 17 (OpenJDK) + Maven + Gradle")
+        logger.info("  - Ruby")
+        logger.info("  - PHP + Composer")
+        logger.info("\n  Development tools:")
+        logger.info("  - Git, vim, nano")
+        logger.info("  - ripgrep, fd-find, fzf")
+        logger.info("  - Docker CLI")
+        logger.info("  - shellcheck")
+        logger.info("\n  Python libraries:")
+        logger.info("  - anthropic, selenium, fastapi, uvicorn")
+        logger.info("  - beautifulsoup4, requests, pytest, black")
+        logger.info("  - pydantic, pyyaml, lxml, rich")
+        logger.info("  - PyTorch, seaborn, matplotlib, pandas, numpy, scipy")
+        logger.info("\n  Other:")
+        logger.info("  - Chromium + ChromeDriver (for Selenium)")
+        logger.info("  - LaTeX (texlive-full with Polish support + XeTeX)")
+        logger.info("  - ImageMagick, ffmpeg")
+        logger.info("  - SQLite3")
 
 
 def main() -> None:
