@@ -8,10 +8,9 @@ import sys
 import time
 import logging
 import hashlib
-import signal
-import threading
+import tempfile
 from pathlib import Path
-from typing import Tuple, List, Optional, Dict
+from typing import Tuple, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -229,48 +228,15 @@ class PathValidator:
         return hash_obj.hexdigest()[:8]
 
 
-class SessionCleanupManager:
-    """Manages session cleanup tracking."""
-    
-    def __init__(self):
-        self.active_sessions: Dict[str, float] = {}
-        self.lock = threading.Lock()
-        
-    def register_session(self, session_id: str) -> None:
-        """Register a new active session."""
-        with self.lock:
-            self.active_sessions[session_id] = time.time()
-            logger.debug(f"Registered session: {session_id}")
-            
-    def unregister_session(self, session_id: str) -> None:
-        """Unregister a session when it ends."""
-        with self.lock:
-            if session_id in self.active_sessions:
-                del self.active_sessions[session_id]
-                logger.debug(f"Unregistered session: {session_id}")
-                
-    def cleanup_stale_sessions(self) -> None:
-        """Clean up sessions older than 2 minutes."""
-        current_time = time.time()
-        stale_threshold = 120  # 2 minutes
-        
-        with self.lock:
-            for session_id, start_time in list(self.active_sessions.items()):
-                if current_time - start_time > stale_threshold:
-                    logger.warning(f"Found stale session: {session_id}")
-                    # Here we could trigger additional cleanup if needed
-                    del self.active_sessions[session_id]
-
-
 class ClaudeLauncher:
     """Main launcher for Claude Code sessions."""
 
     def __init__(self, debug: bool = False):
         self.docker_manager = DockerManager()
         self.path_validator = PathValidator()
-        self.session_cleanup = SessionCleanupManager()
         self.image_name = None  # Will be set dynamically
         self.debug = debug
+        self.session_dir = Path("/var/run/claude-sessions")
 
     def ensure_prerequisites(self) -> None:
         """Ensure Docker is running and image exists."""
@@ -318,8 +284,29 @@ class ClaudeLauncher:
         # Generate unique session ID
         session_id = self.path_validator.generate_session_id(project_path)
         
-        # Register session for tracking
-        self.session_cleanup.register_session(session_id)
+        # Create PID file for session tracking
+        pid_file = None
+        try:
+            # Create session directory in container
+            subprocess.run(
+                ["docker", "exec", self.docker_manager.CONTAINER_NAME, 
+                 "mkdir", "-p", str(self.session_dir)],
+                check=False
+            )
+            
+            # Create PID file content
+            pid_content = f"{os.getpid()}\n{time.time()}\n{project_path}\n"
+            
+            # Write PID file to container
+            pid_file = self.session_dir / f"{session_id}.pid"
+            subprocess.run(
+                ["docker", "exec", self.docker_manager.CONTAINER_NAME,
+                 "sh", "-c", f"echo '{pid_content}' > {pid_file}"],
+                check=False
+            )
+            logger.debug(f"Created PID file: {pid_file}")
+        except Exception as e:
+            logger.warning(f"Failed to create PID file: {e}")
 
         # Convert project path for Docker - this will be used inside container
         docker_project_path = self.docker_manager._convert_path_for_docker(str(project_path))
@@ -360,8 +347,17 @@ class ClaudeLauncher:
             logger.error(f"Error: {e}")
             sys.exit(1)
         finally:
-            # Unregister session when done
-            self.session_cleanup.unregister_session(session_id)
+            # Clean up PID file when done
+            if pid_file:
+                try:
+                    subprocess.run(
+                        ["docker", "exec", self.docker_manager.CONTAINER_NAME,
+                         "rm", "-f", str(pid_file)],
+                        check=False
+                    )
+                    logger.debug(f"Removed PID file: {pid_file}")
+                except Exception:
+                    pass  # Best effort cleanup
 
     def _handle_claude_not_found(self) -> None:
         """Handle case when Claude is not found."""

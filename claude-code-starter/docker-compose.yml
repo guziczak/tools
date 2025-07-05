@@ -73,14 +73,7 @@ services:
     tmpfs:
       - /tmp:size=1G,mode=1777
     
-    # Start cleanup daemon and keep container running
-    command: |
-      bash -c '
-        # Start cleanup daemon in background
-        /usr/local/bin/claude-cleanup-daemon &
-        # Keep container running
-        exec sleep infinity
-      '
+    # Remove command - supervisord will be started by Dockerfile CMD
 
     # Environment variables
     environment:
@@ -98,9 +91,9 @@ services:
           cpus: '${CLAUDE_CPU_RESERVATION:-2}'
           memory: ${CLAUDE_MEMORY_RESERVATION:-4G}
 
-    # Health check - verify cleanup daemon is running
+    # Health check - verify supervisord and cleanup daemon are running
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f claude-cleanup-daemon || exit 1"]
+      test: ["CMD-SHELL", "supervisorctl status claude-cleanup | grep -q RUNNING || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
