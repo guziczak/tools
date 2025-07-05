@@ -60,6 +60,13 @@ services:
         source: claude-usr-local
         target: /usr/local
 
+      # Session tracking volume for PID files
+      - type: bind
+        source: /tmp/claude-sessions
+        target: /var/run/claude-sessions
+        bind:
+          create_host_path: true
+
     # Working directory
     working_dir: /home/claude
 
@@ -91,9 +98,9 @@ services:
           cpus: '${CLAUDE_CPU_RESERVATION:-2}'
           memory: ${CLAUDE_MEMORY_RESERVATION:-4G}
 
-    # Health check - verify supervisord and cleanup daemon are running
+    # Enhanced health check - verify supervisord and cleanup daemon are functioning
     healthcheck:
-      test: ["CMD-SHELL", "supervisorctl status claude-cleanup | grep -q RUNNING || exit 1"]
+      test: ["CMD-SHELL", "supervisorctl status claude-cleanup | grep -q RUNNING && [ -f /var/run/claude-cleanup.health ] && [ $(($(date +%s) - $(cat /var/run/claude-cleanup.health))) -lt 120 ]"]
       interval: 30s
       timeout: 10s
       retries: 3

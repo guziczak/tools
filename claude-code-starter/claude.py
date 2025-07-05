@@ -9,8 +9,11 @@ import time
 import logging
 import hashlib
 import tempfile
+import json
+import uuid
+import secrets
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 from dataclasses import dataclass
 from enum import Enum
 
@@ -218,14 +221,16 @@ class PathValidator:
 
     @classmethod
     def generate_session_id(cls, project_path: Path) -> str:
-        """Generate unique session ID for project + timestamp."""
-        # Use SHA256 hash of absolute path + timestamp
-        path_str = str(project_path.resolve())
-        timestamp = str(time.time())
-        combined = f"{path_str}:{timestamp}"
-        hash_obj = hashlib.sha256(combined.encode('utf-8'))
-        # Take first 8 characters of hex digest
-        return hash_obj.hexdigest()[:8]
+        """Generate cryptographically secure session ID."""
+        # Combine multiple sources of entropy
+        timestamp = str(time.time_ns())
+        random_bytes = secrets.token_hex(16)
+        uuid_part = str(uuid.uuid4())
+        project_hash = hashlib.sha256(str(project_path).encode()).hexdigest()[:8]
+        
+        # Create final session ID
+        components = [project_hash, timestamp[-6:], random_bytes[:8], uuid_part[:8]]
+        return "-".join(components)
 
 
 class ClaudeLauncher:
@@ -237,6 +242,7 @@ class ClaudeLauncher:
         self.image_name = None  # Will be set dynamically
         self.debug = debug
         self.session_dir = Path("/var/run/claude-sessions")
+        self.host_session_dir = Path("/tmp/claude-sessions")
 
     def ensure_prerequisites(self) -> None:
         """Ensure Docker is running and image exists."""
@@ -272,6 +278,56 @@ class ClaudeLauncher:
         setup_path = Path(__file__).parent / "setup.py"
         subprocess.run([sys.executable, str(setup_path)])
 
+    def _create_session_pid_file(self, session_id: str, project_path: Path) -> Optional[Path]:
+        """Create PID file for session tracking using volume mount."""
+        try:
+            # Ensure host session directory exists
+            self.host_session_dir.mkdir(parents=True, exist_ok=True)
+            
+            pid_file = self.host_session_dir / f"{session_id}.pid"
+            
+            # Create PID data in JSON format
+            pid_data = {
+                "host_pid": os.getpid(),
+                "timestamp": time.time(),
+                "project_path": str(project_path),
+                "session_id": session_id,
+                "user": os.getenv("USER", "unknown"),
+                "claude_version": os.getenv("CLAUDE_VERSION", "unknown")
+            }
+            
+            # Atomic write using temporary file
+            with tempfile.NamedTemporaryFile(
+                mode='w', 
+                dir=self.host_session_dir, 
+                delete=False, 
+                prefix='.tmp_',
+                suffix='.pid'
+            ) as tmp_file:
+                json.dump(pid_data, tmp_file, indent=2)
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+            
+            # Atomic rename
+            os.rename(tmp_file.name, pid_file)
+            os.chmod(pid_file, 0o644)
+            
+            logger.debug(f"Created PID file: {pid_file}")
+            return pid_file
+            
+        except Exception as e:
+            logger.error(f"Failed to create PID file: {e}")
+            return None
+
+    def _remove_session_pid_file(self, pid_file: Path) -> None:
+        """Remove PID file for session."""
+        try:
+            if pid_file and pid_file.exists():
+                pid_file.unlink()
+                logger.debug(f"Removed PID file: {pid_file}")
+        except Exception as e:
+            logger.warning(f"Failed to remove PID file: {e}")
+
     def launch_claude(self, args: List[str]) -> None:
         """Launch Claude Code in isolated container using docker exec."""
         # Validate current directory
@@ -285,28 +341,7 @@ class ClaudeLauncher:
         session_id = self.path_validator.generate_session_id(project_path)
         
         # Create PID file for session tracking
-        pid_file = None
-        try:
-            # Create session directory in container
-            subprocess.run(
-                ["docker", "exec", self.docker_manager.CONTAINER_NAME, 
-                 "mkdir", "-p", str(self.session_dir)],
-                check=False
-            )
-            
-            # Create PID file content
-            pid_content = f"{os.getpid()}\n{time.time()}\n{project_path}\n"
-            
-            # Write PID file to container
-            pid_file = self.session_dir / f"{session_id}.pid"
-            subprocess.run(
-                ["docker", "exec", self.docker_manager.CONTAINER_NAME,
-                 "sh", "-c", f"echo '{pid_content}' > {pid_file}"],
-                check=False
-            )
-            logger.debug(f"Created PID file: {pid_file}")
-        except Exception as e:
-            logger.warning(f"Failed to create PID file: {e}")
+        pid_file = self._create_session_pid_file(session_id, project_path)
 
         # Convert project path for Docker - this will be used inside container
         docker_project_path = self.docker_manager._convert_path_for_docker(str(project_path))
@@ -349,15 +384,7 @@ class ClaudeLauncher:
         finally:
             # Clean up PID file when done
             if pid_file:
-                try:
-                    subprocess.run(
-                        ["docker", "exec", self.docker_manager.CONTAINER_NAME,
-                         "rm", "-f", str(pid_file)],
-                        check=False
-                    )
-                    logger.debug(f"Removed PID file: {pid_file}")
-                except Exception:
-                    pass  # Best effort cleanup
+                self._remove_session_pid_file(pid_file)
 
     def _handle_claude_not_found(self) -> None:
         """Handle case when Claude is not found."""

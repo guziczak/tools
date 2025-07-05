@@ -68,7 +68,12 @@ RUN useradd -m -s /bin/bash claude && \
     chgrp -R root /var/lib/apt /var/cache/apt && \
     # Uprawnienia dla innych katalogów systemowych które mogą być potrzebne
     chmod g+w /usr/local/bin /usr/local/lib && \
-    chgrp root /usr/local/bin /usr/local/lib
+    chgrp root /usr/local/bin /usr/local/lib && \
+    # Create dedicated user for cleanup daemon
+    useradd -r -s /bin/false -d /nonexistent -c "Claude Cleanup Daemon" claude-cleanup && \
+    mkdir -p /var/log /var/run/claude-sessions && \
+    chown claude-cleanup:claude-cleanup /var/run/claude-sessions && \
+    chmod 755 /var/run/claude-sessions
 
 # Instalacja dodatkowych pakietów
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -223,83 +228,192 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
     echo ''"'"' "$@"' >> /usr/local/bin/claude-namespace-launcher && \
     chmod +x /usr/local/bin/claude-namespace-launcher
 
-# Create session cleanup daemon with proper error handling
-RUN echo '#!/bin/bash' > /usr/local/bin/claude-cleanup-daemon && \
-    echo 'set -euo pipefail' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '# Configuration' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'readonly SESSION_DIR="/var/run/claude-sessions"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'readonly STALE_TIMEOUT=120' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'readonly CHECK_INTERVAL=30' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'readonly LOCK_FILE="/var/lock/claude-cleanup.lock"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'readonly LOG_FILE="/var/log/claude-cleanup.log"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '# Ensure session directory exists' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'mkdir -p "$SESSION_DIR"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '# Logging function' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'log() {' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1" | tee -a "$LOG_FILE"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '}' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '# Cleanup function with file-based tracking' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'cleanup_sessions() {' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    exec 200>"$LOCK_FILE"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    if ! flock -n 200; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        log "Another cleanup instance is running"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        return' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    find "$SESSION_DIR" -name "*.pid" -type f | while read -r pidfile; do' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        if [[ ! -r "$pidfile" ]]; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            continue' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        # Read PID with timeout' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        if ! timeout 1s head -n1 "$pidfile" > /tmp/pid.tmp 2>/dev/null; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            log "Failed to read $pidfile, removing"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            rm -f "$pidfile"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            continue' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        pid=$(cat /tmp/pid.tmp)' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        # Validate PID format' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        if ! [[ "$pid" =~ ^[0-9]+$ ]]; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            log "Invalid PID format in $pidfile"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            rm -f "$pidfile"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            continue' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        # Check if process exists' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        if ! kill -0 "$pid" 2>/dev/null; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            log "Removing dead session $pidfile (PID: $pid)"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            rm -f "$pidfile"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            continue' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        # Check if terminal is attached (active session)' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        if ls /proc/$pid/fd/* 2>/dev/null | xargs -r readlink | grep -q "pts/"; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            continue  # Active session with terminal' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        ' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        # Check session age from file timestamp' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        file_age=$(( $(date +%s) - $(stat -c %Y "$pidfile" 2>/dev/null || echo 0) ))' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        if [ "$file_age" -gt "$STALE_TIMEOUT" ]; then' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            log "Terminating stale session $pidfile (PID: $pid, age: ${file_age}s)"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            kill -TERM "$pid" 2>/dev/null || true' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '            rm -f "$pidfile"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    done' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '}' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '# Main loop with error recovery' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'log "Claude cleanup daemon started"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'while true; do' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    cleanup_sessions || log "Error in cleanup_sessions"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo '    sleep "$CHECK_INTERVAL"' >> /usr/local/bin/claude-cleanup-daemon && \
-    echo 'done' >> /usr/local/bin/claude-cleanup-daemon && \
-    chmod +x /usr/local/bin/claude-cleanup-daemon && \
+# Create enhanced session cleanup daemon with security measures
+RUN cat > /usr/local/bin/claude-cleanup-daemon << 'EOF'
+#!/bin/bash
+set -euo pipefail
+
+# Configuration
+readonly SESSION_DIR="/var/run/claude-sessions"
+readonly STALE_TIMEOUT=120
+readonly CHECK_INTERVAL=30
+readonly LOCK_FILE="/var/lock/claude-cleanup.lock"
+readonly LOG_FILE="/var/log/claude-cleanup.log"
+readonly MAX_LOG_SIZE=$((10 * 1024 * 1024))  # 10MB
+
+# Ensure session directory exists with proper permissions
+mkdir -p "$SESSION_DIR"
+chown claude-cleanup:claude-cleanup "$SESSION_DIR"
+chmod 755 "$SESSION_DIR"
+
+# Log rotation
+rotate_log() {
+    if [[ -f "$LOG_FILE" ]] && [[ $(stat -c%s "$LOG_FILE") -gt $MAX_LOG_SIZE ]]; then
+        mv "$LOG_FILE" "${LOG_FILE}.old"
+        touch "$LOG_FILE"
+        chown claude-cleanup:claude-cleanup "$LOG_FILE"
+    fi
+}
+
+# Enhanced logging with levels
+log() {
+    local level="${1:-INFO}"
+    local message="${2:-}"
+    rotate_log
+    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [${level}] ${message}" | tee -a "$LOG_FILE"
+}
+
+# Validate PID file content
+validate_pid_file() {
+    local pidfile="$1"
+    local content
+    
+    # Read file with timeout
+    if ! content=$(timeout 1s cat "$pidfile" 2>/dev/null); then
+        return 1
+    fi
+    
+    # Try to parse as JSON first (new format)
+    if command -v jq >/dev/null && jq -e . >/dev/null 2>&1 <<< "$content"; then
+        local pid=$(jq -r '.host_pid // empty' <<< "$content")
+        if [[ "$pid" =~ ^[0-9]+$ ]]; then
+            echo "$pid"
+            return 0
+        fi
+    fi
+    
+    # Fallback to old format (first line is PID)
+    local pid=$(echo "$content" | head -1)
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+        echo "$pid"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Check if process belongs to Claude session
+is_claude_process() {
+    local pid="$1"
+    
+    # Check if process exists and belongs to claude session
+    if [[ -r "/proc/$pid/environ" ]]; then
+        # Check for Claude session markers
+        if grep -q "CLAUDE_SESSION\|SESSION_ID" "/proc/$pid/environ" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# Cleanup function with enhanced safety
+cleanup_sessions() {
+    local cleanup_count=0
+    local error_count=0
+    
+    # Acquire exclusive lock with timeout
+    exec 200>"$LOCK_FILE"
+    if ! flock -w 5 -x 200; then
+        log "WARN" "Failed to acquire lock within 5 seconds"
+        return
+    fi
+    
+    log "DEBUG" "Starting cleanup cycle"
+    
+    # Process each PID file
+    find "$SESSION_DIR" -name "*.pid" -type f -print0 | while IFS= read -r -d '' pidfile; do
+        local basename=$(basename "$pidfile")
+        
+        # Skip temporary files
+        if [[ "$basename" =~ ^\.tmp_ ]]; then
+            continue
+        fi
+        
+        # Validate and extract PID
+        local pid
+        if ! pid=$(validate_pid_file "$pidfile"); then
+            log "WARN" "Invalid PID file format: $pidfile"
+            rm -f "$pidfile"
+            ((error_count++))
+            continue
+        fi
+        
+        # Check if process exists
+        if ! kill -0 "$pid" 2>/dev/null; then
+            log "INFO" "Removing PID file for dead process: $basename (PID: $pid)"
+            rm -f "$pidfile"
+            ((cleanup_count++))
+            continue
+        fi
+        
+        # Verify it's actually a Claude process
+        if ! is_claude_process "$pid"; then
+            log "WARN" "PID $pid is not a Claude process, removing stale PID file"
+            rm -f "$pidfile"
+            ((error_count++))
+            continue
+        fi
+        
+        # Check if terminal is attached (active session)
+        if find /proc/$pid/fd -type l -exec readlink {} \; 2>/dev/null | grep -q "pts/"; then
+            log "DEBUG" "Skipping active session: $basename (PID: $pid)"
+            continue
+        fi
+        
+        # Check session age
+        local file_age=$(( $(date +%s) - $(stat -c %Y "$pidfile" 2>/dev/null || echo 0) ))
+        if [[ $file_age -gt $STALE_TIMEOUT ]]; then
+            log "INFO" "Terminating stale session: $basename (PID: $pid, age: ${file_age}s)"
+            
+            # Send SIGTERM first, then SIGKILL if needed
+            if kill -TERM "$pid" 2>/dev/null; then
+                sleep 2
+                if kill -0 "$pid" 2>/dev/null; then
+                    log "WARN" "Process $pid didn't terminate, sending SIGKILL"
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+            fi
+            
+            rm -f "$pidfile"
+            ((cleanup_count++))
+        fi
+    done
+    
+    # Release lock
+    flock -u 200
+    
+    if [[ $cleanup_count -gt 0 ]] || [[ $error_count -gt 0 ]]; then
+        log "INFO" "Cleanup cycle completed: $cleanup_count sessions cleaned, $error_count errors"
+    fi
+}
+
+# Health monitoring file
+update_health() {
+    echo "$(date +%s)" > /var/run/claude-cleanup.health
+}
+
+# Signal handlers
+trap 'log "INFO" "Received SIGTERM, shutting down..."; exit 0' TERM
+trap 'log "INFO" "Received SIGINT, shutting down..."; exit 0' INT
+
+# Main loop with health monitoring
+log "INFO" "Claude cleanup daemon started (PID: $$)"
+
+while true; do
+    update_health
+    
+    # Run cleanup
+    if ! cleanup_sessions; then
+        log "ERROR" "Cleanup cycle failed"
+    fi
+    
+    sleep "$CHECK_INTERVAL"
+done
+EOF
+
+RUN chmod +x /usr/local/bin/claude-cleanup-daemon && \
+    chown root:root /usr/local/bin/claude-cleanup-daemon && \
     # Simple session starter script
     printf '#!/bin/bash\ncd "${1:-/project}"\nshift\nexec claude "$@"\n' > /usr/local/bin/claude-session && \
     chmod +x /usr/local/bin/claude-session && \
@@ -310,42 +424,57 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-cleanup-daemon && \
     echo 'export PIP_TARGET="/opt/claude-shared/lib/python3/site-packages"' >> /etc/bash.bashrc && \
     echo 'export NPM_CONFIG_PREFIX="/opt/claude-shared"' >> /etc/bash.bashrc
 
-# Configure supervisord
+# Configure supervisord with enhanced settings
 RUN mkdir -p /var/log/supervisor && \
     chmod 755 /var/log/supervisor && \
-    echo '[unix_http_server]' > /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'file=/var/run/supervisor.sock' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'chmod=0700' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[supervisord]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'logfile=/var/log/supervisor/supervisord.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'pidfile=/var/run/supervisord.pid' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[rpcinterface:supervisor]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[supervisorctl]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'serverurl=unix:///var/run/supervisor.sock' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:claude-cleanup]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=/usr/local/bin/claude-cleanup-daemon' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/claude-cleanup.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/claude-cleanup.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'priority=100' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'startsecs=2' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'startretries=3' >> /etc/supervisor/conf.d/supervisord.conf
+    cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
+[unix_http_server]
+file=/var/run/supervisor.sock
+chmod=0700
+
+[supervisord]
+nodaemon=true
+logfile=/var/log/supervisor/supervisord.log
+pidfile=/var/run/supervisord.pid
+childlogdir=/var/log/supervisor
+user=root
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl=unix:///var/run/supervisor.sock
+
+[program:claude-cleanup]
+command=/usr/local/bin/claude-cleanup-daemon
+autostart=true
+autorestart=unexpected
+startsecs=10
+startretries=3
+stopasgroup=true
+killasgroup=true
+stopsignal=TERM
+stopwaitsecs=10
+stdout_logfile=/var/log/claude-cleanup.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=3
+stderr_logfile=/var/log/claude-cleanup.err
+stderr_logfile_maxbytes=10MB
+stderr_logfile_backups=3
+user=claude-cleanup
+priority=100
+environment=PATH="/usr/local/bin:/usr/bin:/bin"
+EOF
 
 # Switch back to root for supervisord
 USER root
 WORKDIR /
 
-# Healthcheck - verify supervisord is running
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD supervisorctl status claude-cleanup | grep -q RUNNING || exit 1
+# Enhanced healthcheck - verify both supervisord and cleanup daemon are functioning
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD bash -c 'supervisorctl status claude-cleanup | grep -q RUNNING && \
+               [ -f /var/run/claude-cleanup.health ] && \
+               [ $(($(date +%s) - $(cat /var/run/claude-cleanup.health))) -lt 120 ]'
 
 # Start supervisord
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
