@@ -1,24 +1,17 @@
-# Multi-stage build dla szybszego budowania
+# Build stage for Node.js packages
 FROM node:20-slim AS node-builder
 
-# Instalacja Claude Code z weryfikacją
+# Install Claude Code and development tools
 RUN npm install -g typescript eslint prettier && \
     npm install -g @anthropic-ai/claude-code || \
     (echo "WARNING: Claude Code not available in npm registry" && \
      echo "Container will work as dev environment") && \
-    npm cache clean --force && \
-    # Debug - sprawdzamy co się zainstalowało
-    echo "=== Installed packages ===" && \
-    npm list -g --depth=0 && \
-    echo "=== Looking for claude ===" && \
-    find /usr/local -name "claude" -type f -o -type l 2>/dev/null | head -10
+    npm cache clean --force
 
-# ===== GŁÓWNY OBRAZ =====
+# Main image
 FROM ubuntu:24.04
 
-# Pełna wersja ze wszystkimi narzędziami
-
-# Ustawienia środowiskowe
+# Environment configuration
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONIOENCODING=utf-8 \
     LC_ALL=C.UTF-8 \
@@ -28,11 +21,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ANTHROPIC_MODEL=opus \
     PATH="/usr/local/lib/node_modules/.bin:${PATH}"
 
-# Kopiowanie Node.js i pakietów z pierwszego stage'a
+# Copy Node.js and packages from build stage
 COPY --from=node-builder /usr/local/bin/node /usr/local/bin/
 COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 
-# Tworzenie symlinków i instalacja podstawowych pakietów
+# Create symlinks and install base packages
 RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     # Tworzenie symlinku dla claude
@@ -129,10 +122,14 @@ RUN echo '#!/bin/bash' > /usr/local/bin/check-claude && \
     echo 'fi' >> /usr/local/bin/check-claude && \
     chmod +x /usr/local/bin/check-claude && \
     # Fix npm permissions for claude user to allow auto-updates
-    mkdir -p /usr/local/lib/node_modules/.npm && \
-    chown -R claude:claude /usr/local/lib/node_modules/.npm && \
-    chmod -R g+w /usr/local/lib/node_modules && \
-    chgrp -R root /usr/local/lib/node_modules
+    # Give claude ownership of the entire @anthropic-ai directory
+    chown -R claude:claude /usr/local/lib/node_modules/@anthropic-ai && \
+    chmod -R 755 /usr/local/lib/node_modules/@anthropic-ai && \
+    # Create npm cache directory with correct permissions
+    mkdir -p /home/claude/.npm && \
+    chown -R claude:claude /home/claude/.npm && \
+    # Allow claude to run npm commands as root for global updates
+    echo "claude ALL=(root) NOPASSWD: /usr/bin/npm" >> /etc/sudoers.d/claude
 
 # Create directory structure for shared tools
 RUN mkdir -p /opt/claude-shared/{bin,lib,share} \
@@ -155,9 +152,24 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
     echo '    exit 1' >> /usr/local/bin/claude-namespace-launcher && \
     echo 'fi' >> /usr/local/bin/claude-namespace-launcher && \
     echo '' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '# Cleanup function for unmounting' >> /usr/local/bin/claude-namespace-launcher && \
+    echo 'cleanup() {' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Unmount project directory' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    umount /project 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Unmount hidden directories' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    umount /host 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    umount /host_c 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    umount /host_d 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Clean temporary directories' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    rm -rf /tmp/empty 2>/dev/null || true' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '}' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '' >> /usr/local/bin/claude-namespace-launcher && \
     echo '# Create new mount namespace and run Claude' >> /usr/local/bin/claude-namespace-launcher && \
     echo 'exec unshare --mount bash -c '"'"'' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    # Inside new namespace' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    # Set up trap for cleanup' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '    trap cleanup EXIT INT TERM' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    ' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    # Check which host mount to use' >> /usr/local/bin/claude-namespace-launcher && \
     echo '    if [ -d "/host${PROJECT_PATH}" ]; then' >> /usr/local/bin/claude-namespace-launcher && \
@@ -209,10 +221,39 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
     echo ''"'"' "$@"' >> /usr/local/bin/claude-namespace-launcher && \
     chmod +x /usr/local/bin/claude-namespace-launcher
 
-# Simple session starter script
-RUN printf '#!/bin/bash\ncd "${1:-/project}"\nshift\nexec claude "$@"\n' > /usr/local/bin/claude-session && \
+# Create session cleanup daemon
+RUN echo '#!/bin/bash' > /usr/local/bin/claude-cleanup-daemon && \
+    echo '# Claude session cleanup daemon' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo 'cleanup_namespaces() {' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '    for pid in $(ls /proc/*/ns/mnt 2>/dev/null | cut -d/ -f3 | sort -u); do' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '        # Check if this is our session' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '        if grep -q "SESSION_ID=" /proc/$pid/environ 2>/dev/null; then' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            # Check if terminal is attached' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            if ls /proc/$pid/fd/* 2>/dev/null | xargs -I {} readlink {} | grep -q "pts/"; then' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '                continue  # Active session, do not touch' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            fi' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            ' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            # Check session age' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            SESSION_AGE=$(ps -o etimes= -p $pid 2>/dev/null || echo 0)' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            if [ "$SESSION_AGE" -gt 120 ]; then  # 2 minutes' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '                logger "Cleaning orphaned session PID $pid (age: ${SESSION_AGE}s)"' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '                kill -TERM $pid 2>/dev/null' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '            fi' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '        fi' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '    done' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '}' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '# Run cleanup every 30 seconds' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo 'while true; do' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '    cleanup_namespaces' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo '    sleep 30' >> /usr/local/bin/claude-cleanup-daemon && \
+    echo 'done' >> /usr/local/bin/claude-cleanup-daemon && \
+    chmod +x /usr/local/bin/claude-cleanup-daemon && \
+    # Simple session starter script
+    printf '#!/bin/bash\ncd "${1:-/project}"\nshift\nexec claude "$@"\n' > /usr/local/bin/claude-session && \
     chmod +x /usr/local/bin/claude-session && \
-    # Konfiguracja dla wspólnych narzędzi
+    # Configuration for shared tools
     echo 'export PATH="/opt/claude-shared/bin:$PATH"' >> /etc/bash.bashrc && \
     echo 'export PYTHONPATH="/opt/claude-shared/lib/python3/site-packages:$PYTHONPATH"' >> /etc/bash.bashrc && \
     echo 'export NODE_PATH="/opt/claude-shared/lib/node_modules:$NODE_PATH"' >> /etc/bash.bashrc && \

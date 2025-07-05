@@ -66,8 +66,21 @@ services:
     # Restart policy
     restart: unless-stopped
 
-    # Keep container running
-    command: ["sleep", "infinity"]
+    # Add init for proper signal handling
+    init: true
+    
+    # Add tmpfs for temporary files
+    tmpfs:
+      - /tmp:size=1G,mode=1777
+    
+    # Start cleanup daemon and keep container running
+    command: |
+      bash -c '
+        # Start cleanup daemon in background
+        /usr/local/bin/claude-cleanup-daemon &
+        # Keep container running
+        exec sleep infinity
+      '
 
     # Environment variables
     environment:
@@ -85,9 +98,9 @@ services:
           cpus: '${CLAUDE_CPU_RESERVATION:-2}'
           memory: ${CLAUDE_MEMORY_RESERVATION:-4G}
 
-    # Health check
+    # Health check - verify cleanup daemon is running
     healthcheck:
-      test: ["CMD", "test", "-f", "/usr/local/bin/claude-session"]
+      test: ["CMD-SHELL", "pgrep -f claude-cleanup-daemon || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

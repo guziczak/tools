@@ -8,8 +8,10 @@ import sys
 import time
 import logging
 import hashlib
+import signal
+import threading
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 from dataclasses import dataclass
 from enum import Enum
 
@@ -227,12 +229,46 @@ class PathValidator:
         return hash_obj.hexdigest()[:8]
 
 
+class SessionCleanupManager:
+    """Manages session cleanup tracking."""
+    
+    def __init__(self):
+        self.active_sessions: Dict[str, float] = {}
+        self.lock = threading.Lock()
+        
+    def register_session(self, session_id: str) -> None:
+        """Register a new active session."""
+        with self.lock:
+            self.active_sessions[session_id] = time.time()
+            logger.debug(f"Registered session: {session_id}")
+            
+    def unregister_session(self, session_id: str) -> None:
+        """Unregister a session when it ends."""
+        with self.lock:
+            if session_id in self.active_sessions:
+                del self.active_sessions[session_id]
+                logger.debug(f"Unregistered session: {session_id}")
+                
+    def cleanup_stale_sessions(self) -> None:
+        """Clean up sessions older than 2 minutes."""
+        current_time = time.time()
+        stale_threshold = 120  # 2 minutes
+        
+        with self.lock:
+            for session_id, start_time in list(self.active_sessions.items()):
+                if current_time - start_time > stale_threshold:
+                    logger.warning(f"Found stale session: {session_id}")
+                    # Here we could trigger additional cleanup if needed
+                    del self.active_sessions[session_id]
+
+
 class ClaudeLauncher:
     """Main launcher for Claude Code sessions."""
 
     def __init__(self, debug: bool = False):
         self.docker_manager = DockerManager()
         self.path_validator = PathValidator()
+        self.session_cleanup = SessionCleanupManager()
         self.image_name = None  # Will be set dynamically
         self.debug = debug
 
@@ -281,6 +317,9 @@ class ClaudeLauncher:
 
         # Generate unique session ID
         session_id = self.path_validator.generate_session_id(project_path)
+        
+        # Register session for tracking
+        self.session_cleanup.register_session(session_id)
 
         # Convert project path for Docker - this will be used inside container
         docker_project_path = self.docker_manager._convert_path_for_docker(str(project_path))
@@ -320,6 +359,9 @@ class ClaudeLauncher:
         except Exception as e:
             logger.error(f"Error: {e}")
             sys.exit(1)
+        finally:
+            # Unregister session when done
+            self.session_cleanup.unregister_session(session_id)
 
     def _handle_claude_not_found(self) -> None:
         """Handle case when Claude is not found."""
