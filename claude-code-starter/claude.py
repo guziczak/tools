@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Tuple, List, Optional, Dict
 from dataclasses import dataclass
 from enum import Enum
+from kimi_config_checker import KimiConfigChecker
 
 # Enable BuildKit globally
 os.environ['DOCKER_BUILDKIT'] = '1'
@@ -243,6 +244,7 @@ class ClaudeLauncher:
         self.debug = debug
         self.session_dir = Path("/var/run/claude-sessions")
         self.host_session_dir = Path("/tmp/claude-sessions")
+        self.kimi_checker = KimiConfigChecker()
 
     def ensure_prerequisites(self) -> None:
         """Ensure Docker is running and image exists."""
@@ -346,6 +348,14 @@ class ClaudeLauncher:
         # Convert project path for Docker - this will be used inside container
         docker_project_path = self.docker_manager._convert_path_for_docker(str(project_path))
 
+        # Check for Kimi configuration
+        kimi_config = self.kimi_checker.check_kimi_config(project_path)
+        if kimi_config:
+            logger.info("Kimi API configuration detected - switching to Kimi mode")
+            self.kimi_checker.export_kimi_env(kimi_config)
+        else:
+            logger.info("Using default Claude Opus configuration")
+        
         # Ensure container is running
         if not self.docker_manager.start_container(self.debug):
             logger.error("Failed to start container")
@@ -358,15 +368,30 @@ class ClaudeLauncher:
             "-e", f"PROJECT_PATH={docker_project_path}",
             "-e", f"SESSION_ID={session_id}",
             "-e", f"HOST_PROJECT_PATH={str(project_path)}",
+        ]
+        
+        # Add Kimi environment variables if configured
+        if kimi_config:
+            docker_cmd.extend([
+                "-e", f"ANTHROPIC_BASE_URL={os.environ.get('ANTHROPIC_BASE_URL', '')}",
+                "-e", f"ANTHROPIC_API_KEY={os.environ.get('ANTHROPIC_API_KEY', '')}",
+                "-e", f"CLAUDE_DEFAULT_MODEL={os.environ.get('CLAUDE_DEFAULT_MODEL', '')}",
+                "-e", "CLAUDE_PROVIDER=kimi",
+                "-e", "CLAUDE_MODE=kimi"
+            ])
+        
+        docker_cmd.extend([
             self.docker_manager.CONTAINER_NAME,
             "/usr/local/bin/claude-namespace-launcher"
-        ] + args
+        ] + args)
 
-        logger.info(f"Starting Claude session in: {project_path}")
+        logger.info(f"Starting {'Kimi' if kimi_config else 'Claude'} session in: {project_path}")
         if self.debug:
             logger.debug(f"Session ID: {session_id}")
             logger.debug(f"Docker project path: {docker_project_path}")
             logger.debug(f"Docker command: {' '.join(docker_cmd)}")
+            if kimi_config:
+                logger.debug("Kimi mode enabled")
 
         try:
             # Run Claude in isolated environment

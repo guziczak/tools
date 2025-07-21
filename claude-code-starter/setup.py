@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+from kimi_config_checker import KimiConfigChecker
 
 # Enable BuildKit globally
 os.environ['DOCKER_BUILDKIT'] = '1'
@@ -157,6 +158,9 @@ class ImageSetup:
         # Ensure container exists
         self._ensure_container()
 
+        # Check for Kimi configuration
+        self._check_kimi_setup()
+        
         # Display final instructions
         self._display_instructions()
 
@@ -277,6 +281,26 @@ class ImageSetup:
         logger.info("  - Project directory: Mounted isolated in container")
 
         logger.info("\nReady to use! Just run claude.py from any project directory.")
+
+    def _check_kimi_setup(self) -> None:
+        """Check for Kimi configuration file."""
+        current_dir = Path(__file__).parent
+        env_file = current_dir / ".env.kimi"
+        
+        if env_file.exists():
+            logger.info("\n🌙 Kimi API Configuration:")
+            kimi_config = KimiConfigChecker.check_kimi_config(current_dir)
+            if kimi_config:
+                logger.info("  ✅ Kimi configuration found and valid")
+                logger.info("  Claude will use Kimi API when launched from projects with .env.kimi")
+            else:
+                logger.info("  ⚠️  .env.kimi exists but is not properly configured")
+                logger.info("  Please add your KIMI_API_KEY to the file")
+        else:
+            logger.info("\n💡 Tip: To use Kimi API instead of Claude:")
+            logger.info("  1. Copy .env.kimi to your project directory")
+            logger.info("  2. Add your Kimi API key to KIMI_API_KEY=")
+            logger.info("  3. Claude will automatically detect and use Kimi")
 
     def _display_available_tools(self) -> None:
         """Display available tools."""
