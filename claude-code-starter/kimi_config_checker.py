@@ -19,7 +19,9 @@ class KimiConfigChecker:
     @classmethod
     def check_kimi_config(cls, project_dir: Path) -> Optional[Dict[str, str]]:
         """Check if Kimi configuration exists and is valid."""
-        env_file = project_dir / cls.ENV_FILE
+        # Use the directory where this script is located for config files
+        script_dir = Path(__file__).parent
+        env_file = script_dir / cls.ENV_FILE
         
         if not env_file.exists():
             return None

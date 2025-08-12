@@ -6,8 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="c1b1f202-ffc4-4650-bb28-743b8e96d582" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-starter/.env.kimi" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/claude-code-starter/claude.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-starter/claude.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude-code-starter/setup.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-starter/setup.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-starter/kimi_config_checker.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-starter/kimi_config_checker.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,6 +38,19 @@
     &quot;settings.editor.selected.configurable&quot;: &quot;terminal&quot;
   }
 }</component>
+  <component name="RunManager">
+    <configuration default="true" type="JetRunConfigurationType">
+      <module name="tools2" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="KotlinStandaloneScriptRunConfigurationType">
+      <module name="tools2" />
+      <option name="filePath" />
+      <method v="2" />
+    </configuration>
+  </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="c1b1f202-ffc4-4650-bb28-743b8e96d582" name="Changes" comment="" />

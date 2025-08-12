@@ -332,7 +332,7 @@ class ClaudeLauncher:
 
     def launch_claude(self, args: List[str]) -> None:
         """Launch Claude Code in isolated container using docker exec."""
-        # Validate current directory
+        # Validate current working directory (where user runs the command)
         try:
             project_path = self.path_validator.validate_project_path(os.getcwd())
         except DockerContainerError as e:

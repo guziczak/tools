@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Niesamowity Model Kuli Ziemskiej 3D</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 16px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 5px;
+        }
+        
+        #controls h3 {
+            margin: 0 0 10px 0;
+        }
+        
+        #controls label {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h1>Kula Ziemska 3D</h1>
+        <p>Użyj myszy do obracania • Scroll do przybliżania</p>
+    </div>
+    
+    <div id="loading">
+        <h2>Ładowanie ekstremalnych tekstur...</h2>
+        <p>Przygotowuję 16K+ rozdzielczość</p>
+        <div id="loadingProgress" style="margin-top: 10px;">0%</div>
+    </div>
+    
+    <div id="controls">
+        <h3>Kontrolki</h3>
+        <label>
+            <input type="checkbox" id="rotation" checked> Automatyczna rotacja
+        </label>
+        <label>
+            <input type="checkbox" id="clouds" checked> Pokaż chmury
+        </label>
+        <label>
+            <input type="checkbox" id="atmosphere" checked> Pokaż atmosferę
+        </label>
+        <label>
+            Prędkość rotacji: <input type="range" id="speed" min="0" max="10" value="5" step="0.5">
+        </label>
+        <label>
+            <input type="checkbox" id="nightLights" checked> Światła miast nocą
+        </label>
+        <label>
+            <input type="checkbox" id="moon" checked> Pokaż Księżyc
+        </label>
+        <label>
+            Prędkość czasu: <input type="range" id="timeSpeed" min="0" max="100" value="10" step="5">
+        </label>
+        <label>
+            <input type="checkbox" id="cityMarkers" checked> Pokaż miasta
+        </label>
+        <label>
+            <input type="checkbox" id="satellites" checked> Pokaż satelity
+        </label>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="earth-globe.js"></script>
+</body>
+</html>
