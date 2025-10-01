@@ -16,9 +16,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONIOENCODING=utf-8 \
     LC_ALL=C.UTF-8 \
     LANG=C.UTF-8 \
-    CLAUDE_DEFAULT_MODEL=opus \
-    CLAUDE_MODEL=opus \
-    ANTHROPIC_MODEL=opus \
+    CLAUDE_DEFAULT_MODEL=sonnet-4.5 \
+    CLAUDE_MODEL=sonnet-4.5 \
+    ANTHROPIC_MODEL=sonnet-4.5 \
     PATH="/usr/local/lib/node_modules/.bin:${PATH}"
 
 # Copy Node.js and packages from build stage
@@ -50,7 +50,7 @@ RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     python3 python3-pip python3-venv python3-dev \
     build-essential pkg-config \
     # Java i Maven
-    openjdk-17-jdk-headless maven \
+    openjdk-18-jdk-headless maven \
     # Supervisor for process management
     supervisor \
     && ln -s /usr/bin/python3 /usr/bin/python \
@@ -79,9 +79,6 @@ RUN useradd -m -s /bin/bash claude && \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Gradle
     gradle \
-    # Pozostałe języki
-    ruby \
-    php php-cli php-mbstring php-xml php-curl php-zip composer \
     # Narzędzia deweloperskie
     tree jq net-tools iputils-ping htop \
     ripgrep fd-find fzf shellcheck \
@@ -217,7 +214,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/claude-namespace-launcher && \
     echo '        cat > /home/claude/.claude.json << CLAUDE_CONFIG' >> /usr/local/bin/claude-namespace-launcher && \
     echo '{' >> /usr/local/bin/claude-namespace-launcher && \
     echo '  "theme": "dark-daltonized",' >> /usr/local/bin/claude-namespace-launcher && \
-    echo '  "model": "opus",' >> /usr/local/bin/claude-namespace-launcher && \
+    echo '  "model": "sonnet-4.5",' >> /usr/local/bin/claude-namespace-launcher && \
     echo '  "hasCompletedOnboarding": true,' >> /usr/local/bin/claude-namespace-launcher && \
     echo '  "hasTrustDialogAccepted": true' >> /usr/local/bin/claude-namespace-launcher && \
     echo '}' >> /usr/local/bin/claude-namespace-launcher && \
