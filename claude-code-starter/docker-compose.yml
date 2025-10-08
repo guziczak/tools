@@ -92,11 +92,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '${CLAUDE_CPU_LIMIT:-6}'
-          memory: ${CLAUDE_MEMORY_LIMIT:-12G}
+          cpus: '${CLAUDE_CPU_LIMIT:-2}'
+          memory: ${CLAUDE_MEMORY_LIMIT:-2G}
         reservations:
-          cpus: '${CLAUDE_CPU_RESERVATION:-2}'
-          memory: ${CLAUDE_MEMORY_RESERVATION:-4G}
+          cpus: '${CLAUDE_CPU_RESERVATION:-1}'
+          memory: ${CLAUDE_MEMORY_RESERVATION:-1G}
 
     # Enhanced health check - verify supervisord and cleanup daemon are functioning
     healthcheck:
