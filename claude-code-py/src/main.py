@@ -14,6 +14,9 @@ from core.api_client import ClaudeAPIClient
 from core.auth import AuthManager, AuthenticationError
 from ui.terminal import TerminalUI
 from tools import create_default_registry, ToolRegistry
+from agents import AgentRegistry, AgentRouter
+from agents.prebuilt import create_default_agents
+from agents.thinking import detect_thinking_level
 
 
 class ClaudeCodePy:
@@ -33,6 +36,10 @@ class ClaudeCodePy:
         # Initialize tool registry
         self.tool_registry: Optional[ToolRegistry] = None
 
+        # Initialize agent registry
+        self.agent_registry: Optional[AgentRegistry] = None
+        self.agent_router: Optional[AgentRouter] = None
+
         # Load configuration from environment
         self.config = {
             "api_key": os.getenv("ANTHROPIC_API_KEY"),
@@ -43,12 +50,21 @@ class ClaudeCodePy:
             "thinking_budget": int(os.getenv("CLAUDE_THINKING_BUDGET", "10000")),
             "use_oauth": os.getenv("CLAUDE_USE_OAUTH", "true").lower() == "true",
             "tools_enabled": os.getenv("CLAUDE_TOOLS_ENABLED", "true").lower() == "true",
+            "agents_enabled": os.getenv("CLAUDE_AGENTS_ENABLED", "true").lower() == "true",
         }
 
         # System prompt
         self.system_prompt = """You are Claude, a helpful AI assistant. You are running in Claude Code Python, a terminal-based chat interface.
 
-You have access to tools for file operations, running commands, and searching files. Use them when needed to help the user.
+You have access to:
+1. **Tools** for file operations, running commands, and searching files
+2. **Specialized Agents** for complex tasks:
+   - Test Writer: For writing comprehensive tests
+   - Code Reviewer: For reviewing code quality and security
+   - Bug Fixer: For debugging and fixing issues
+   - Refactorer: For improving code structure
+
+When the user needs specialized help (tests, reviews, debugging, refactoring), delegate to the appropriate agent using the delegate_to_* tools. For simple file operations or commands, use regular tools directly.
 
 Be concise, helpful, and friendly. When writing code, use proper syntax highlighting."""
 
@@ -110,6 +126,23 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         else:
             self.tool_registry = None
 
+    def initialize_agents(self) -> None:
+        """Initialize agent registry."""
+        if self.config["agents_enabled"]:
+            self.agent_registry = AgentRegistry()
+
+            # Register pre-built agents
+            for agent in create_default_agents():
+                self.agent_registry.register(agent)
+
+            self.ui.print_info(f"Agents enabled ({len(self.agent_registry)} specialized agents)")
+
+            # Show available agents
+            agent_names = ", ".join(self.agent_registry.list_agents())
+            self.ui.print_info(f"Available agents: {agent_names}")
+        else:
+            self.agent_registry = None
+
     def initialize_client(self) -> bool:
         """Initialize the API client.
 
@@ -124,10 +157,28 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         # Initialize tools
         self.initialize_tools()
 
+        # Initialize agents
+        self.initialize_agents()
+
         # Get tool definitions for API
         tools = None
         if self.tool_registry:
             tools = self.tool_registry.get_anthropic_tools()
+
+        # Add agents as tools (so Claude can choose them)
+        if self.agent_registry:
+            agent_tools = self.agent_registry.get_anthropic_tools()
+            if tools:
+                tools.extend(agent_tools)
+            else:
+                tools = agent_tools
+
+            # Create agent router
+            from anthropic import Anthropic
+            self.agent_router = AgentRouter(
+                self.agent_registry,
+                Anthropic(api_key=api_key)
+            )
 
         try:
             self.client = ClaudeAPIClient(
@@ -185,8 +236,13 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
                 # Send to Claude and stream response
                 self.ui.print_separator()
                 try:
-                    # Use chat_with_tools if tools are enabled
-                    if self.tool_registry:
+                    # Detect thinking level
+                    thinking_level, explicit = detect_thinking_level(user_input)
+                    if explicit:
+                        self.ui.print_info(f"Thinking level: {thinking_level.name} ({thinking_level.budget:,} tokens)")
+
+                    # Use chat_with_tools if tools/agents are enabled
+                    if self.tool_registry or self.agent_registry:
                         events = self.client.chat_with_tools(user_input, system=self.system_prompt)
                     else:
                         events = self.client.chat(user_input, system=self.system_prompt)
@@ -224,6 +280,9 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         elif cmd == "/help":
             self.show_help()
 
+        elif cmd == "/agents":
+            self.show_agents()
+
         elif cmd == "/login":
             self.handle_login()
 
@@ -255,21 +314,46 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         self.ui.print_success("Logged out successfully")
         self.ui.print_info("Your saved authentication has been cleared")
 
+    def show_agents(self):
+        """Show available agents."""
+        if not self.agent_registry:
+            self.ui.print_info("Agents are not enabled")
+            return
+
+        self.ui.console.print("\n[bold cyan]Available Specialized Agents:[/bold cyan]\n")
+
+        for agent in self.agent_registry._agents.values():
+            self.ui.console.print(f"  [bold yellow]{agent.name}[/bold yellow] ({agent.role.value})")
+            self.ui.console.print(f"    {agent.description}")
+            self.ui.console.print(f"    Keywords: {', '.join(agent.keywords[:5])}")
+            self.ui.console.print()
+
+        self.ui.console.print("[dim]Claude will automatically choose the right agent for your task![/dim]\n")
+
     def show_help(self):
         """Show help message."""
         help_text = """
 [bold cyan]Available Commands:[/bold cyan]
 
   /help     - Show this help message
+  /agents   - Show available specialized agents
   /clear    - Clear the screen
   /reset    - Reset conversation history
   /login    - Re-authenticate (OAuth device flow)
   /logout   - Clear saved authentication
   exit/quit - Exit the application
 
+[bold cyan]Thinking Levels:[/bold cyan]
+
+  think         - Basic thinking (4K tokens)
+  think hard    - Standard thinking (10K tokens)
+  think harder  - Deep thinking (20K tokens)
+  ultrathink    - Maximum thinking (32K tokens)
+
 [bold cyan]Tips:[/bold cyan]
 
   • Extended thinking is enabled - Claude will show reasoning process
+  • Specialized agents available for tests, reviews, debugging, refactoring
   • All messages are kept in conversation history
   • Use Ctrl+C to interrupt at any time
   • First run will open browser for authentication
