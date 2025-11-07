@@ -13,8 +13,8 @@ class BashTool(BaseTool):
 
     def __init__(self):
         """Initialize Bash tool with platform detection."""
+        self._detect_shell()  # Must be called BEFORE super().__init__()
         super().__init__()
-        self._detect_shell()
 
     def _detect_shell(self):
         """Detect available shell based on platform."""

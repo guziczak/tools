@@ -20,6 +20,8 @@ Natywny Python clone Claude Code z extended thinking i Rich terminal UI.
 
 ## Instalacja
 
+### Quick Start (Users)
+
 1. **Sklonuj/przejdź do katalogu:**
    ```bash
    cd claude-code-py
@@ -44,6 +46,26 @@ Natywny Python clone Claude Code z extended thinking i Rich terminal UI.
    ANTHROPIC_API_KEY=sk-ant-your-key-here
    CLAUDE_USE_OAUTH=false
    ```
+
+### Developer Setup
+
+Jeśli chcesz rozwijać projekt:
+
+```bash
+# Install development dependencies
+make install-dev
+
+# Setup pre-commit hooks
+pre-commit install
+
+# Run tests
+make test
+
+# See all available commands
+make help
+```
+
+Zobacz [CONTRIBUTING.md](CONTRIBUTING.md) i [BEST_PRACTICES.md](BEST_PRACTICES.md) dla więcej informacji.
 
 ## Użycie
 
@@ -120,6 +142,38 @@ CLAUDE_THINKING_BUDGET=10000
 - Python 3.8+
 - Anthropic API key
 - Linux/macOS/Windows (WSL)
+
+## Development
+
+### Project Structure
+
+```
+claude-code-py/
+├── src/                    # Source code
+│   ├── core/              # Core functionality (API, auth, tools)
+│   ├── tools/             # Tool implementations
+│   ├── ui/                # Terminal UI
+│   └── utils/             # Utilities (logging, etc)
+├── tests/                 # Test suite
+│   ├── unit/             # Unit tests
+│   ├── integration/      # Integration tests
+│   └── fixtures/         # Test fixtures
+├── .github/              # CI/CD workflows
+└── docs/                 # Documentation
+```
+
+### Quality Standards
+
+This project follows production best practices:
+
+- ✅ **Testing**: pytest with >80% coverage target
+- ✅ **Type Safety**: mypy type checking
+- ✅ **Code Quality**: black, isort, flake8
+- ✅ **CI/CD**: GitHub Actions for all platforms
+- ✅ **Security**: bandit, safety scanning
+- ✅ **Documentation**: Comprehensive docs
+
+See [BEST_PRACTICES.md](BEST_PRACTICES.md) for full details.
 
 ## Architecture
 
