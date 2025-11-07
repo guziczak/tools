@@ -2,15 +2,8 @@
 
 ## 🚀 Super Quick Start
 
-### 1. Setup (one time):
+### 1. Install dependencies (one time):
 ```bash
-# Copy config
-cp .env.example .env
-
-# Edit and add your API key
-nano .env  # or: notepad .env (Windows)
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
@@ -19,17 +12,30 @@ pip install -r requirements.txt
 python claude.py
 ```
 
+**First run?** OAuth login (like official Claude Code!):
+1. ✅ **Browser opens** to https://claude.ai
+2. ✅ **Sign in** with your Claude Max/Pro/Team account
+3. ✅ **Copy the code** shown after login
+4. ✅ **Paste in CLI** and press Enter
+5. ✅ **Start immediately!**
+
+**Exactly like official Claude Code!** Same OAuth flow! 🎉
+
+**Alternative: API Key** (if OAuth fails):
+- App automatically falls back to API key setup
+- Shows link to Console → Create key → Paste → Done!
+
 That's it! 🎉
 
 ---
 
-## Windows:
+## Windows (Same!):
 ```cmd
-copy .env.example .env
-notepad .env
 pip install -r requirements.txt
 python claude.py
 ```
+
+**Interactive setup works on all platforms!** 🪟🐧🍎
 
 ---
 

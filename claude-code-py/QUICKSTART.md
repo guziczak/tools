@@ -1,45 +1,38 @@
 # Quick Start Guide - Claude Code Python
 
-## 🚀 Jak uruchomić w 3 krokach:
+## 🚀 Jak uruchomić w 2 krokach:
 
-### Krok 1: Przygotuj API Key
+### Krok 1: Zainstaluj dependencies (raz)
 
 ```bash
-# Skopiuj przykładową konfigurację
-cp .env.example .env
-
-# Edytuj .env i dodaj swój klucz API
-nano .env
+pip install -r requirements.txt
 ```
-
-W pliku `.env` ustaw:
-```env
-ANTHROPIC_API_KEY=sk-ant-twoj-klucz-tutaj
-CLAUDE_USE_OAUTH=false
-CLAUDE_AGENTS_ENABLED=true
-CLAUDE_TOOLS_ENABLED=true
-```
-
-**Gdzie wziąć API key?**
-1. Idź na: https://console.anthropic.com/
-2. Zaloguj się
-3. Settings → API Keys
-4. Create Key
-5. Skopiuj i wklej do .env
 
 ---
 
 ### Krok 2: Uruchom!
 
 ```bash
-# SUPER PROSTY sposób
 python claude.py
+```
 
-# Albo przez skrypt
-./claude.sh
+**Pierwsze uruchomienie?** **OAuth flow (jak prawdziwy Claude Code!)**
+1. ✅ **OTWORZY PRZEGLĄDARKĘ** → https://claude.ai
+2. ✅ **Zaloguj się** (Claude Max/Pro/Team account)
+3. ✅ **Skopiuj code** pokazany po logowaniu
+4. ✅ **Wklej w CLI** i Enter
+5. ✅ **Token zapisany lokalnie** (~/.claude-code-py/)
+6. ✅ **Wystartuje od razu!**
 
-# Albo launcher
-./RUN_ME.sh
+**IDENTYCZNY FLOW JAK ORYGINALNY CLAUDE CODE!** 🎉
+
+**Fallback:** Jeśli OAuth zawiedzie, automatycznie przełączy się na setup API key.
+
+**Inne sposoby uruchomienia:**
+```bash
+./claude.sh        # Bash script (Linux/Mac)
+./RUN_ME.sh       # Auto launcher (Linux/Mac)
+RUN_ME.bat        # Windows batch file
 ```
 
 ---

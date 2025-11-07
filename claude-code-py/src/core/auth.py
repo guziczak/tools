@@ -1,11 +1,15 @@
-"""OAuth device flow authentication for Anthropic API."""
+"""OAuth PKCE flow authentication for Anthropic API (like Claude Code)."""
 
 import time
 import json
 import webbrowser
+import hashlib
+import base64
+import secrets
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 import requests
 
 
@@ -92,126 +96,144 @@ class TokenStorage:
         return None
 
 
-class DeviceFlowAuth:
-    """OAuth device flow authentication."""
+class PKCEAuth:
+    """OAuth PKCE flow authentication (like official Claude Code)."""
 
-    # Anthropic OAuth endpoints
-    DEVICE_AUTH_URL = "https://api.anthropic.com/v1/oauth/device"
-    TOKEN_URL = "https://api.anthropic.com/v1/oauth/token"
-    VERIFICATION_URL = "https://console.anthropic.com/device"
+    # Anthropic OAuth endpoints (same as official Claude Code)
+    AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+    TOKEN_URL = "https://console.anthropic.com/api/organizations/-/oauth/token"
+    REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 
-    # Client ID for Claude Code (this would need to be registered with Anthropic)
-    # Note: This is a placeholder - you'd need the actual client_id from Anthropic
-    CLIENT_ID = "claude-code-python"
+    # Official Claude Code client ID
+    CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+
+    # Scopes (same as Claude Code)
+    SCOPES = "org:create_api_key user:profile user:inference"
 
     def __init__(self, token_storage: TokenStorage):
-        """Initialize device flow authenticator.
+        """Initialize PKCE flow authenticator.
 
         Args:
             token_storage: Token storage manager
         """
         self.token_storage = token_storage
+        self.code_verifier: Optional[str] = None
 
-    def start_device_flow(self) -> Dict[str, str]:
-        """Start device authorization flow.
+    @staticmethod
+    def generate_code_verifier() -> str:
+        """Generate PKCE code verifier.
 
         Returns:
-            Dict with device_code, user_code, verification_uri
-
-        Raises:
-            AuthenticationError: If request fails
+            Random code verifier string (43-128 chars)
         """
-        try:
-            response = requests.post(
-                self.DEVICE_AUTH_URL,
-                json={
-                    "client_id": self.CLIENT_ID,
-                    "scope": "api"
-                },
-                timeout=10
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.HTTPError as e:
-            if e.response.status_code == 404:
-                raise AuthenticationError(
-                    "OAuth device flow not available. "
-                    "Please use manual API key instead (set ANTHROPIC_API_KEY in .env)"
-                )
-            raise AuthenticationError(f"Failed to start device flow: {e}")
-        except requests.RequestException as e:
-            raise AuthenticationError(
-                f"Failed to start device flow: {e}\n"
-                "OAuth may not be available. Try using manual API key instead."
-            )
+        # Generate 32 random bytes, base64url encode
+        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8')
+        # Remove padding
+        return code_verifier.rstrip('=')
 
-    def poll_for_token(
-        self,
-        device_code: str,
-        interval: int = 5,
-        timeout: int = 300
-    ) -> Dict[str, Any]:
-        """Poll for access token.
+    @staticmethod
+    def generate_code_challenge(verifier: str) -> str:
+        """Generate PKCE code challenge from verifier.
 
         Args:
-            device_code: Device code from start_device_flow
-            interval: Polling interval in seconds
-            timeout: Total timeout in seconds
+            verifier: Code verifier string
 
         Returns:
-            Token data
+            SHA256 hash of verifier, base64url encoded
+        """
+        # SHA256 hash
+        digest = hashlib.sha256(verifier.encode('utf-8')).digest()
+        # Base64url encode
+        challenge = base64.urlsafe_b64encode(digest).decode('utf-8')
+        # Remove padding
+        return challenge.rstrip('=')
+
+    @staticmethod
+    def generate_state() -> str:
+        """Generate random state parameter.
+
+        Returns:
+            Random state string
+        """
+        return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+
+    def build_authorization_url(self) -> tuple[str, str]:
+        """Build authorization URL with PKCE parameters.
+
+        Returns:
+            Tuple of (authorization_url, code_verifier)
+        """
+        # Generate PKCE parameters
+        self.code_verifier = self.generate_code_verifier()
+        code_challenge = self.generate_code_challenge(self.code_verifier)
+        state = self.generate_state()
+
+        # Build query parameters (exactly like Claude Code)
+        params = {
+            'code': 'true',
+            'client_id': self.CLIENT_ID,
+            'response_type': 'code',
+            'redirect_uri': self.REDIRECT_URI,
+            'scope': self.SCOPES,
+            'code_challenge': code_challenge,
+            'code_challenge_method': 'S256',
+            'state': state,
+        }
+
+        url = f"{self.AUTHORIZE_URL}?{urlencode(params)}"
+        return url, self.code_verifier
+
+    def exchange_code_for_token(self, authorization_code: str) -> Dict[str, Any]:
+        """Exchange authorization code for access token.
+
+        Args:
+            authorization_code: Authorization code from OAuth redirect
+
+        Returns:
+            Token data with access_token
 
         Raises:
-            AuthenticationError: If polling fails or times out
+            AuthenticationError: If exchange fails
         """
-        start_time = time.time()
+        if not self.code_verifier:
+            raise AuthenticationError("No code verifier found. Start authorization flow first.")
 
-        while time.time() - start_time < timeout:
-            try:
-                response = requests.post(
-                    self.TOKEN_URL,
-                    json={
-                        "client_id": self.CLIENT_ID,
-                        "device_code": device_code,
-                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
-                    },
-                    timeout=10
-                )
+        try:
+            # Exchange code for token (like Claude Code does)
+            response = requests.post(
+                self.TOKEN_URL,
+                json={
+                    "grant_type": "authorization_code",
+                    "client_id": self.CLIENT_ID,
+                    "code": authorization_code,
+                    "code_verifier": self.code_verifier,
+                    "redirect_uri": self.REDIRECT_URI,
+                },
+                headers={
+                    "Content-Type": "application/json",
+                },
+                timeout=30
+            )
 
-                if response.status_code == 200:
-                    # Success!
-                    token_data = response.json()
-                    self.token_storage.save_token(token_data)
-                    return token_data
+            if response.status_code == 200:
+                token_data = response.json()
+                # Save token
+                self.token_storage.save_token(token_data)
+                return token_data
+            else:
+                error_msg = f"Token exchange failed: {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_msg += f" - {error_data.get('error', error_data)}"
+                except Exception:
+                    error_msg += f" - {response.text}"
+                raise AuthenticationError(error_msg)
 
-                elif response.status_code == 400:
-                    error = response.json().get("error")
-
-                    if error == "authorization_pending":
-                        # Still waiting for user authorization
-                        time.sleep(interval)
-                        continue
-                    elif error == "slow_down":
-                        # Increase polling interval
-                        interval += 5
-                        time.sleep(interval)
-                        continue
-                    elif error == "expired_token":
-                        raise AuthenticationError("Device code expired. Please try again.")
-                    elif error == "access_denied":
-                        raise AuthenticationError("Authorization denied by user.")
-                    else:
-                        raise AuthenticationError(f"Authentication error: {error}")
-                else:
-                    raise AuthenticationError(f"Unexpected response: {response.status_code}")
-
-            except requests.RequestException as e:
-                raise AuthenticationError(f"Network error during polling: {e}")
-
-        raise AuthenticationError("Authentication timed out. Please try again.")
+        except requests.RequestException as e:
+            raise AuthenticationError(f"Network error during token exchange: {e}")
 
     def authenticate(self, open_browser: bool = True) -> str:
-        """Complete device flow authentication.
+        """Complete PKCE OAuth flow authentication (like Claude Code).
 
         Args:
             open_browser: Whether to automatically open browser
@@ -222,34 +244,39 @@ class DeviceFlowAuth:
         Raises:
             AuthenticationError: If authentication fails
         """
-        # Start device flow
-        flow_data = self.start_device_flow()
+        # Build authorization URL with PKCE
+        auth_url, code_verifier = self.build_authorization_url()
 
-        user_code = flow_data["user_code"]
-        device_code = flow_data["device_code"]
-        verification_uri = flow_data.get("verification_uri_complete") or self.VERIFICATION_URL
-        interval = flow_data.get("interval", 5)
+        # Show user the URL (like Claude Code does)
+        print()
+        print(" Browser didn't open? Use the url below to sign in:")
+        print()
+        print(f" {auth_url}")
+        print()
+        print()
+        print()
 
-        # Show user the verification URL and code
-        print(f"\n{'='*60}")
-        print(f"  Please authenticate in your browser")
-        print(f"{'='*60}\n")
-        print(f"  1. Visit: {verification_uri}")
-        print(f"  2. Enter code: {user_code}\n")
-
+        # Try to open browser
         if open_browser:
-            print("  Opening browser...")
             try:
-                webbrowser.open(verification_uri)
+                webbrowser.open(auth_url)
             except Exception:
-                print("  (Could not open browser automatically)")
+                pass  # Silent fail, user has the URL
 
-        print(f"\n{'='*60}")
-        print("  Waiting for authorization...")
-        print(f"{'='*60}\n")
+        # Wait for user to paste the code
+        print(" Paste code here if prompted >", end=" ", flush=True)
 
-        # Poll for token
-        token_data = self.poll_for_token(device_code, interval)
+        try:
+            authorization_code = input().strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            raise AuthenticationError("Authentication cancelled by user")
+
+        if not authorization_code:
+            raise AuthenticationError("No authorization code provided")
+
+        # Exchange code for token
+        token_data = self.exchange_code_for_token(authorization_code)
 
         return token_data["access_token"]
 
@@ -264,7 +291,7 @@ class AuthManager:
             config_dir: Directory to store tokens
         """
         self.token_storage = TokenStorage(config_dir)
-        self.device_flow = DeviceFlowAuth(self.token_storage)
+        self.pkce_auth = PKCEAuth(self.token_storage)
 
     def get_access_token(self, force_reauth: bool = False) -> str:
         """Get valid access token, authenticating if needed.
@@ -284,8 +311,8 @@ class AuthManager:
             if token:
                 return token
 
-        # Need to authenticate
-        return self.device_flow.authenticate()
+        # Need to authenticate using PKCE flow
+        return self.pkce_auth.authenticate()
 
     def logout(self) -> None:
         """Clear stored credentials."""

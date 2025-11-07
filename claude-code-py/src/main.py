@@ -17,6 +17,7 @@ from tools import create_default_registry, ToolRegistry
 from agents import AgentRegistry, AgentRouter
 from agents.prebuilt import create_default_agents
 from agents.thinking import detect_thinking_level
+from utils import check_and_setup
 
 
 class ClaudeCodePy:
@@ -72,51 +73,47 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         self.client: Optional[ClaudeAPIClient] = None
 
     def ensure_authentication(self) -> Optional[str]:
-        """Ensure user is authenticated and return API key.
+        """Ensure user is authenticated and return API key/token.
 
         Returns:
-            API key or None if authentication failed
+            API key/token or None if authentication failed
         """
-        # Check for manual API key first
+        # Priority 1: Check for manual API key in environment
         if self.config["api_key"]:
             self.ui.print_info("Using API key from environment")
             return self.config["api_key"]
 
-        # Use OAuth if enabled
-        if not self.config["use_oauth"]:
-            self.ui.print_error("No API key found and OAuth disabled")
-            self.ui.print_info("Set ANTHROPIC_API_KEY in .env or enable OAuth")
-            return None
+        # Priority 2: Use OAuth if enabled (default)
+        if self.config["use_oauth"]:
+            # Check for existing OAuth token
+            if self.auth_manager.is_authenticated():
+                self.ui.print_info("Using saved authentication")
+                return self.auth_manager.get_access_token()
 
-        # Check for existing OAuth token
-        if self.auth_manager.is_authenticated():
-            self.ui.print_info("Using saved authentication")
-            return self.auth_manager.get_access_token()
+            # Need to authenticate via OAuth (like Claude Code)
+            self.ui.print_info("Authentication required - starting OAuth flow...")
+            try:
+                api_key = self.auth_manager.get_access_token()
+                self.ui.print_success("Authentication successful!")
+                return api_key
+            except AuthenticationError as e:
+                self.ui.print_error(f"OAuth failed: {e}")
+                # Fall through to API key setup
+                self.ui.print_info("\nFalling back to API key setup...")
 
-        # Need to authenticate via OAuth
-        self.ui.print_info("Authentication required - attempting OAuth...")
-        try:
-            api_key = self.auth_manager.get_access_token()
-            self.ui.print_success("Authentication successful!")
+        # Priority 3: Interactive API key setup (fallback)
+        self.ui.print_info("No API key found - starting setup...")
+        api_key = check_and_setup()
+
+        if api_key:
+            # Update config with new key
+            self.config["api_key"] = api_key
+            self.config["use_oauth"] = False
             return api_key
-        except AuthenticationError as e:
-            error_msg = str(e)
-            self.ui.print_error(f"OAuth failed: {error_msg}")
 
-            # Check if it's a "not available" error - offer fallback
-            if "not available" in error_msg.lower() or "404" in error_msg:
-                self.ui.print_info("\n" + "="*50)
-                self.ui.print_info("OAuth device flow is not available.")
-                self.ui.print_info("Please use manual API key instead:")
-                self.ui.print_info("  1. Create .env file: cp .env.example .env")
-                self.ui.print_info("  2. Add your API key: ANTHROPIC_API_KEY=sk-ant-...")
-                self.ui.print_info("  3. Disable OAuth: CLAUDE_USE_OAUTH=false")
-                self.ui.print_info("="*50 + "\n")
-
-            return None
-        except Exception as e:
-            self.ui.print_error(f"Unexpected error during authentication: {e}")
-            return None
+        # Setup failed or cancelled
+        self.ui.print_error("Setup failed or cancelled")
+        return None
 
     def initialize_tools(self) -> None:
         """Initialize tool registry."""
