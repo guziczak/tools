@@ -2,6 +2,7 @@ anthropic>=0.39.0
 rich>=13.7.0
 python-dotenv>=1.0.0
 requests>=2.31.0
+httpx>=0.27.0
 
 # Optional: For OAuth token exchange (bypasses Cloudflare challenge)
 # Install with: pip install cloudscraper

@@ -10,12 +10,27 @@ from anthropic.types import (
     TextBlock,
 )
 
+# Import unified client for OAuth support
+try:
+    from .unified_client import UnifiedClaudeClient
+    from .claude_ai_client import is_oauth_token
+    OAUTH_SUPPORT = True
+except ImportError:
+    OAUTH_SUPPORT = False
+    UnifiedClaudeClient = None
+    is_oauth_token = None
+
 if TYPE_CHECKING:
     from tools import ToolRegistry
 
 
 class ClaudeAPIClient:
-    """Client for interacting with Claude API."""
+    """Client for interacting with Claude API.
+
+    Supports both API keys and OAuth tokens automatically:
+    - API keys (sk-ant-api03-*): Standard Anthropic API
+    - OAuth tokens (sk-ant-oat01-*): Claude.ai API (like official Claude Code)
+    """
 
     def __init__(
         self,
@@ -31,7 +46,7 @@ class ClaudeAPIClient:
         """Initialize Claude API client.
 
         Args:
-            api_key: Anthropic API key (or from ANTHROPIC_API_KEY env)
+            api_key: API key or OAuth token
             model: Model to use
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
@@ -42,9 +57,27 @@ class ClaudeAPIClient:
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment or arguments")
+            raise ValueError("API key or OAuth token not found")
 
-        self.client = Anthropic(api_key=self.api_key)
+        # Detect token type and initialize appropriate client
+        self.is_oauth = OAUTH_SUPPORT and is_oauth_token and is_oauth_token(self.api_key)
+
+        if self.is_oauth:
+            # Use unified client for OAuth support
+            self.client = UnifiedClaudeClient(
+                token=self.api_key,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                thinking_enabled=thinking_enabled,
+                thinking_budget=thinking_budget,
+            )
+            self.backend_type = "oauth"
+        else:
+            # Use standard Anthropic client
+            self.client = Anthropic(api_key=self.api_key)
+            self.backend_type = "api_key"
+
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -80,44 +113,65 @@ class ClaudeAPIClient:
         # Add user message to history
         self.add_message("user", user_message)
 
-        # Prepare request parameters
-        request_params = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "messages": self.messages,
-        }
+        # Use appropriate backend
+        if self.backend_type == "oauth":
+            # Use unified client (OAuth backend)
+            assistant_message = []
 
-        # Add system prompt if provided
-        if system:
-            request_params["system"] = system
+            for event in self.client.chat_streaming(
+                messages=self.messages,
+                system=system,
+            ):
+                # Collect assistant message
+                if event["type"] == "text":
+                    assistant_message.append(event["content"])
+                yield event
 
-        # Add extended thinking if enabled
-        if self.thinking_enabled:
-            request_params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget
+            # Add assistant response to history
+            final_content = "".join(assistant_message)
+            if final_content:
+                self.add_message("assistant", final_content)
+
+        else:
+            # Use standard Anthropic client (API key backend)
+            # Prepare request parameters
+            request_params = {
+                "model": self.model,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "messages": self.messages,
             }
 
-        # Add tools if available
-        if self.tools:
-            request_params["tools"] = self.tools
+            # Add system prompt if provided
+            if system:
+                request_params["system"] = system
 
-        # Stream the response
-        assistant_message = []
-        thinking_content = []
-        tool_uses = []
+            # Add extended thinking if enabled
+            if self.thinking_enabled:
+                request_params["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": self.thinking_budget
+                }
 
-        with self.client.messages.stream(**request_params) as stream:
-            for event in stream:
-                event_data = self._process_event(event, assistant_message, thinking_content)
-                if event_data:
-                    yield event_data
+            # Add tools if available
+            if self.tools:
+                request_params["tools"] = self.tools
 
-        # Add assistant response to history
-        final_content = "".join(assistant_message)
-        if final_content:
-            self.add_message("assistant", final_content)
+            # Stream the response
+            assistant_message = []
+            thinking_content = []
+            tool_uses = []
+
+            with self.client.messages.stream(**request_params) as stream:
+                for event in stream:
+                    event_data = self._process_event(event, assistant_message, thinking_content)
+                    if event_data:
+                        yield event_data
+
+            # Add assistant response to history
+            final_content = "".join(assistant_message)
+            if final_content:
+                self.add_message("assistant", final_content)
 
     def _process_event(
         self,
@@ -196,14 +250,23 @@ class ClaudeAPIClient:
         Yields:
             Events containing response chunks and tool execution info
         """
+        # OAuth backend doesn't support tools yet - use regular chat
+        if self.backend_type == "oauth":
+            # Tools not supported with OAuth (claude.ai API format differs)
+            # chat() will handle adding message to history
+            for event in self.chat(user_message, system):
+                yield event
+            return
+
+        # API key backend - full tool support
         # Lazy import to avoid circular dependency
         from .tool_executor import ToolExecutor
 
-        # Add user message
-        self.add_message("user", user_message)
-
         # Create tool executor if we have tools
         if self.tool_registry and self.tools:
+            # Add user message for tool executor path
+            self.add_message("user", user_message)
+
             if not self._tool_executor:
                 self._tool_executor = ToolExecutor(self.tool_registry, self.client)
 
@@ -223,7 +286,7 @@ class ClaudeAPIClient:
             # Tool executor handles message history internally
             # We don't update self.messages here as it's complex
         else:
-            # No tools, use regular chat
+            # No tools, use regular chat (it will add message to history)
             for event in self.chat(user_message, system):
                 yield event
 

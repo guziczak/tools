@@ -105,134 +105,114 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
                     f.write("CLAUDE_TOOLS_ENABLED=true\n")
                     f.write("CLAUDE_AGENTS_ENABLED=true\n")
 
+    def _clear_oauth_token_from_env(self) -> None:
+        """Clear OAuth token from .env file."""
+        env_path = Path(".env")
+
+        if not env_path.exists():
+            return
+
+        try:
+            # Read existing .env
+            with open(env_path, 'r') as f:
+                lines = f.readlines()
+
+            # Clear OAuth token and API key lines
+            new_lines = []
+            for line in lines:
+                if line.startswith('CLAUDE_CODE_OAUTH_TOKEN='):
+                    new_lines.append('CLAUDE_CODE_OAUTH_TOKEN=\n')
+                elif line.startswith('ANTHROPIC_API_KEY='):
+                    new_lines.append('ANTHROPIC_API_KEY=\n')
+                else:
+                    new_lines.append(line)
+
+            # Write back
+            with open(env_path, 'w') as f:
+                f.writelines(new_lines)
+
+            # Reload environment
+            load_dotenv(override=True)
+
+        except Exception as e:
+            self.ui.print_error(f"Failed to clear token from .env: {e}")
+
     def ensure_authentication(self) -> Optional[str]:
         """Ensure user is authenticated and return API key/token.
 
         Returns:
             API key/token or None if authentication failed
         """
+        # Check for API keys OR OAuth tokens (both now work!)
+
         # Priority 1: Check for manual API key in environment
         if self.config["api_key"]:
-            self.ui.print_info("Using API key from environment")
+            if self.config["api_key"].startswith("sk-ant-oat"):
+                self.ui.print_info("✅ OAuth token detected!")
+                self.ui.print_info("   Using OAuth Bearer authentication with /v1/messages")
+            else:
+                self.ui.print_info("Using API key from environment")
             return self.config["api_key"]
 
-        # Priority 2: Check for CLAUDE_CODE_OAUTH_TOKEN (official Claude Code env var)
+        # Priority 2: Check for CLAUDE_CODE_OAUTH_TOKEN
         oauth_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
-        if oauth_token:
-            self.ui.print_info("✅ Using CLAUDE_CODE_OAUTH_TOKEN from environment")
-            self.ui.print_info("   (Claude Max/Pro subscription token)")
+        if oauth_token and oauth_token.strip():
+            self.ui.print_info("✅ OAuth token detected!")
+            self.ui.print_info("   Using OAuth Bearer authentication with /v1/messages")
             return oauth_token
 
-        # Priority 3: Check for official Claude Code token file (from claude setup-token)
-        official_token = self.auth_manager.token_storage.load_official_claude_token()
-        if official_token:
-            access_token = official_token.get("accessToken") or official_token.get("access_token")
-            if access_token:
-                self.ui.print_info("✅ Using token from official Claude Code")
-                self.ui.print_info("   Token location: ~/.claude/oauth_token.json")
-                return access_token
+        # Priority 3: Check ~/.claude/.credentials.json (new format)
+        try:
+            creds_path = Path.home() / ".claude" / ".credentials.json"
+            if creds_path.exists():
+                import json
+                with open(creds_path) as f:
+                    creds = json.load(f)
+                    oauth_data = creds.get("claudeAiOauth", {})
+                    access_token = oauth_data.get("accessToken")
+                    if access_token:
+                        self.ui.print_info("✅ Using OAuth token from ~/.claude/.credentials.json")
+                        self.ui.print_info("   (Authenticated with official Claude Code)")
+                        return access_token
+        except Exception as e:
+            # Debug: show error but continue
+            import traceback
+            self.ui.print_error(f"Error reading credentials: {e}")
+            traceback.print_exc()
+            pass  # Ignore errors reading credentials
 
-        # Priority 3: Use OAuth if enabled (default)
-        if self.config["use_oauth"]:
-            # Check for existing OAuth token
-            if self.auth_manager.is_authenticated():
-                self.ui.print_info("Using saved authentication")
-                return self.auth_manager.get_access_token()
-
-            # Need to authenticate via OAuth (like Claude Code)
-            self.ui.print_info("Authentication required - starting OAuth flow...")
-            try:
-                api_key = self.auth_manager.get_access_token()
-                self.ui.print_success("Authentication successful!")
-                return api_key
-            except AuthenticationError as e:
-                self.ui.print_error(f"OAuth failed: {e}")
-                # Explain why OAuth might fail and suggest alternatives
-                self.ui.print_info("\n" + "="*60)
-                self.ui.print_info("ℹ️  OAuth Note:")
-                self.ui.print_info("  OAuth token endpoint is protected by Cloudflare")
-                self.ui.print_info("  and may not work for third-party clients.")
-                self.ui.print_info("")
-                self.ui.print_info("  💡 For Claude Max/Pro subscribers:")
-                self.ui.print_info("     Install official Claude Code and run:")
-                self.ui.print_info("     npm install -g @anthropic-ai/claude-code")
-                self.ui.print_info("     claude setup-token")
-                self.ui.print_info("")
-                self.ui.print_info("     Our app will automatically use that token!")
-                self.ui.print_info("")
-                self.ui.print_info("  💡 Or use API key (officially supported)")
-                self.ui.print_info("     See AUTHENTICATION.md for details")
-                self.ui.print_info("="*60 + "\n")
-                # Fall through to API key setup
-                self.ui.print_info("Falling back to API key setup...")
-
-        # Priority 4: Show setup options (Claude Max or API key)
+        # Priority 4: Show setup options (both work!)
         self.ui.print_info("No authentication found!")
         self.ui.print_info("")
         self.ui.print_info("="*70)
         self.ui.print_info("  🔐 Authentication Setup")
         self.ui.print_info("="*70)
         self.ui.print_info("")
-        self.ui.print_info("  💎 OPTION 1: Claude Max/Pro Subscription (Recommended!)")
+        self.ui.print_info("  💎 OPTION 1: Claude Max/Pro (If you have it)")
         self.ui.print_info("")
-        self.ui.print_info("     If you have Claude Max/Pro, use your subscription:")
+        self.ui.print_info("     ✅ OAuth tokens NOW WORK!")
+        self.ui.print_info("     Uses Bearer auth with /v1/messages endpoint")
         self.ui.print_info("")
-        self.ui.print_info("     1. Install official Claude Code:")
-        self.ui.print_info("        npm install -g @anthropic-ai/claude-code")
-        self.ui.print_info("")
-        self.ui.print_info("     2. Generate token:")
-        self.ui.print_info("        claude setup-token")
-        self.ui.print_info("")
-        self.ui.print_info("     3. Token will be saved to:")
-        self.ui.print_info("        ~/.claude/oauth_token.json")
-        self.ui.print_info("")
-        self.ui.print_info("     4. Run this app again:")
-        self.ui.print_info("        python claude.py")
-        self.ui.print_info("")
-        self.ui.print_info("     App will automatically find and use your token!")
+        self.ui.print_info("     Run: claude setup-token")
+        self.ui.print_info("     (Token saved to ~/.claude/.credentials.json)")
+        self.ui.print_info("     Then run this app again - auto-detected!")
         self.ui.print_info("")
         self.ui.print_info("  ---")
         self.ui.print_info("")
-        self.ui.print_info("  💳 OPTION 2: API Key (Pay-as-you-go)")
+        self.ui.print_info("  💳 OPTION 2: API Key (Recommended for most users)")
         self.ui.print_info("")
-        self.ui.print_info("     Continue below for interactive API key setup...")
+        self.ui.print_info("     Simple pay-as-you-go, FREE $5 credit!")
+        self.ui.print_info("     Full features: tools, agents, thinking")
         self.ui.print_info("")
         self.ui.print_info("="*70)
         self.ui.print_info("")
 
-        # Ask user which option
+        # Ask user to continue with API key setup
         try:
-            choice = input("  Choose: [1] Claude Max Token  [2] API Key  [Enter=2]: ").strip()
+            input("  Press Enter to setup API key (or Ctrl+C to cancel): ")
         except (KeyboardInterrupt, EOFError):
             self.ui.print_info("\nSetup cancelled.")
             return None
-
-        if choice == "1":
-            # Automatic Claude Max setup!
-            self.ui.print_info("")
-            self.ui.print_info("🚀 Starting automatic setup...")
-            self.ui.print_info("")
-
-            token = automatic_claude_max_setup()
-
-            if token:
-                # Success! Use the token
-                return token
-            else:
-                # Setup failed, offer API key fallback
-                self.ui.print_info("")
-                self.ui.print_info("⚠️  Claude Max setup didn't complete")
-                self.ui.print_info("")
-                try:
-                    fallback = input("  Continue with API key setup instead? [Y/n]: ").strip().lower()
-                    if fallback == 'n':
-                        return None
-                except (KeyboardInterrupt, EOFError):
-                    return None
-
-                self.ui.print_info("")
-                self.ui.print_info("Starting API key setup...")
-                # Fall through to API key setup below
 
         # Continue with API key setup
         self.ui.print_info("")
@@ -285,10 +265,8 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         if not api_key:
             return False
 
-        # Initialize tools
+        # Initialize tools and agents (OAuth now supports them!)
         self.initialize_tools()
-
-        # Initialize agents
         self.initialize_agents()
 
         # Get tool definitions for API

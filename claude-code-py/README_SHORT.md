@@ -12,31 +12,24 @@ pip install -r requirements.txt
 python claude.py
 ```
 
-### First Run - Choose Your Method:
+### First Run Setup:
 
-**Option A: Claude Max/Pro Subscription** (use your existing plan!)
-1. Install official Claude Code: `npm install -g @anthropic-ai/claude-code`
-2. Generate token: `claude setup-token`
-3. Copy token to `.env`: `CLAUDE_CODE_OAUTH_TOKEN=your-token`
-4. Run: `python claude.py` ✅
+❌ **OAuth tokens DO NOT WORK** - use API key instead!
 
-See `CLAUDE_MAX_QUICK_SETUP.md` for details!
+**Why OAuth doesn't work:**
+- Tokens from `claude setup-token` only work with official Node.js CLI
+- Public Anthropic API doesn't accept OAuth tokens
+- This is a limitation of Anthropic's API
 
-**Option B: API Key** (pay-as-you-go, auto-setup)
-1. Just run: `python claude.py`
-2. Browser opens → Console
-3. Create API key → Paste
-4. Done! ✅
+**✅ Use API Key (Simple & Works!):**
+1. Run: `python claude.py`
+2. Press Enter
+3. Browser opens → https://console.anthropic.com
+4. Sign up/login (can use Google)
+5. Create API key → Paste
+6. Done! ✅
 
-**Simple, automatic, works!** 🎉
-
-**OAuth Option:** Install `cloudscraper` to enable OAuth flow (bypasses Cloudflare):
-```bash
-pip install cloudscraper
-echo "CLAUDE_USE_OAUTH=true" > .env
-python claude.py
-```
-See `OAUTH_WITH_CLOUDSCRAPER.md` for details. API key is simpler and recommended for most users.
+**Free account includes $5 credit!** All features work (tools, agents, thinking)!
 
 That's it! 🎉
 
