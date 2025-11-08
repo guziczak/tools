@@ -12,18 +12,31 @@ pip install -r requirements.txt
 python claude.py
 ```
 
-**First run?** OAuth login (like official Claude Code!):
-1. ✅ **Browser opens** to https://claude.ai
-2. ✅ **Sign in** with your Claude Max/Pro/Team account
-3. ✅ **Copy the code** shown after login
-4. ✅ **Paste in CLI** and press Enter
-5. ✅ **Start immediately!**
+### First Run - Choose Your Method:
 
-**Exactly like official Claude Code!** Same OAuth flow! 🎉
+**Option A: Claude Max/Pro Subscription** (use your existing plan!)
+1. Install official Claude Code: `npm install -g @anthropic-ai/claude-code`
+2. Generate token: `claude setup-token`
+3. Copy token to `.env`: `CLAUDE_CODE_OAUTH_TOKEN=your-token`
+4. Run: `python claude.py` ✅
 
-**Alternative: API Key** (if OAuth fails):
-- App automatically falls back to API key setup
-- Shows link to Console → Create key → Paste → Done!
+See `CLAUDE_MAX_QUICK_SETUP.md` for details!
+
+**Option B: API Key** (pay-as-you-go, auto-setup)
+1. Just run: `python claude.py`
+2. Browser opens → Console
+3. Create API key → Paste
+4. Done! ✅
+
+**Simple, automatic, works!** 🎉
+
+**OAuth Option:** Install `cloudscraper` to enable OAuth flow (bypasses Cloudflare):
+```bash
+pip install cloudscraper
+echo "CLAUDE_USE_OAUTH=true" > .env
+python claude.py
+```
+See `OAUTH_WITH_CLOUDSCRAPER.md` for details. API key is simpler and recommended for most users.
 
 That's it! 🎉
 

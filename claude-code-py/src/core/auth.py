@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
-import requests
+
+# Try to import cloudscraper for Cloudflare bypass (optional)
+try:
+    import cloudscraper
+    CLOUDSCRAPER_AVAILABLE = True
+except ImportError:
+    import requests
+    CLOUDSCRAPER_AVAILABLE = False
 
 
 class AuthenticationError(Exception):
@@ -95,13 +102,44 @@ class TokenStorage:
             return token_data.get("access_token")
         return None
 
+    def load_official_claude_token(self) -> Optional[Dict[str, Any]]:
+        """Load token from official Claude Code installation.
+
+        Checks ~/.claude/oauth_token.json (official Claude Code location)
+
+        Returns:
+            Token data or None if not found
+        """
+        # Check official Claude Code token location
+        official_token_path = Path.home() / ".claude" / "oauth_token.json"
+
+        if not official_token_path.exists():
+            return None
+
+        try:
+            with open(official_token_path, 'r') as f:
+                token_data = json.load(f)
+
+            # Check if token is expired
+            if "expires_at" in token_data:
+                # Official Claude Code stores as milliseconds timestamp
+                expires_at_ms = token_data["expires_at"]
+                expires_at = datetime.fromtimestamp(expires_at_ms / 1000.0)
+                if datetime.now() >= expires_at:
+                    # Token expired
+                    return None
+
+            return token_data
+        except Exception:
+            return None
+
 
 class PKCEAuth:
     """OAuth PKCE flow authentication (like official Claude Code)."""
 
-    # Anthropic OAuth endpoints (same as official Claude Code)
+    # Anthropic OAuth endpoints (EXACT same as official Claude Code - from reverse engineering!)
     AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
-    TOKEN_URL = "https://console.anthropic.com/api/organizations/-/oauth/token"
+    TOKEN_URL = "https://console.anthropic.com/oauth/token"  # Correct endpoint from claude_max research!
     REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 
     # Official Claude Code client ID
@@ -187,7 +225,7 @@ class PKCEAuth:
         """Exchange authorization code for access token.
 
         Args:
-            authorization_code: Authorization code from OAuth redirect
+            authorization_code: Authorization code from OAuth redirect (may include #state)
 
         Returns:
             Token data with access_token
@@ -199,37 +237,113 @@ class PKCEAuth:
             raise AuthenticationError("No code verifier found. Start authorization flow first.")
 
         try:
-            # Exchange code for token (like Claude Code does)
-            response = requests.post(
-                self.TOKEN_URL,
-                json={
-                    "grant_type": "authorization_code",
-                    "client_id": self.CLIENT_ID,
-                    "code": authorization_code,
-                    "code_verifier": self.code_verifier,
-                    "redirect_uri": self.REDIRECT_URI,
-                },
-                headers={
-                    "Content-Type": "application/json",
-                },
-                timeout=30
-            )
+            # Clean authorization code - remove state parameter if present
+            # Format: "code#state" -> we only need "code"
+            if '#' in authorization_code:
+                clean_code = authorization_code.split('#')[0]
+                print(f"  Extracted code (removed state parameter)")
+            else:
+                clean_code = authorization_code
+
+            # Prepare request data (OAuth typically uses form-data, not JSON!)
+            payload = {
+                "grant_type": "authorization_code",
+                "client_id": self.CLIENT_ID,
+                "code": clean_code,  # Use cleaned code without state
+                "code_verifier": self.code_verifier,
+                "redirect_uri": self.REDIRECT_URI,
+            }
+
+            # OAuth 2.0 standard: use application/x-www-form-urlencoded
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "claude-code-python/1.0.0 (Python; OAuth Client)",
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Origin": "https://console.anthropic.com",
+                "Referer": "https://console.anthropic.com/",
+            }
+
+            # Debug: Show what we're sending
+            print(f"\n  DEBUG - Request details:")
+            print(f"  URL: {self.TOKEN_URL}")
+            print(f"  Payload: {payload}")
+            print(f"  Headers: Content-Type = {headers['Content-Type']}\n")
+
+            # Use cloudscraper if available (handles Cloudflare challenges)
+            if CLOUDSCRAPER_AVAILABLE:
+                print("  Using cloudscraper to bypass Cloudflare...")
+
+                # Create session with more aggressive browser emulation
+                scraper = cloudscraper.create_scraper(
+                    browser={
+                        'browser': 'chrome',
+                        'platform': 'windows',
+                        'desktop': True,
+                        'mobile': False
+                    },
+                    delay=10,  # Add delay to appear more human
+                    interpreter='native'  # Use native JS interpreter
+                )
+
+                # Add more realistic headers
+                headers['Sec-Fetch-Dest'] = 'empty'
+                headers['Sec-Fetch-Mode'] = 'cors'
+                headers['Sec-Fetch-Site'] = 'same-origin'
+
+                response = scraper.post(
+                    self.TOKEN_URL,
+                    data=payload,  # Use 'data' for form-encoded (not 'json')
+                    headers=headers,
+                    timeout=30
+                )
+            else:
+                # Fallback to regular requests (may fail with Cloudflare)
+                print("  Using requests library (may fail with Cloudflare)...")
+                print("  Install cloudscraper for better compatibility: pip install cloudscraper")
+                import requests
+                response = requests.post(
+                    self.TOKEN_URL,
+                    data=payload,  # Use 'data' for form-encoded (not 'json')
+                    headers=headers,
+                    timeout=30
+                )
 
             if response.status_code == 200:
                 token_data = response.json()
                 # Save token
                 self.token_storage.save_token(token_data)
+                print("  ✅ Token exchange successful!")
                 return token_data
             else:
                 error_msg = f"Token exchange failed: {response.status_code}"
+
+                # Check if it's Cloudflare blocking
+                if response.status_code == 403:
+                    if not CLOUDSCRAPER_AVAILABLE:
+                        error_msg += "\n\n💡 Tip: Install cloudscraper to bypass Cloudflare:"
+                        error_msg += "\n   pip install cloudscraper"
+                        error_msg += "\n   Then try again with OAuth enabled."
+                    else:
+                        error_msg += "\n   Cloudflare blocked the request even with cloudscraper."
+                        error_msg += "\n   This endpoint may be restricted to official Claude Code only."
+
                 try:
                     error_data = response.json()
-                    error_msg += f" - {error_data.get('error', error_data)}"
+                    error_msg += f"\n   Error: {error_data.get('error', error_data)}"
                 except Exception:
-                    error_msg += f" - {response.text}"
+                    # Don't show HTML response (Cloudflare challenge page)
+                    if len(response.text) > 200:
+                        error_msg += "\n   (Received Cloudflare challenge page)"
+                    else:
+                        error_msg += f"\n   {response.text}"
+
                 raise AuthenticationError(error_msg)
 
-        except requests.RequestException as e:
+        except Exception as e:
+            if isinstance(e, AuthenticationError):
+                raise
             raise AuthenticationError(f"Network error during token exchange: {e}")
 
     def authenticate(self, open_browser: bool = True) -> str:
@@ -296,6 +410,11 @@ class AuthManager:
     def get_access_token(self, force_reauth: bool = False) -> str:
         """Get valid access token, authenticating if needed.
 
+        Priority:
+        1. Check our own token storage (~/.claude-code-py/)
+        2. Check official Claude Code token (~/.claude/oauth_token.json)
+        3. Try OAuth PKCE flow
+
         Args:
             force_reauth: Force re-authentication even if token exists
 
@@ -305,11 +424,20 @@ class AuthManager:
         Raises:
             AuthenticationError: If authentication fails
         """
-        # Check for existing token
+        # Check for existing token in our storage
         if not force_reauth:
             token = self.token_storage.get_access_token()
             if token:
                 return token
+
+        # Check for official Claude Code token (from claude setup-token)
+        if not force_reauth:
+            official_token_data = self.token_storage.load_official_claude_token()
+            if official_token_data:
+                access_token = official_token_data.get("accessToken") or official_token_data.get("access_token")
+                if access_token:
+                    print("  ✅ Using token from official Claude Code (~/.claude/)")
+                    return access_token
 
         # Need to authenticate using PKCE flow
         return self.pkce_auth.authenticate()
