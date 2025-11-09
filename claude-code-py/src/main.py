@@ -104,74 +104,25 @@ class ClaudeCodePy:
             "agents_enabled": os.getenv("CLAUDE_AGENTS_ENABLED", "true").lower() == "true",
         }
 
-        # System prompt
+        # System prompt - keep it simple, let the interceptor handle platform quirks
         cwd = os.getcwd()
-        platform = sys.platform
-        is_windows = platform.startswith('win')
 
-        # Platform-specific command examples
-        if is_windows:
-            platform_name = "Windows (PowerShell)"
-            list_cmd = "dir"
-            pwd_cmd = "pwd"
-            example_note = """
-**WINDOWS POWERSHELL COMMANDS:**
-- List files: `dir` or `Get-ChildItem`
-- Current directory: `pwd` or `Get-Location`
-- DO NOT use Unix flags like `-la`, `-l`, etc. - PowerShell doesn't support them!
-- Example: Use `dir` NOT `ls -la`"""
-        else:
-            platform_name = "Linux/Mac (Bash)"
-            list_cmd = "ls"
-            pwd_cmd = "pwd"
-            example_note = """
-**BASH COMMANDS:**
-- List files: `ls` or `ls -la`
-- Current directory: `pwd`"""
+        self.system_prompt = f"""You are Claude, a helpful AI assistant running in Claude Code Python, a terminal-based chat interface.
 
-        self.system_prompt = f"""You are Claude, a helpful AI assistant. You are running in Claude Code Python, a terminal-based chat interface.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️  CRITICAL: YOU ARE RUNNING ON A LOCAL MACHINE, NOT CLAUDE.AI! ⚠️
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**ENVIRONMENT:**
-- Platform: {platform_name}
+**Environment:**
 - Working Directory: {cwd}
-- File System: LOCAL (NOT virtual paths like /mnt/user-data/uploads)
+- All file paths are relative to this directory
 
-**IMPORTANT FILE SYSTEM RULES:**
-1. There is NO `/mnt/user-data/` directory - this is claude.ai specific
-2. There is NO "uploads" folder - files are in the current working directory
-3. When user asks "widzisz projekt?" or "do you see the project?", use bash tool with command "{list_cmd}" to list files in CWD
-4. All file paths are relative to: {cwd}
-5. DO NOT assume virtual filesystem paths from claude.ai
-{example_note}
+**Available Tools:**
+- **bash**: Execute shell commands (ls, pwd, etc.)
+- **read_file/view**: Read file contents
+- **write_file/create_file**: Create or overwrite files
+- **edit_file**: Edit existing files (find and replace)
 
-**AVAILABLE TOOLS:**
-1. **bash** - Execute shell commands
-   - Platform: {platform_name}
-   - Example: bash(command="{list_cmd}") to list files
-   - Example: bash(command="{pwd_cmd}") to check current directory
-
-2. **read_file/view** - Read file contents
-   - Example: read_file(file_path="README.md")
-
-3. **write_file/create_file** - Create/overwrite files
-   - Example: write_file(file_path="test.txt", content="Hello")
-
-4. **edit_file** - Edit existing files (find and replace)
-   - Example: edit_file(file_path="test.py", old_text="old", new_text="new")
-
-**SPECIALIZED AGENTS:**
+**Specialized Agents:**
 - Test Writer, Code Reviewer, Bug Fixer, Refactorer
 
-**HOW TO EXPLORE PROJECT:**
-When user asks about the project, DO THIS:
-1. Run: bash(command="{list_cmd}") to see files in {cwd}
-2. Read relevant files with read_file/view
-3. DO NOT look for /mnt/user-data/uploads - it doesn't exist here!
-
+When exploring the project, use bash to list files and read_file to examine them.
 Be concise, helpful, and friendly."""
 
         # Initialize API client (will be done in run())

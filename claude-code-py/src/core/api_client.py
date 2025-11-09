@@ -1,6 +1,8 @@
 """Anthropic API client with streaming and extended thinking support."""
 
 import os
+import sys
+import re
 from typing import Iterator, Optional, Dict, Any, List, TYPE_CHECKING
 from anthropic import Anthropic
 from anthropic.types import (
@@ -104,6 +106,59 @@ class ClaudeAPIClient:
     def clear_history(self) -> None:
         """Clear conversation history."""
         self.messages = []
+
+    def _fix_tool_input(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+        """Fix Claude's bad habits from claude.ai before executing tools.
+
+        This interceptor automatically fixes common issues:
+        - Virtual paths from claude.ai (/mnt/user-data/uploads/) -> local CWD
+        - Unix commands on Windows (ls -la -> dir)
+        - etc.
+
+        Args:
+            tool_name: Name of the tool being called
+            tool_input: Original tool input from Claude
+
+        Returns:
+            Fixed tool input
+        """
+        # Only fix bash tool
+        if tool_name != "bash":
+            return tool_input
+
+        # Get command
+        cmd = tool_input.get("command", "")
+        if not cmd:
+            return tool_input
+
+        original_cmd = cmd
+
+        # Fix 1: Replace claude.ai virtual paths with local CWD
+        cmd = cmd.replace("/mnt/user-data/uploads/", "./")
+        cmd = cmd.replace("/mnt/user-data/", "./")
+
+        # Fix 2: Windows PowerShell compatibility
+        is_windows = sys.platform.startswith('win')
+        if is_windows:
+            # Replace common Unix commands with Windows equivalents
+
+            # ls with flags -> dir (PowerShell doesn't support -la, -l, etc.)
+            cmd = re.sub(r'\bls\s+-[a-z]+\s*', 'dir ', cmd)
+
+            # Standalone ls -> dir
+            cmd = re.sub(r'\bls\b', 'dir', cmd)
+
+            # cat -> type (Windows equivalent)
+            cmd = re.sub(r'\bcat\b', 'type', cmd)
+
+        # Log if changed
+        if cmd != original_cmd:
+            print(f"   🔧 Fixed command:")
+            print(f"      Before: {original_cmd}")
+            print(f"      After:  {cmd}")
+
+        # Return modified input
+        return {**tool_input, "command": cmd}
 
     def chat(self, user_message: str, system: Optional[str] = None) -> Iterator[Dict[str, Any]]:
         """Send a message and stream the response.
@@ -322,6 +377,10 @@ class ClaudeAPIClient:
                     tool_input = tool_block.get("input", {})
 
                     print(f"🔧 [API Client] Executing tool: {tool_name} with input keys: {list(tool_input.keys())}")
+
+                    # Fix tool input before execution (interceptor pattern)
+                    # This automatically fixes Claude's bad habits from claude.ai
+                    tool_input = self._fix_tool_input(tool_name, tool_input)
 
                     # Execute tool locally (registry handles alias mapping)
                     if self.tool_registry:
