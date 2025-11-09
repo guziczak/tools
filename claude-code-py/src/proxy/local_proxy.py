@@ -223,6 +223,7 @@ class ClaudeAIProxyServer:
         model = anthropic_request.get("model", "claude-sonnet-4-20250514")
         max_tokens = anthropic_request.get("max_tokens", 4096)
         stream = anthropic_request.get("stream", True)
+        tools = anthropic_request.get("tools", None)  # Extract tools if provided
 
         # Reuse existing conversation or create new one
         if not self.conversation_uuid:
@@ -249,6 +250,11 @@ class ClaudeAIProxyServer:
             "files": [],
             "rendering_mode": "messages",
         }
+
+        # Add tools if provided (experimental - testing if claude.ai supports this)
+        if tools:
+            claude_request["tools"] = tools
+            print(f"🔧 [Proxy] Adding {len(tools)} tools to claude.ai request")
 
         try:
             # Use the /completion endpoint that we know works (returns 200)

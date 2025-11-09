@@ -58,6 +58,7 @@ class UnifiedClaudeClient:
         self,
         messages: List[Dict[str, str]],
         system: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ) -> Iterator[Dict[str, Any]]:
         """Send chat message and stream response.
@@ -65,13 +66,14 @@ class UnifiedClaudeClient:
         Args:
             messages: List of message dicts with 'role' and 'content'
             system: Optional system prompt
+            tools: Optional tool definitions (Anthropic format)
             **kwargs: Additional parameters
 
         Yields:
             Event dicts with streaming response
         """
         if self.backend_type == "oauth":
-            # Use OAuth backend (Bearer auth)
+            # Use OAuth backend (Bearer auth with tools support)
             yield from self.backend.chat_streaming(
                 messages=messages,
                 model=self.model,
@@ -80,10 +82,11 @@ class UnifiedClaudeClient:
                 system=system,
                 thinking_enabled=self.thinking_enabled,
                 thinking_budget=self.thinking_budget,
+                tools=tools,  # Pass tools to OAuth backend
             )
         else:
             # Use Anthropic backend (API key)
-            yield from self._anthropic_chat_streaming(messages, system, **kwargs)
+            yield from self._anthropic_chat_streaming(messages, system, tools=tools, **kwargs)
 
     def _anthropic_chat_streaming(
         self,

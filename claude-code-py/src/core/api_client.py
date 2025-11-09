@@ -121,6 +121,7 @@ class ClaudeAPIClient:
             for event in self.client.chat_streaming(
                 messages=self.messages,
                 system=system,
+                tools=self.tools if self.tools else None,  # Pass tools to OAuth backend
             ):
                 # Collect assistant message
                 if event["type"] == "text":
@@ -250,11 +251,27 @@ class ClaudeAPIClient:
         Yields:
             Events containing response chunks and tool execution info
         """
-        # OAuth backend doesn't support tools yet - use regular chat
+        # OAuth backend - simplified tool support (experimental)
         if self.backend_type == "oauth":
-            # Tools not supported with OAuth (claude.ai API format differs)
-            # chat() will handle adding message to history
+            # For now, just use chat() which passes tools to claude.ai
+            # Tool execution will be handled in a simplified way
+            # TODO: Implement full multi-turn tool calling loop for OAuth
             for event in self.chat(user_message, system):
+                # Detect tool use events
+                if event.get("type") == "tool_use_start":
+                    tool_name = event.get("tool_name", "unknown")
+                    tool_id = event.get("tool_id", "")
+
+                    # Notify user that tool was requested
+                    yield {
+                        "type": "tool_use_detected",
+                        "tool_name": tool_name,
+                        "content": f"Claude wants to use tool: {tool_name}"
+                    }
+
+                    # TODO: Execute tool locally and send results back
+                    # For now, just pass through the event
+
                 yield event
             return
 
