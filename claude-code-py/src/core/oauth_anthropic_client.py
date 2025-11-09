@@ -157,6 +157,7 @@ class OAuthAnthropicClient:
                         # DEBUG: Always log content_block_start to see what we get
                         print(f"🔎 [OAuth Client] content_block_start: type={block_type}")
 
+                        # ONLY collect tool_use blocks (NOT tool_result, thinking, text, etc.)
                         if block_type == "tool_use":
                             tool_name = content_block.get("name", "")
                             tool_id = content_block.get("id", "")
@@ -167,34 +168,43 @@ class OAuthAnthropicClient:
                                 "type": "tool_use",
                                 "id": tool_id,
                                 "name": tool_name,
-                                "input": {}
+                                "input": {},
+                                "_collecting": True  # Flag to track if we're still collecting this block
                             })
 
                     elif event_type == "content_block_delta":
                         delta = event.get("delta", {})
                         delta_type = delta.get("type", "")
 
+                        # ONLY collect input for tool_use blocks that are still being collected
                         if delta_type == "input_json_delta" and current_tool_blocks:
-                            # Accumulate tool input (it's streamed as JSON chunks)
-                            partial = delta.get("partial_json", "")
-                            if partial:
-                                if "input_json" not in current_tool_blocks[-1]:
-                                    current_tool_blocks[-1]["input_json"] = ""
-                                    print(f"📝 [OAuth Client] Starting to collect input JSON for {current_tool_blocks[-1]['name']}")
-                                current_tool_blocks[-1]["input_json"] += partial
+                            # Check if last block is a tool_use and still collecting
+                            last_block = current_tool_blocks[-1]
+                            if last_block.get("type") == "tool_use" and last_block.get("_collecting"):
+                                partial = delta.get("partial_json", "")
+                                if partial:
+                                    if "input_json" not in last_block:
+                                        last_block["input_json"] = ""
+                                        print(f"📝 [OAuth Client] Starting to collect input JSON for {last_block['name']}")
+                                    last_block["input_json"] += partial
 
                     elif event_type == "content_block_stop":
-                        # Complete the current tool block if any
-                        if current_tool_blocks and "input_json" in current_tool_blocks[-1]:
-                            try:
-                                # Parse complete JSON input
-                                input_json = current_tool_blocks[-1].pop("input_json")
-                                current_tool_blocks[-1]["input"] = json.loads(input_json)
-                                print(f"✅ [OAuth Client] Parsed input for {current_tool_blocks[-1]['name']}: {list(current_tool_blocks[-1]['input'].keys())}")
-                            except json.JSONDecodeError as e:
-                                # If parsing fails, keep empty input
-                                print(f"❌ [OAuth Client] Failed to parse JSON: {e}")
-                                pass
+                        # Complete the current tool block if it's a tool_use being collected
+                        if current_tool_blocks:
+                            last_block = current_tool_blocks[-1]
+                            if last_block.get("type") == "tool_use" and last_block.get("_collecting"):
+                                # Mark as done collecting
+                                last_block.pop("_collecting", None)
+
+                                # Parse input JSON if we collected any
+                                if "input_json" in last_block:
+                                    try:
+                                        input_json = last_block.pop("input_json")
+                                        last_block["input"] = json.loads(input_json)
+                                        print(f"✅ [OAuth Client] Parsed input for {last_block['name']}: {list(last_block['input'].keys())}")
+                                    except json.JSONDecodeError as e:
+                                        print(f"❌ [OAuth Client] Failed to parse JSON: {e}")
+                                        pass
 
                     # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
