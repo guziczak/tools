@@ -172,12 +172,16 @@ class OAuthAnthropicClient:
 
                     elif event_type == "content_block_delta":
                         delta = event.get("delta", {})
-                        if delta.get("type") == "input_json_delta" and current_tool_blocks:
+                        delta_type = delta.get("type", "")
+
+                        if delta_type == "input_json_delta" and current_tool_blocks:
                             # Accumulate tool input (it's streamed as JSON chunks)
-                            # We'll parse the complete JSON later
-                            if "input_json" not in current_tool_blocks[-1]:
-                                current_tool_blocks[-1]["input_json"] = ""
-                            current_tool_blocks[-1]["input_json"] += delta.get("partial_json", "")
+                            partial = delta.get("partial_json", "")
+                            if partial:
+                                if "input_json" not in current_tool_blocks[-1]:
+                                    current_tool_blocks[-1]["input_json"] = ""
+                                    print(f"📝 [OAuth Client] Starting to collect input JSON for {current_tool_blocks[-1]['name']}")
+                                current_tool_blocks[-1]["input_json"] += partial
 
                     elif event_type == "content_block_stop":
                         # Complete the current tool block if any
@@ -186,8 +190,10 @@ class OAuthAnthropicClient:
                                 # Parse complete JSON input
                                 input_json = current_tool_blocks[-1].pop("input_json")
                                 current_tool_blocks[-1]["input"] = json.loads(input_json)
-                            except json.JSONDecodeError:
+                                print(f"✅ [OAuth Client] Parsed input for {current_tool_blocks[-1]['name']}: {list(current_tool_blocks[-1]['input'].keys())}")
+                            except json.JSONDecodeError as e:
                                 # If parsing fails, keep empty input
+                                print(f"❌ [OAuth Client] Failed to parse JSON: {e}")
                                 pass
 
                     # Convert to our standard format and yield

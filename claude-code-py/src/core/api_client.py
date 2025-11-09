@@ -13,7 +13,7 @@ from anthropic.types import (
 # Import unified client for OAuth support
 try:
     from .unified_client import UnifiedClaudeClient
-    from .claude_ai_client import is_oauth_token
+    from .oauth_anthropic_client import is_oauth_token  # FIX: Use correct import that checks sessionKey
     OAUTH_SUPPORT = True
 except ImportError:
     OAUTH_SUPPORT = False
@@ -59,8 +59,13 @@ class ClaudeAPIClient:
         if not self.api_key:
             raise ValueError("API key or OAuth token not found")
 
+        # DEBUG: Check token detection
+        print(f"🔍 [API Client INIT] api_key starts with: {self.api_key[:20]}...")
+        print(f"   OAUTH_SUPPORT={OAUTH_SUPPORT}, is_oauth_token={'AVAILABLE' if is_oauth_token else 'NONE'}")
+
         # Detect token type and initialize appropriate client
         self.is_oauth = OAUTH_SUPPORT and is_oauth_token and is_oauth_token(self.api_key)
+        print(f"   is_oauth={self.is_oauth}")
 
         if self.is_oauth:
             # Use unified client for OAuth support
@@ -252,8 +257,11 @@ class ClaudeAPIClient:
         Yields:
             Events containing response chunks and tool execution info
         """
+        print(f"🎬 [API Client] chat_with_tools() CALLED! backend_type={self.backend_type}, has_tools={bool(self.tools)}")
+
         # OAuth backend - tool support with local execution
         if self.backend_type == "oauth":
+            print(f"🌐 [API Client] Entering OAuth tool execution loop")
             # Multi-turn tool calling loop
             max_tool_rounds = 5
             tool_round = 0
