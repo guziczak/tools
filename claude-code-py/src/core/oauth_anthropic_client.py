@@ -206,6 +206,15 @@ class OAuthAnthropicClient:
                                         print(f"❌ [OAuth Client] Failed to parse JSON: {e}")
                                         pass
 
+                                # IMMEDIATELY yield tool_calls_complete after collecting a tool
+                                # Don't wait for [DONE] - we need to execute tools NOW
+                                print(f"🎯 [OAuth Client] Tool block complete, yielding immediately")
+                                yield {
+                                    "type": "tool_calls_complete",
+                                    "tool_blocks": [last_block],  # Yield just this one tool
+                                    "content": ""
+                                }
+
                     # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
                     if converted_event:
