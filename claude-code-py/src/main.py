@@ -136,8 +136,21 @@ You: [immediately uses bash("git log -1")]
 You: "Tak, ostatni commit to abc123..."
 
 User: "przeanalizuj zmiany"
-You: [immediately uses bash("git show abc123")]
-You: "Analiza zmian: ..."
+You: [YOU WILL RECEIVE FULL DIFF FROM git show IN YOUR CONTEXT]
+You: "Analiza zmian w commicie abc123:
+
+      Zmiany w pliku X (linie 10-20):
+      - Dodano funkcję foo()
+      - Usunięto starą implementację
+
+      Zmiany w pliku Y:
+      - Refactor klasy Bar
+      - Nowy moduł security_validator.py
+
+      Główny cel: [cel zmian]
+      Wpływ: [co się zmienia dla użytkownika]"
+
+[CRITICAL: Focus on WHAT CHANGED, not meta-commentary about patterns!]
 ```
 
 Example 2 - File exploration:

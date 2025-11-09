@@ -390,16 +390,22 @@ class AnalyzeChangesHandler(IntentHandler):
             if result.status.value == "success":
                 print(f"   ✅ Got {len(result.output)} chars of diff")
 
-                # Enrich message with actual diff
-                enriched = f"""{user_message}
+                # Enrich message with actual diff + explicit instructions
+                enriched = f"""User asked: "{user_message}"
 
-Here is the actual diff from git show {commit_hash}:
+Here is the full diff from git show {commit_hash}:
 
 ```
 {result.output}
 ```
 
-Now analyze these changes."""
+INSTRUCTIONS: Analyze WHAT CHANGED in this commit:
+1. List which files were modified
+2. Summarize key changes (added functions, deleted code, refactored logic)
+3. Explain the purpose of these changes
+4. Focus on CONCRETE changes, not meta-commentary about design patterns
+
+Be specific and practical."""
 
                 return IntentResult(
                     enriched_message=enriched,
