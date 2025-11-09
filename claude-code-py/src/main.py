@@ -105,19 +105,74 @@ class ClaudeCodePy:
         }
 
         # System prompt
-        self.system_prompt = """You are Claude, a helpful AI assistant. You are running in Claude Code Python, a terminal-based chat interface.
+        cwd = os.getcwd()
+        platform = sys.platform
+        is_windows = platform.startswith('win')
 
-You have access to:
-1. **Tools** for file operations, running commands, and searching files
-2. **Specialized Agents** for complex tasks:
-   - Test Writer: For writing comprehensive tests
-   - Code Reviewer: For reviewing code quality and security
-   - Bug Fixer: For debugging and fixing issues
-   - Refactorer: For improving code structure
+        # Platform-specific command examples
+        if is_windows:
+            platform_name = "Windows (PowerShell)"
+            list_cmd = "dir"
+            pwd_cmd = "pwd"
+            example_note = """
+**WINDOWS POWERSHELL COMMANDS:**
+- List files: `dir` or `Get-ChildItem`
+- Current directory: `pwd` or `Get-Location`
+- DO NOT use Unix flags like `-la`, `-l`, etc. - PowerShell doesn't support them!
+- Example: Use `dir` NOT `ls -la`"""
+        else:
+            platform_name = "Linux/Mac (Bash)"
+            list_cmd = "ls"
+            pwd_cmd = "pwd"
+            example_note = """
+**BASH COMMANDS:**
+- List files: `ls` or `ls -la`
+- Current directory: `pwd`"""
 
-When the user needs specialized help (tests, reviews, debugging, refactoring), delegate to the appropriate agent using the delegate_to_* tools. For simple file operations or commands, use regular tools directly.
+        self.system_prompt = f"""You are Claude, a helpful AI assistant. You are running in Claude Code Python, a terminal-based chat interface.
 
-Be concise, helpful, and friendly. When writing code, use proper syntax highlighting."""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  CRITICAL: YOU ARE RUNNING ON A LOCAL MACHINE, NOT CLAUDE.AI! ⚠️
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**ENVIRONMENT:**
+- Platform: {platform_name}
+- Working Directory: {cwd}
+- File System: LOCAL (NOT virtual paths like /mnt/user-data/uploads)
+
+**IMPORTANT FILE SYSTEM RULES:**
+1. There is NO `/mnt/user-data/` directory - this is claude.ai specific
+2. There is NO "uploads" folder - files are in the current working directory
+3. When user asks "widzisz projekt?" or "do you see the project?", use bash tool with command "{list_cmd}" to list files in CWD
+4. All file paths are relative to: {cwd}
+5. DO NOT assume virtual filesystem paths from claude.ai
+{example_note}
+
+**AVAILABLE TOOLS:**
+1. **bash** - Execute shell commands
+   - Platform: {platform_name}
+   - Example: bash(command="{list_cmd}") to list files
+   - Example: bash(command="{pwd_cmd}") to check current directory
+
+2. **read_file/view** - Read file contents
+   - Example: read_file(file_path="README.md")
+
+3. **write_file/create_file** - Create/overwrite files
+   - Example: write_file(file_path="test.txt", content="Hello")
+
+4. **edit_file** - Edit existing files (find and replace)
+   - Example: edit_file(file_path="test.py", old_text="old", new_text="new")
+
+**SPECIALIZED AGENTS:**
+- Test Writer, Code Reviewer, Bug Fixer, Refactorer
+
+**HOW TO EXPLORE PROJECT:**
+When user asks about the project, DO THIS:
+1. Run: bash(command="{list_cmd}") to see files in {cwd}
+2. Read relevant files with read_file/view
+3. DO NOT look for /mnt/user-data/uploads - it doesn't exist here!
+
+Be concise, helpful, and friendly."""
 
         # Initialize API client (will be done in run())
         self.client: Optional[ClaudeAPIClient] = None

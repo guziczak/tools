@@ -68,16 +68,18 @@ class BashTool(BaseTool):
             return False, "Missing required parameter: command"
         return True, None
 
-    def execute(self, command: str, cwd: Optional[str] = None, **kwargs) -> ToolResult:
+    def execute(self, command: str, cwd: Optional[str] = None, description: Optional[str] = None, **kwargs) -> ToolResult:
         """Execute shell command.
 
         Args:
             command: Shell command to execute
             cwd: Working directory (optional)
+            description: Description of what this command does (optional, ignored - for claude.ai compatibility)
 
         Returns:
             ToolResult with command output
         """
+        # Ignore description parameter (claude.ai sends it, but we don't need it)
         try:
             # Prepare working directory
             work_dir = None
