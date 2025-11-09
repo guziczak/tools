@@ -40,6 +40,10 @@ class BashTool(BaseTool):
     def get_name(self) -> str:
         return "bash"
 
+    def get_aliases(self) -> list[str]:
+        """Return aliases for claude.ai compatibility."""
+        return ["bash_tool", "Bash"]
+
     def get_description(self) -> str:
         if self.is_windows:
             return f"Execute a shell command using {self.shell_name}. Commands are executed in {self.shell_name} environment."

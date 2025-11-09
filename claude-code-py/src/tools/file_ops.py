@@ -12,6 +12,10 @@ class ReadTool(BaseTool):
     def get_name(self) -> str:
         return "read_file"
 
+    def get_aliases(self) -> list[str]:
+        """Return aliases for claude.ai compatibility."""
+        return ["Read"]
+
     def get_description(self) -> str:
         return "Read contents of a file. Returns the file contents as text."
 
@@ -92,6 +96,10 @@ class WriteTool(BaseTool):
     def get_name(self) -> str:
         return "write_file"
 
+    def get_aliases(self) -> list[str]:
+        """Return aliases for claude.ai compatibility."""
+        return ["create_file", "Write"]
+
     def get_description(self) -> str:
         return "Write content to a file. Creates file if it doesn't exist, overwrites if it does."
 
@@ -163,6 +171,10 @@ class EditTool(BaseTool):
 
     def get_name(self) -> str:
         return "edit_file"
+
+    def get_aliases(self) -> list[str]:
+        """Return aliases for claude.ai compatibility."""
+        return ["Edit"]
 
     def get_description(self) -> str:
         return "Edit a file by replacing old_text with new_text. Finds and replaces text in file."

@@ -114,11 +114,17 @@ class OAuthAnthropicClient:
                 if data_str.strip() == "[DONE]":
                     # Yield collected tool blocks before finishing
                     if current_tool_blocks:
+                        print(f"🎯 [OAuth Client] Collected {len(current_tool_blocks)} tool blocks")
+                        for idx, block in enumerate(current_tool_blocks):
+                            print(f"   Tool {idx+1}: {block['name']} - input keys: {list(block.get('input', {}).keys())}")
+
                         yield {
                             "type": "tool_calls_complete",
                             "tool_blocks": current_tool_blocks,
                             "content": ""
                         }
+                    else:
+                        print("ℹ️  [OAuth Client] No tool blocks collected")
 
                     yield {
                         "type": "message_done",
@@ -138,11 +144,15 @@ class OAuthAnthropicClient:
                     if event_type == "content_block_start":
                         content_block = event.get("content_block", {})
                         if content_block.get("type") == "tool_use":
+                            tool_name = content_block.get("name", "")
+                            tool_id = content_block.get("id", "")
+                            print(f"🔍 [OAuth Client] Tool use detected: {tool_name} (id: {tool_id})")
+
                             # Start new tool block
                             current_tool_blocks.append({
                                 "type": "tool_use",
-                                "id": content_block.get("id", ""),
-                                "name": content_block.get("name", ""),
+                                "id": tool_id,
+                                "name": tool_name,
                                 "input": {}
                             })
 

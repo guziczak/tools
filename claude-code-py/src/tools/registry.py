@@ -10,14 +10,21 @@ class ToolRegistry:
     def __init__(self):
         """Initialize tool registry."""
         self._tools: Dict[str, BaseTool] = {}
+        self._aliases: Dict[str, str] = {}  # alias -> canonical_name mapping
 
     def register(self, tool: BaseTool) -> None:
-        """Register a tool.
+        """Register a tool and its aliases.
 
         Args:
             tool: Tool instance to register
         """
+        # Register by canonical name
         self._tools[tool.name] = tool
+
+        # Register all aliases
+        for alias in tool.aliases:
+            self._aliases[alias] = tool.name
+            print(f"   📎 Registered alias: {alias} → {tool.name}")
 
     def unregister(self, tool_name: str) -> bool:
         """Unregister a tool.
@@ -34,15 +41,24 @@ class ToolRegistry:
         return False
 
     def get_tool(self, tool_name: str) -> Optional[BaseTool]:
-        """Get a tool by name.
+        """Get a tool by name or alias.
 
         Args:
-            tool_name: Name of tool to get
+            tool_name: Name or alias of tool to get
 
         Returns:
             Tool instance or None if not found
         """
-        return self._tools.get(tool_name)
+        # Try direct name lookup first
+        if tool_name in self._tools:
+            return self._tools[tool_name]
+
+        # Try alias lookup
+        if tool_name in self._aliases:
+            canonical_name = self._aliases[tool_name]
+            return self._tools.get(canonical_name)
+
+        return None
 
     def list_tools(self) -> List[str]:
         """List all registered tool names.

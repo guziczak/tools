@@ -42,11 +42,20 @@ class BaseTool(ABC):
         self.name = self.get_name()
         self.description = self.get_description()
         self.parameters = self.get_parameters()
+        self.aliases = self.get_aliases()
 
     @abstractmethod
     def get_name(self) -> str:
         """Get tool name."""
         pass
+
+    def get_aliases(self) -> List[str]:
+        """Get tool name aliases (for compatibility with different APIs).
+
+        Returns:
+            List of alternative names for this tool
+        """
+        return []
 
     @abstractmethod
     def get_description(self) -> str:

@@ -294,10 +294,13 @@ class ClaudeAPIClient:
                 # Check if Claude requested tools
                 if not tool_blocks:
                     # No tools requested, done
+                    print(f"✅ [API Client] No tools in round {tool_round}, exiting loop")
                     break
 
                 # Execute tools locally
                 tool_round += 1
+                print(f"🔄 [API Client] Starting tool round {tool_round} with {len(tool_blocks)} tools")
+
                 yield {
                     "type": "tool_round_start",
                     "content": f"Tool execution round {tool_round}"
