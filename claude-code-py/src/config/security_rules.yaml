@@ -1,0 +1,137 @@
+# Security rules for auto-execution
+# This file defines which commands are safe to auto-execute
+
+# WHITELIST approach (recommended - more secure)
+# Only these command prefixes are allowed for auto-execution
+whitelist:
+  read_only:
+    - git log
+    - git show
+    - git diff
+    - git status
+    - git branch
+    - ls
+    - cat
+    - head
+    - tail
+    - pwd
+    - echo
+    - which
+    - type
+    - file
+    - stat
+    - wc
+    - grep
+    - find
+    - tree
+    - df
+    - du
+    - ps
+    - top
+    - env
+    - printenv
+
+  # Safe git operations (read-only)
+  git_read:
+    - git log
+    - git show
+    - git diff
+    - git status
+    - git branch
+    - git tag
+    - git remote
+    - git config --get
+
+  # Safe system info
+  system_info:
+    - uname
+    - hostname
+    - date
+    - uptime
+    - whoami
+
+# BLACKLIST approach (less secure - use as fallback)
+# These command prefixes are NEVER allowed
+blacklist:
+  destructive:
+    - rm
+    - del
+    - format
+    - dd
+    - mkfs
+    - fdisk
+    - parted
+    - shred
+    - truncate
+    - "> "           # File redirection (overwrite)
+
+  state_modifying:
+    - git push
+    - git commit
+    - git rebase
+    - git merge
+    - git reset
+    - git clean
+
+  package_management:
+    - npm publish
+    - pip install
+    - apt install
+    - apt remove
+    - yum install
+    - brew install
+
+  privilege_escalation:
+    - sudo
+    - su
+    - doas
+
+  interactive:
+    - vim
+    - vi
+    - nano
+    - emacs
+    - less
+    - more
+
+  network:
+    - ssh
+    - scp
+    - rsync
+    - curl -X POST    # POST requests can modify data
+    - curl -X PUT
+    - curl -X DELETE
+    - wget --post
+
+  dangerous_python:
+    - python -c "import os; os.system"
+    - python -c "exec("
+    - python -c "__import__"
+
+# Configuration
+config:
+  # Use whitelist mode (recommended)
+  use_whitelist: true
+
+  # Allow commands not in whitelist/blacklist if they start with these safe prefixes
+  safe_prefixes:
+    - "cat "
+    - "ls "
+    - "git log"
+    - "git show"
+    - "git diff"
+    - "echo "
+
+  # Maximum command length (prevent abuse)
+  max_command_length: 500
+
+  # Block commands with suspicious patterns
+  suspicious_patterns:
+    - "eval"
+    - "exec"
+    - "__import__"
+    - "os.system"
+    - "subprocess"
+    - "; rm"
+    - "&& rm"
+    - "| rm"

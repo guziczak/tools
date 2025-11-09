@@ -46,6 +46,22 @@ except ImportError:
     COMMAND_VALIDATOR_AVAILABLE = False
     create_default_validator_chain = None
 
+# Import response analyzer (Best Practices: Strategy Pattern)
+try:
+    from .response_analyzer import ResponseAnalyzer
+    RESPONSE_ANALYZER_AVAILABLE = True
+except ImportError:
+    RESPONSE_ANALYZER_AVAILABLE = False
+    ResponseAnalyzer = None
+
+# Import auto executor (Best Practices: Command Pattern)
+try:
+    from .auto_executor import AutoExecutor
+    AUTO_EXECUTOR_AVAILABLE = True
+except ImportError:
+    AUTO_EXECUTOR_AVAILABLE = False
+    AutoExecutor = None
+
 if TYPE_CHECKING:
     from tools import ToolRegistry
 
@@ -133,6 +149,20 @@ class ClaudeAPIClient:
         if COMMAND_VALIDATOR_AVAILABLE:
             self.command_validator = create_default_validator_chain()
             print("🔧 [API Client] CommandValidator chain initialized")
+
+        # Response analyzer (Strategy Pattern)
+        # Detects when Claude asks user to paste command output
+        self.response_analyzer = None
+        if RESPONSE_ANALYZER_AVAILABLE:
+            self.response_analyzer = ResponseAnalyzer()
+            print("🔍 [API Client] ResponseAnalyzer initialized (paste detection enabled)")
+
+        # Auto executor (Command Pattern)
+        # Automatically executes commands when Claude asks for paste
+        self.auto_executor = None
+        if AUTO_EXECUTOR_AVAILABLE and tool_registry:
+            self.auto_executor = AutoExecutor(tool_registry)
+            print("🤖 [API Client] AutoExecutor initialized (auto-execution enabled)")
 
         # Conversation history
         self.messages: List[Dict[str, Any]] = []
@@ -318,6 +348,20 @@ class ClaudeAPIClient:
                QueryNormalizer.contains_keywords(message, ["git", "history"]):
                 print("🎯 [Intent] Tier 1 match: git_log (keyword: git+log/history)")
                 return ("git_log", None)
+
+            # Intent: Analyze changes (CONTEXT-AWARE + AGGRESSIVE!)
+            # Single keyword is enough if in git context:
+            # "przeanalizuj" / "analyze" / "show" / "pokaż" / "details" / "szczegóły"
+            # This is INTENTIONALLY AGGRESSIVE - better false positive than false negative
+            if QueryNormalizer.contains_keywords(message, ["przeanalizuj"]) or \
+               QueryNormalizer.contains_keywords(message, ["przeanalizuj", "zmiany"]) or \
+               QueryNormalizer.contains_keywords(message, ["analyze"]) or \
+               QueryNormalizer.contains_keywords(message, ["analyze", "changes"]) or \
+               QueryNormalizer.contains_keywords(message, ["show", "details"]) or \
+               QueryNormalizer.contains_keywords(message, ["pokaż"]) or \
+               QueryNormalizer.contains_keywords(message, ["szczegóły"]):
+                print("🎯 [Intent] Tier 1 match: analyze_changes (keyword: przeanalizuj/analyze/show)")
+                return ("analyze_changes", None)
         else:
             # Fallback: exact matching (for backwards compatibility)
             git_triggers = [
@@ -571,7 +615,8 @@ class ClaudeAPIClient:
 
         # If intent router available, try to handle intent via pre-execution
         if self.intent_router and intent != "general":
-            intent_result = self.intent_router.route(intent, user_message)
+            # Pass conversation history for context-aware handlers (e.g., AnalyzeChangesHandler)
+            intent_result = self.intent_router.route(intent, user_message, self.messages)
 
             if intent_result:
                 # Handler successfully pre-executed tools
@@ -621,16 +666,48 @@ class ClaudeAPIClient:
                     if event.get("type") == "tool_calls_complete":
                         tool_blocks.extend(event.get("tool_blocks", []))
 
-                    # Collect assistant message for history (only needed for round 1+)
-                    if tool_round > 0 and event.get("type") == "text":
+                    # Collect ALL assistant text (for paste detection + history)
+                    if event.get("type") == "text":
                         assistant_text.append(event.get("content", ""))
 
                     # Yield event to user
                     yield event
 
-                # Add assistant response to history for round 1+
+                # Add assistant response to history (for ALL rounds if not added by chat())
+                # Round 0: chat() already added to history
+                # Round 1+: we need to add manually
                 if tool_round > 0 and assistant_text:
                     self.add_message("assistant", "".join(assistant_text))
+
+                # AUTO-EXECUTION: Check if Claude asked user to paste command output
+                # This is STATE OF THE ART - automatically execute instead of asking user
+                if self.response_analyzer and self.auto_executor and assistant_text:
+                    full_response = "".join(assistant_text)
+                    paste_request = self.response_analyzer.analyze(full_response)
+
+                    if paste_request.detected and paste_request.command:
+                        print(f"🔍 [AutoExecutor] Detected paste request for: {paste_request.command}")
+
+                        # Check if safe to auto-execute
+                        if self.auto_executor.should_auto_execute(paste_request.command):
+                            # Execute command automatically
+                            exec_result = self.auto_executor.execute(paste_request.command)
+
+                            # Create follow-up message with result
+                            followup = self.auto_executor.create_followup_message(
+                                paste_request.command,
+                                exec_result
+                            )
+
+                            # Add to messages as if user sent it
+                            self.add_message("user", followup)
+
+                            # Continue loop - Claude will see the result and respond
+                            print(f"🔄 [AutoExecutor] Continuing conversation with command result")
+                            tool_round -= 1  # Don't count this as a tool round
+                            continue
+                        else:
+                            print(f"⚠️  [AutoExecutor] Command blocked (dangerous): {paste_request.command}")
 
                 # Check if Claude requested tools
                 if not tool_blocks:

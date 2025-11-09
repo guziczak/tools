@@ -287,6 +287,142 @@ Please explain this to the user politely."""
             )
 
 
+class AnalyzeChangesHandler(IntentHandler):
+    """Handler for 'analyze_changes' intent.
+
+    When user says "przeanalizuj zmiany" / "analyze changes" after seeing a commit,
+    this handler:
+    1. Extracts commit hash from conversation context
+    2. Pre-executes git show <hash>
+    3. Enriches message with actual diff
+
+    This is the NUCLEAR OPTION to force Claude to use tools.
+    """
+
+    def __init__(self, tool_registry: Optional["ToolRegistry"] = None, messages: list = None):
+        """Initialize with tool registry and conversation messages.
+
+        Args:
+            tool_registry: Registry for executing tools
+            messages: Conversation history (to extract commit hash from)
+        """
+        super().__init__(tool_registry)
+        self.messages = messages or []
+
+    def can_handle(self, intent: str) -> bool:
+        """Check if intent is analyze_changes."""
+        return intent == "analyze_changes"
+
+    def _extract_commit_hash(self) -> Optional[str]:
+        """Extract commit hash from recent conversation.
+
+        Looks for patterns like:
+        - "e35c4f4"
+        - "commit abc123"
+        - "hash: 1a2b3c4"
+
+        Returns:
+            Commit hash if found, None otherwise
+        """
+        import re
+
+        # Check last 3 messages (user + assistant messages)
+        recent_messages = self.messages[-3:] if len(self.messages) >= 3 else self.messages
+
+        for msg in reversed(recent_messages):
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                # Pattern: 6+ character hex string (git short hash)
+                # Git uses 6-40 character hashes (default: 7, but 6 is valid)
+                # Common formats: "e35c4f4", "commit e35c4f4", "hash: e35c4f4"
+                match = re.search(r'\b([0-9a-f]{6,40})\b', content, re.IGNORECASE)
+                if match:
+                    hash_candidate = match.group(1)
+                    print(f"   🔍 Found potential commit hash: {hash_candidate}")
+                    return hash_candidate
+
+        print("   ⚠️  No commit hash found in recent messages")
+        return None
+
+    def handle(self, user_message: str, intent: str) -> IntentResult:
+        """Pre-execute git show and enrich message.
+
+        Args:
+            user_message: Original message (e.g., "przeanalizuj zmiany")
+            intent: Should be "analyze_changes"
+
+        Returns:
+            IntentResult with git show output embedded
+        """
+        print("🎯 [AnalyzeChangesHandler] Pre-executing git show...")
+
+        # Extract commit hash from conversation
+        commit_hash = self._extract_commit_hash()
+
+        if not commit_hash:
+            print("   ⚠️  No commit hash in context - trying git log fallback...")
+            # FALLBACK: Check git log for last commit
+            if self.tool_registry:
+                result = self.tool_registry.execute_tool("bash", command="git log -1 --format=%H")
+                if result.status.value == "success":
+                    commit_hash = result.output.strip()
+                    print(f"   ✅ Got commit hash from git log: {commit_hash[:7]}")
+                else:
+                    print(f"   ❌ git log failed: {result.error}")
+                    return IntentResult(
+                        enriched_message=user_message,
+                        metadata={"error": "No commit hash found and git log failed"}
+                    )
+            else:
+                print("   ❌ No tool registry for fallback")
+                return IntentResult(
+                    enriched_message=user_message,
+                    metadata={"error": "No commit hash found"}
+                )
+
+        # Execute git show
+        if self.tool_registry:
+            cmd = f"git show {commit_hash}"
+            print(f"   🔧 Executing: {cmd}")
+
+            result = self.tool_registry.execute_tool("bash", command=cmd)
+
+            if result.status.value == "success":
+                print(f"   ✅ Got {len(result.output)} chars of diff")
+
+                # Enrich message with actual diff
+                enriched = f"""{user_message}
+
+Here is the actual diff from git show {commit_hash}:
+
+```
+{result.output}
+```
+
+Now analyze these changes."""
+
+                return IntentResult(
+                    enriched_message=enriched,
+                    metadata={
+                        "tool_executed": "bash",
+                        "command": cmd,
+                        "commit_hash": commit_hash
+                    }
+                )
+            else:
+                print(f"   ❌ git show failed: {result.error}")
+                return IntentResult(
+                    enriched_message=user_message,
+                    metadata={"error": result.error}
+                )
+        else:
+            print("   ⚠️  No tool registry - cannot pre-execute")
+            return IntentResult(
+                enriched_message=user_message,
+                metadata={"error": "No tool registry"}
+            )
+
+
 class IntentRouter:
     """Routes intents to appropriate handlers (Chain of Responsibility Pattern).
 
@@ -305,22 +441,32 @@ class IntentRouter:
         self.tool_registry = tool_registry
 
         # Chain of handlers (order matters - first match wins)
+        # Note: AnalyzeChangesHandler needs messages, created dynamically in route()
         self.handlers = [
             ExploreProjectHandler(tool_registry),
             ListFilesHandler(tool_registry),
             GitLogHandler(tool_registry),  # NEW: Git support!
         ]
 
-    def route(self, intent: str, user_message: str) -> Optional[IntentResult]:
+    def route(self, intent: str, user_message: str, messages: list = None) -> Optional[IntentResult]:
         """Route intent to appropriate handler.
 
         Args:
             intent: Intent identifier
             user_message: Original user message
+            messages: Conversation history (for context-aware handlers)
 
         Returns:
             IntentResult if handler found, None otherwise
         """
+        # For analyze_changes intent, create handler with conversation context
+        if intent == "analyze_changes":
+            handler = AnalyzeChangesHandler(self.tool_registry, messages)
+            if handler.can_handle(intent):
+                print(f"🎯 [IntentRouter] Routing '{intent}' to {handler.__class__.__name__}")
+                return handler.handle(user_message, intent)
+
+        # Try other handlers
         for handler in self.handlers:
             if handler.can_handle(intent):
                 print(f"🎯 [IntentRouter] Routing '{intent}' to {handler.__class__.__name__}")
