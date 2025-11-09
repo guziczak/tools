@@ -67,6 +67,8 @@ class OAuthAnthropicClient:
         Yields:
             Event dicts with streaming response
         """
+        print(f"🚀 [OAuth Client] chat_streaming() CALLED! messages={len(messages)}, tools={'YES' if tools else 'NO'}")
+
         # Build request payload (same format as standard API)
         payload = {
             "model": model,
@@ -104,7 +106,12 @@ class OAuthAnthropicClient:
             all_content_blocks = []
 
             # Parse SSE stream
+            line_count = 0
             for line in response.iter_lines():
+                line_count += 1
+                if line_count == 1:
+                    print(f"🔬 [OAuth Client] First line received: {line[:50]}...")
+
                 if not line or not line.startswith("data: "):
                     continue
 
