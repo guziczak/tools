@@ -1,6 +1,7 @@
 """Anthropic API client that uses OAuth Bearer tokens instead of API keys."""
 
 from typing import Iterator, Optional, Dict, Any, List
+import os
 import httpx
 from anthropic import Anthropic, AnthropicBedrock
 from anthropic.types import MessageStreamEvent
@@ -13,8 +14,6 @@ class OAuthAnthropicClient:
     but authenticates with Bearer token instead of x-api-key header.
     """
 
-    API_BASE = "https://api.anthropic.com"
-
     def __init__(self, oauth_token: str):
         """Initialize client with OAuth token.
 
@@ -22,15 +21,25 @@ class OAuthAnthropicClient:
             oauth_token: OAuth token (sk-ant-oat01-*)
         """
         self.oauth_token = oauth_token
-        self.http_client = httpx.Client(
-            base_url=self.API_BASE,
-            headers={
-                "Authorization": f"Bearer {oauth_token}",
-                "Content-Type": "application/json",
-                "anthropic-version": "2023-06-01",
-            },
-            timeout=httpx.Timeout(timeout=600.0),
-        )
+        self._http_client = None  # Lazy initialization
+
+        # Use ANTHROPIC_BASE_URL if set (for proxy support), otherwise default
+        self.api_base = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+
+    def _get_client(self):
+        """Get or create HTTP client (lazy initialization)."""
+        if self._http_client is None:
+            print(f"🔧 [OAuth Client] Initializing with base_url: {self.api_base}")
+            self._http_client = httpx.Client(
+                base_url=self.api_base,
+                headers={
+                    "Authorization": f"Bearer {self.oauth_token[:20]}...",
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                },
+                timeout=httpx.Timeout(timeout=600.0),
+            )
+        return self._http_client
 
     def chat_streaming(
         self,
@@ -77,7 +86,11 @@ class OAuthAnthropicClient:
             }
 
         # Make streaming request
-        with self.http_client.stream("POST", "/v1/messages", json=payload) as response:
+        print(f"📡 [OAuth Client] Sending POST to {self.api_base}/v1/messages")
+        print(f"📦 [OAuth Client] Payload: {list(payload.keys())}")
+
+        with self._get_client().stream("POST", "/v1/messages", json=payload) as response:
+            print(f"📊 [OAuth Client] Response status: {response.status_code}")
             response.raise_for_status()
 
             # Parse SSE stream
@@ -169,12 +182,21 @@ class OAuthAnthropicClient:
 
 
 def is_oauth_token(token: str) -> bool:
-    """Check if token is an OAuth token (not API key).
+    """Check if token is an OAuth token or sessionKey (not API key).
 
     Args:
         token: Token to check
 
     Returns:
-        True if OAuth token, False if API key
+        True if OAuth token or sessionKey, False if API key
     """
-    return token.startswith("sk-ant-oat")
+    # OAuth token (from Anthropic API)
+    if token.startswith("sk-ant-oat"):
+        return True
+
+    # sessionKey (from claude.ai)
+    if token.startswith("sk-ant-sid01-"):
+        return True
+
+    # Not an OAuth token
+    return False

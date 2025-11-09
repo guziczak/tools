@@ -20,6 +20,53 @@ from agents.thinking import detect_thinking_level
 from utils import check_and_setup, automatic_claude_max_setup
 
 
+def _ensure_proxy_dependencies():
+    """Ensure Flask and cloudscraper are installed for proxy functionality."""
+    missing = []
+
+    # Check Flask
+    try:
+        import flask
+    except ImportError:
+        missing.append("flask")
+
+    # Check cloudscraper
+    try:
+        import cloudscraper
+    except ImportError:
+        missing.append("cloudscraper")
+
+    # Install missing packages
+    if missing:
+        import subprocess
+        print(f"📦 Installing missing dependencies: {', '.join(missing)}...")
+        print("   (This may take a moment...)")
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "--user", *missing],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"✅ Successfully installed: {', '.join(missing)}")
+            return True
+        except subprocess.CalledProcessError:
+            # Try without --user flag
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", *missing],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                print(f"✅ Successfully installed: {', '.join(missing)}")
+                return True
+            except subprocess.CalledProcessError:
+                print(f"⚠️  Failed to auto-install: {', '.join(missing)}")
+                print(f"   Please run: pip install {' '.join(missing)}")
+                return False
+
+    return True
+
+
 class ClaudeCodePy:
     """Main application class."""
 
@@ -147,72 +194,73 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
 
         # Priority 1: Check for manual API key in environment
         if self.config["api_key"]:
-            if self.config["api_key"].startswith("sk-ant-oat"):
+            if self.config["api_key"].startswith("sk-ant-sid01-"):
+                self.ui.print_info("✅ sessionKey detected!")
+                self.ui.print_info("   Using claude.ai session authentication via proxy")
+            elif self.config["api_key"].startswith("sk-ant-oat"):
                 self.ui.print_info("✅ OAuth token detected!")
                 self.ui.print_info("   Using OAuth Bearer authentication with /v1/messages")
             else:
                 self.ui.print_info("Using API key from environment")
             return self.config["api_key"]
 
-        # Priority 2: Check for CLAUDE_CODE_OAUTH_TOKEN
+        # Priority 2: Check for CLAUDE_CODE_OAUTH_TOKEN (or sessionKey)
         oauth_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
         if oauth_token and oauth_token.strip():
-            self.ui.print_info("✅ OAuth token detected!")
-            self.ui.print_info("   Using OAuth Bearer authentication with /v1/messages")
+            if oauth_token.startswith("sk-ant-sid01-"):
+                self.ui.print_info("✅ sessionKey detected!")
+                self.ui.print_info("   Using claude.ai session authentication via proxy")
+            else:
+                self.ui.print_info("✅ OAuth token detected!")
+                self.ui.print_info("   Using OAuth Bearer authentication with /v1/messages")
             return oauth_token
 
-        # Priority 3: Check ~/.claude/.credentials.json (new format)
-        try:
-            creds_path = Path.home() / ".claude" / ".credentials.json"
-            if creds_path.exists():
-                import json
-                with open(creds_path) as f:
-                    creds = json.load(f)
-                    oauth_data = creds.get("claudeAiOauth", {})
-                    access_token = oauth_data.get("accessToken")
-                    if access_token:
-                        self.ui.print_info("✅ Using OAuth token from ~/.claude/.credentials.json")
-                        self.ui.print_info("   (Authenticated with official Claude Code)")
-                        return access_token
-        except Exception as e:
-            # Debug: show error but continue
-            import traceback
-            self.ui.print_error(f"Error reading credentials: {e}")
-            traceback.print_exc()
-            pass  # Ignore errors reading credentials
+        # Priority 3: Check ~/.claude/.credentials.json (DISABLED - OAuth doesn't work)
+        # OAuth tokens don't work with public Anthropic API
+        # Skipping this check to force API key setup
+        pass
 
-        # Priority 4: Show setup options (both work!)
-        self.ui.print_info("No authentication found!")
-        self.ui.print_info("")
+        # Priority 4: Show options
         self.ui.print_info("="*70)
         self.ui.print_info("  🔐 Authentication Setup")
         self.ui.print_info("="*70)
         self.ui.print_info("")
-        self.ui.print_info("  💎 OPTION 1: Claude Max/Pro (If you have it)")
+        self.ui.print_info("  💎 [1] Claude Max/Pro - FULL AUTO!")
+        self.ui.print_info("      → Browser → Sign in → DONE!")
+        self.ui.print_info("      → Uses local proxy + CloudScraper")
+        self.ui.print_info("      → OAuth → claude.ai (bypasses Cloudflare!)")
         self.ui.print_info("")
-        self.ui.print_info("     ✅ OAuth tokens NOW WORK!")
-        self.ui.print_info("     Uses Bearer auth with /v1/messages endpoint")
-        self.ui.print_info("")
-        self.ui.print_info("     Run: claude setup-token")
-        self.ui.print_info("     (Token saved to ~/.claude/.credentials.json)")
-        self.ui.print_info("     Then run this app again - auto-detected!")
-        self.ui.print_info("")
-        self.ui.print_info("  ---")
-        self.ui.print_info("")
-        self.ui.print_info("  💳 OPTION 2: API Key (Recommended for most users)")
-        self.ui.print_info("")
-        self.ui.print_info("     Simple pay-as-you-go, FREE $5 credit!")
-        self.ui.print_info("     Full features: tools, agents, thinking")
+        self.ui.print_info("  💳 [2] API Key - Manual")
+        self.ui.print_info("      → Copy/paste API key")
+        self.ui.print_info("      → FREE $5 credit")
         self.ui.print_info("")
         self.ui.print_info("="*70)
-        self.ui.print_info("")
 
-        # Ask user to continue with API key setup
+        # Ask which option
         try:
-            input("  Press Enter to setup API key (or Ctrl+C to cancel): ")
+            choice = input("\n  Choose [1/2] (Enter=1): ").strip() or "1"
         except (KeyboardInterrupt, EOFError):
-            self.ui.print_info("\nSetup cancelled.")
+            self.ui.print_info("\nCancelled.")
             return None
+
+        if choice == "1":
+            # OAuth automation!
+            self.ui.print_info("")
+            self.ui.print_info("🚀 Starting Claude Max automation...")
+
+            from utils.claude_max_setup import automatic_claude_max_setup
+
+            oauth_token = automatic_claude_max_setup()
+            if oauth_token:
+                return oauth_token
+
+            # Failed - fallback
+            self.ui.print_info("\n⚠️  OAuth failed - continuing with API key...")
+            choice = "2"
+
+        if choice == "2":
+            # Continue with API key setup below
+            pass
 
         # Continue with API key setup
         self.ui.print_info("")
@@ -289,6 +337,39 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
                 Anthropic(api_key=api_key)
             )
 
+        # REVOLUTIONARY: Auto-start proxy for OAuth tokens and sessionKeys!
+        if api_key.startswith("sk-ant-oat") or api_key.startswith("sk-ant-sid01-"):
+            if api_key.startswith("sk-ant-sid01-"):
+                self.ui.print_info("🚀 sessionKey detected - starting local proxy...")
+            else:
+                self.ui.print_info("🚀 OAuth token detected - starting local proxy...")
+
+            # Ensure proxy dependencies are installed
+            _ensure_proxy_dependencies()
+
+            try:
+                from proxy import start_proxy_server, get_proxy_base_url
+
+                # Start proxy in background
+                if start_proxy_server(api_key, port=8765):
+                    self.ui.print_info("✅ Proxy server started!")
+                    self.ui.print_info("   OAuth → claude.ai translation active")
+
+                    # Use proxy URL as base for API client
+                    import os
+                    proxy_url = get_proxy_base_url(8765)
+                    os.environ["ANTHROPIC_BASE_URL"] = proxy_url
+                    self.ui.print_info(f"   Set ANTHROPIC_BASE_URL={proxy_url}")
+
+                    # Give proxy time to start
+                    import time
+                    time.sleep(1)
+                else:
+                    self.ui.print_error("❌ Failed to start proxy - OAuth may not work")
+            except Exception as e:
+                self.ui.print_error(f"⚠️  Proxy error: {e}")
+                self.ui.print_info("   Continuing anyway...")
+
         try:
             self.client = ClaudeAPIClient(
                 api_key=api_key,
@@ -357,6 +438,16 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
                         events = self.client.chat(user_input, system=self.system_prompt)
 
                     self.ui.stream_response_with_tools(events, self.tool_registry)
+                except KeyboardInterrupt:
+                    # Ctrl+C during streaming - propagate to outer handler
+                    self.ui.print_info("\n⚠️  Interrupted by user (Ctrl+C)")
+                    raise
+                except AttributeError as e:
+                    # SDK parsing error (output_tokens) - ignore, response already displayed
+                    if "output_tokens" in str(e):
+                        pass  # Ignore - this is SDK trying to parse claude.ai response
+                    else:
+                        self.ui.print_error(f"API error: {e}")
                 except Exception as e:
                     self.ui.print_error(f"API error: {e}")
 
@@ -388,6 +479,9 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
 
         elif cmd == "/help":
             self.show_help()
+
+        elif cmd == "/thinking":
+            self.ui.toggle_thinking_visibility()
 
         elif cmd == "/agents":
             self.show_agents()
@@ -444,13 +538,14 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
         help_text = """
 [bold cyan]Available Commands:[/bold cyan]
 
-  /help     - Show this help message
-  /agents   - Show available specialized agents
-  /clear    - Clear the screen
-  /reset    - Reset conversation history
-  /login    - Re-authenticate (OAuth device flow)
-  /logout   - Clear saved authentication
-  exit/quit - Exit the application
+  /help      - Show this help message
+  /thinking  - Toggle thinking process visibility
+  /agents    - Show available specialized agents
+  /clear     - Clear the screen
+  /reset     - Reset conversation history
+  /login     - Re-authenticate (OAuth device flow)
+  /logout    - Clear saved authentication
+  exit/quit  - Exit the application
 
 [bold cyan]Thinking Levels:[/bold cyan]
 
@@ -461,7 +556,8 @@ Be concise, helpful, and friendly. When writing code, use proper syntax highligh
 
 [bold cyan]Tips:[/bold cyan]
 
-  • Extended thinking is enabled - Claude will show reasoning process
+  • Extended thinking is enabled with real-time token counter
+  • Use /thinking to show/hide thinking process after each response
   • Specialized agents available for tests, reviews, debugging, refactoring
   • All messages are kept in conversation history
   • Use Ctrl+C to interrupt at any time

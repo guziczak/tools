@@ -9,6 +9,20 @@ import re
 from pathlib import Path
 from typing import Optional
 
+# Import OAuth to API key converter
+try:
+    from utils.oauth_to_apikey import generate_api_key_from_oauth
+    OAUTH_TO_APIKEY_AVAILABLE = True
+except ImportError:
+    OAUTH_TO_APIKEY_AVAILABLE = False
+
+# Import claude.ai session setup
+try:
+    from utils.claude_ai_session import setup_claude_ai_session
+    CLAUDE_AI_SESSION_AVAILABLE = True
+except ImportError:
+    CLAUDE_AI_SESSION_AVAILABLE = False
+
 
 def check_npm_installed() -> bool:
     """Check if npm is installed.
@@ -122,6 +136,56 @@ def run_claude_setup_token() -> Optional[str]:
         return None
 
 
+def save_api_key_to_env(api_key: str) -> bool:
+    """Save API key to .env file.
+
+    Args:
+        api_key: API key to save
+
+    Returns:
+        True if successful
+    """
+    try:
+        # Find .env file (in project root, relative to this script)
+        # Script is in src/utils/, so go up 2 levels
+        script_dir = Path(__file__).parent
+        project_root = script_dir.parent.parent
+        env_file = project_root / ".env"
+
+        print()
+        print(f"  💾 Saving API key to .env...")
+        print(f"     Location: {env_file}")
+
+        # Read existing .env content
+        if env_file.exists():
+            with open(env_file, 'r') as f:
+                lines = f.readlines()
+        else:
+            lines = []
+
+        # Update or add ANTHROPIC_API_KEY line
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith('ANTHROPIC_API_KEY='):
+                lines[i] = f'ANTHROPIC_API_KEY={api_key}\n'
+                found = True
+                break
+
+        if not found:
+            lines.append(f'\nANTHROPIC_API_KEY={api_key}\n')
+
+        # Write back to file
+        with open(env_file, 'w') as f:
+            f.writelines(lines)
+
+        print(f"  ✅ API key saved to .env!")
+        return True
+
+    except Exception as e:
+        print(f"  ❌ Error saving API key: {e}")
+        return False
+
+
 def save_token_to_env(token: str) -> bool:
     """Save token to .env file.
 
@@ -233,18 +297,27 @@ def automatic_claude_max_setup() -> Optional[str]:
     """Automatically set up Claude Max authentication.
 
     This will:
-    1. Check if npm is installed
-    2. Install @anthropic-ai/claude-code
-    3. Run claude setup-token (opens browser)
-    4. Read and return the token
+    1. Open claude.ai in browser
+    2. Ask user to copy sessionKey cookie
+    3. Save sessionKey to .env
+    4. Return sessionKey for immediate use
 
     Returns:
-        Access token or None if setup failed
+        sessionKey or None if setup failed
     """
     print()
     print("="*70)
     print("  🚀 Automatic Claude Max Setup")
     print("="*70)
+    print()
+
+    # Use new claude.ai session setup (gets sessionKey from browser)
+    if CLAUDE_AI_SESSION_AVAILABLE:
+        return setup_claude_ai_session()
+
+    # Fallback to old method (won't work but kept for compatibility)
+    print("  ⚠️  New session setup not available")
+    print("     Falling back to old method...")
     print()
 
     # Step 1: Check npm
@@ -279,15 +352,49 @@ def automatic_claude_max_setup() -> Optional[str]:
     token = run_claude_setup_token()
 
     if token:
-        # Token captured from output! Save it to .env
+        # Token captured! Now try to generate API key from it
+        print()
+        print("="*70)
+        print("  🔄 Converting OAuth token to API key...")
+        print("="*70)
+
+        # Try to generate API key from OAuth token
+        api_key = None
+        if OAUTH_TO_APIKEY_AVAILABLE:
+            api_key = generate_api_key_from_oauth(token)
+
+        if api_key:
+            # Successfully generated API key! Use it instead of OAuth token
+            if save_api_key_to_env(api_key):
+                print()
+                print("="*70)
+                print("  🎉 Setup Complete!")
+                print("="*70)
+                print()
+                print("  ✅ OAuth token → API key conversion successful!")
+                print("  ✅ API key saved to .env!")
+                print("  ✅ Ready to use with full functionality!")
+                print()
+                print("  💡 Benefits:")
+                print("     • Uses your Claude Max/Pro subscription")
+                print("     • Full access to tools, agents, extended thinking")
+                print("     • No manual key copying needed!")
+                print()
+                return api_key
+
+        # API key generation failed or not available - fall back to saving OAuth token
+        print()
+        print("  ℹ️  Could not auto-generate API key")
+        print("     Saving OAuth token instead (limited functionality)")
+
         if save_token_to_env(token):
             print()
             print("="*70)
-            print("  🎉 Setup Complete!")
+            print("  ⚠️  Setup Complete (OAuth token saved)")
             print("="*70)
             print()
-            print("  ✅ Token captured and saved automatically!")
-            print("  ✅ Ready to use - starting app now...")
+            print("  ⚠️  OAuth tokens have limited functionality")
+            print("  💡 For full features, use an API key instead")
             print()
             return token
         else:
@@ -295,9 +402,6 @@ def automatic_claude_max_setup() -> Optional[str]:
             print()
             print("  ⚠️  Could not save to .env, but token is available")
             print(f"     Token: {token}")
-            print()
-            print("     You can manually add it to .env:")
-            print(f"     CLAUDE_CODE_OAUTH_TOKEN={token}")
             print()
             return token
 
@@ -311,16 +415,42 @@ def automatic_claude_max_setup() -> Optional[str]:
     file_token = read_token()
 
     if file_token:
-        # Found token in file! Save it to .env
+        # Found token in file! Try to generate API key from it
         print("  ✅ Token found in file!")
+        print()
+        print("  🔄 Converting OAuth token to API key...")
+
+        # Try to generate API key from OAuth token
+        api_key = None
+        if OAUTH_TO_APIKEY_AVAILABLE:
+            api_key = generate_api_key_from_oauth(file_token)
+
+        if api_key:
+            # Successfully generated API key!
+            if save_api_key_to_env(api_key):
+                print()
+                print("="*70)
+                print("  🎉 Setup Complete!")
+                print("="*70)
+                print()
+                print("  ✅ OAuth token → API key conversion successful!")
+                print("  ✅ API key saved to .env!")
+                print("  ✅ Ready to use with full functionality!")
+                print()
+                return api_key
+
+        # Fallback: save OAuth token
+        print()
+        print("  ℹ️  Could not auto-generate API key")
+        print("     Saving OAuth token instead")
+
         if save_token_to_env(file_token):
             print()
             print("="*70)
-            print("  🎉 Setup Complete!")
+            print("  ⚠️  Setup Complete (OAuth token saved)")
             print("="*70)
             print()
-            print("  ✅ Token saved to .env!")
-            print("  ✅ Ready to use - starting app now...")
+            print("  ⚠️  OAuth tokens have limited functionality")
             print()
             return file_token
         else:

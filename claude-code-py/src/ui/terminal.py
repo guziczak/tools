@@ -22,6 +22,8 @@ class TerminalUI:
         self.text_buffer = []
         self.current_tool = None
         self.tool_buffer = []
+        self.thinking_visible = False  # Start with thinking hidden
+        self.thinking_token_count = 0
 
     def print_banner(self):
         """Print welcome banner."""
@@ -50,26 +52,66 @@ class TerminalUI:
                 console=self.console
             )
             return user_input.strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
+            # EOF (Ctrl+D on Unix, Ctrl+Z on Windows) - return empty to continue
             return ""
+        except KeyboardInterrupt:
+            # Ctrl+C - re-raise to trigger exit in main loop
+            raise
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count (rough approximation: ~4 chars = 1 token)."""
+        return len(text) // 4
 
     def print_thinking(self, content: str, is_start: bool = False):
-        """Print thinking content."""
+        """Print thinking content with collapsible ctrl+o toggle."""
         if is_start:
-            self.console.print("\n[dim cyan]🧠 Thinking...[/dim cyan]")
             self.thinking_buffer = []
+            self.thinking_token_count = 0
+            # Show collapsed indicator
+            self.console.print("\n[dim cyan]∴ Thinking... (ctrl+o to show)[/dim cyan]", end="")
 
         if content:
             self.thinking_buffer.append(content)
-            # Print thinking in dim style
-            self.console.print(content, end="", style="dim italic cyan")
+            self.thinking_token_count += self._estimate_tokens(content)
+
+            # Update progress indicator in place
+            self.console.print(
+                f"\r[dim cyan]∴ Thought for {self.thinking_token_count//250}s · ↓ {self.thinking_token_count} tokens (ctrl+o to show)[/dim cyan]",
+                end=""
+            )
+
+            # If thinking is visible, show actual content
+            if self.thinking_visible:
+                self.console.print(content, end="", style="dim italic cyan")
 
     def print_thinking_done(self):
         """Print when thinking is complete."""
         if self.thinking_buffer:
-            self.console.print()  # New line after thinking
-            self.console.print("[dim cyan]✓ Thinking complete[/dim cyan]\n")
-            self.thinking_buffer = []
+            # Final summary
+            total_tokens = sum(self._estimate_tokens(chunk) for chunk in self.thinking_buffer)
+            self.console.print(
+                f"\r[dim cyan]∴ Thought for {total_tokens//250}s (type '/thinking' to toggle visibility)[/dim cyan]"
+            )
+
+            if self.thinking_visible:
+                self.console.print()  # New line after visible thinking
+
+            self.console.print()  # Extra line
+            # Keep buffer for /thinking command
+            # self.thinking_buffer = []
+
+    def toggle_thinking_visibility(self):
+        """Toggle thinking visibility and show/hide last thinking."""
+        self.thinking_visible = not self.thinking_visible
+
+        if self.thinking_visible and self.thinking_buffer:
+            self.console.print("\n[bold cyan]💭 Thinking process:[/bold cyan]\n")
+            thinking_text = ''.join(self.thinking_buffer)
+            self.console.print(thinking_text, style="dim italic cyan")
+            self.console.print()
+        elif not self.thinking_visible:
+            self.console.print("[dim]Thinking hidden[/dim]")
 
     def print_tool_start(self, tool_name: str):
         """Print when tool usage starts."""

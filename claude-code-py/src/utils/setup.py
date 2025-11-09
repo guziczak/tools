@@ -109,48 +109,22 @@ def interactive_setup() -> Optional[str]:
     console_url = "https://console.anthropic.com/settings/keys"
 
     print()
-    print("=" * 78)
-    print("  🔑 API Key Setup - Claude Code Python")
-    print("=" * 78)
-    print()
-    print("  You need an Anthropic API key to use Claude Code Python.")
-    print()
-    print("  📌 Step 1: Create your API key")
-    print()
-    print(f"     Direct link: {console_url}")
+    print("  🌐 Opening browser...")
     print()
 
-    # Ask if user wants to open browser
+    # Open browser automatically (no asking!)
     try:
-        open_browser = input("  → Open this link in your browser now? [Y/n]: ").strip().lower()
-        if open_browser != 'n':
-            print("     Opening browser...")
-            try:
-                webbrowser.open(console_url)
-                print("     ✅ Browser opened!")
-            except Exception as e:
-                print(f"     ⚠️  Could not open browser: {e}")
-                print(f"     Please open manually: {console_url}")
-        print()
-    except (KeyboardInterrupt, EOFError):
-        print()
-        print("  ❌ Setup cancelled.")
-        print()
-        return None
+        webbrowser.open(console_url)
+        print("  ✅ Browser opened → console.anthropic.com")
+    except Exception as e:
+        print(f"  ⚠️  Could not auto-open browser")
+        print(f"     Please open: {console_url}")
 
-    print("  📝 In the Anthropic Console:")
-    print("     1. Sign in (or create account if needed)")
-    print("     2. You'll see 'API Keys' page")
-    print("     3. Click '+ Create Key' button (top right)")
-    print("     4. Enter a name for your key")
-    print(f"        Suggested name: {suggested_name}")
-    print("     5. Click 'Create Key'")
-    print("     6. COPY the key (it starts with 'sk-ant-...')")
-    print("        ⚠️  You can only see it once!")
     print()
-    print("  📌 Step 2: Paste your API key below")
-    print("     → The key will be saved to .env automatically")
-    print("     → You can cancel anytime with Ctrl+C")
+    print("  📝 In the browser:")
+    print("     1. Sign in (can use Google)")
+    print("     2. Click '+ Create Key'")
+    print("     3. Copy the key")
     print()
     print("=" * 78)
     print()
