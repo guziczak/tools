@@ -635,22 +635,87 @@ class ClaudeAPIClient:
             intent_result = self.intent_router.route(intent, user_message, self.messages)
 
             if intent_result:
-                # Handler successfully pre-executed tools
-                message_to_send = intent_result.enriched_message
-                print(f"📝 [API Client] Message enriched with pre-executed tool results")
+                # NEW: Check if handler returned tool_results (best practice!)
+                if intent_result.tool_results:
+                    print(f"📝 [API Client] Got {len(intent_result.tool_results)} pre-executed tool results")
 
-                # If handler says skip LLM, return result directly
-                if intent_result.skip_llm:
-                    print("⚡ [API Client] Handler requests skip_llm - returning result directly")
-                    yield {
-                        "type": "text",
-                        "content": intent_result.enriched_message
-                    }
-                    yield {
-                        "type": "message_done",
-                        "content": ""
-                    }
-                    return
+                    # Inject tool results as fake tool_use + tool_result messages
+                    # This follows Anthropic API format - zero redundancy!
+                    for i, tool_res in enumerate(intent_result.tool_results):
+                        # Check if it's an error
+                        is_error = tool_res.get("is_error", False)
+
+                        if not is_error:
+                            # Fake assistant tool call (Anthropic API format - content is list of blocks)
+                            self.messages.append({
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": f"pre-exec-{i}",
+                                        "name": tool_res["tool_name"],
+                                        "input": tool_res["tool_input"]
+                                    }
+                                ]
+                            })
+
+                            # Fake user tool result (Anthropic API format)
+                            self.messages.append({
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": f"pre-exec-{i}",
+                                        "content": tool_res["tool_output"]
+                                    }
+                                ]
+                            })
+
+                    # If handler says skip LLM, return result directly
+                    if intent_result.skip_llm:
+                        print("⚡ [API Client] Handler requests skip_llm - formatting tool results")
+                        # Format tool results as text response
+                        output_text = "\n\n".join(
+                            f"```\n{tr['tool_output']}\n```"
+                            for tr in intent_result.tool_results
+                        )
+                        yield {
+                            "type": "text",
+                            "content": output_text
+                        }
+                        yield {
+                            "type": "message_done",
+                            "content": ""
+                        }
+                        return
+
+                    # Continue to LLM with original user message (not enriched!)
+                    message_to_send = user_message  # ← CLEAN! No redundancy!
+
+                    # Check if handler provided analysis instructions (e.g., AnalyzeChangesHandler)
+                    if intent_result.metadata.get("analysis_instructions"):
+                        # Append instructions to system prompt
+                        instructions = intent_result.metadata["analysis_instructions"]
+                        system = f"{system}\n\n{instructions}" if system else instructions
+                        print(f"📋 [API Client] Added analysis instructions to system prompt")
+
+                # DEPRECATED: Old enriched_message approach (for backwards compatibility)
+                elif intent_result.enriched_message:
+                    message_to_send = intent_result.enriched_message
+                    print(f"📝 [API Client] Message enriched with pre-executed tool results (deprecated approach)")
+
+                    # If handler says skip LLM, return result directly
+                    if intent_result.skip_llm:
+                        print("⚡ [API Client] Handler requests skip_llm - returning result directly")
+                        yield {
+                            "type": "text",
+                            "content": intent_result.enriched_message
+                        }
+                        yield {
+                            "type": "message_done",
+                            "content": ""
+                        }
+                        return
 
         # OAuth backend - tool support with local execution
         if self.backend_type == "oauth":

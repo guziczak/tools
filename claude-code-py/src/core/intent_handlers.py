@@ -17,8 +17,8 @@ This is STATE OF THE ART because:
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, TYPE_CHECKING
-from dataclasses import dataclass
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
+from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     from tools import ToolRegistry
@@ -28,14 +28,22 @@ if TYPE_CHECKING:
 class IntentResult:
     """Result of intent handling.
 
+    NEW (Best Practice): Use tool_results instead of enriched_message!
+    This follows Anthropic API format - tool results are injected as proper
+    tool_use/tool_result messages, not concatenated into user message.
+
     Attributes:
-        enriched_message: User message enriched with pre-executed tool results
+        enriched_message: (DEPRECATED) User message enriched with pre-executed tool results.
+                         Use tool_results instead for zero redundancy.
         metadata: Additional metadata about the execution
         skip_llm: If True, skip sending to Claude (result is already complete)
+        tool_results: (NEW - PREFERRED) List of pre-executed tool results.
+                     Each dict should have: tool_name, tool_input, tool_output
     """
-    enriched_message: str
-    metadata: Dict[str, Any]
+    enriched_message: Optional[str] = None  # Made optional (deprecated)
+    metadata: Dict[str, Any] = field(default_factory=dict)
     skip_llm: bool = False
+    tool_results: Optional[List[Dict[str, Any]]] = None  # NEW - preferred approach!
 
 
 class IntentHandler(ABC):
@@ -86,7 +94,7 @@ class ExploreProjectHandler(IntentHandler):
 
     Pre-executes:
     1. bash("ls") or bash("dir") to list files
-    2. Enriches user message with actual file list
+    2. Returns tool results in Anthropic API format (zero redundancy!)
     3. Claude responds based on real data, not assumptions
 
     This is the STATE OF THE ART approach used by Cursor/Windsurf.
@@ -97,14 +105,16 @@ class ExploreProjectHandler(IntentHandler):
         return intent == "explore_project"
 
     def handle(self, user_message: str, intent: str) -> IntentResult:
-        """Pre-execute directory listing and enrich message.
+        """Pre-execute directory listing and return as tool result.
+
+        NEW: Returns tool_results instead of enriched_message!
 
         Args:
             user_message: Original message (e.g., "widzisz projekt?")
             intent: Should be "explore_project"
 
         Returns:
-            IntentResult with file listing embedded in message
+            IntentResult with tool_results (file listing)
         """
         import sys
 
@@ -122,19 +132,15 @@ class ExploreProjectHandler(IntentHandler):
                 file_list = result.output
                 print(f"   ✅ Got {len(file_list)} chars of output")
 
-                # Enrich message with actual file listing
-                enriched = f"""The user asked: "{user_message}"
-
-I've listed the files in the current directory for you. Here's what's there:
-
-```
-{file_list}
-```
-
-Based on these files, please answer the user's question about the project."""
-
+                # Return as TOOL RESULT (Anthropic API format - best practice!)
                 return IntentResult(
-                    enriched_message=enriched,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": list_cmd},
+                            "tool_output": file_list
+                        }
+                    ],
                     metadata={
                         "tool_executed": "bash",
                         "command": list_cmd,
@@ -145,14 +151,20 @@ Based on these files, please answer the user's question about the project."""
                 # Tool failed, fall back to original message
                 print(f"   ❌ bash failed: {result.error}")
                 return IntentResult(
-                    enriched_message=user_message,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": list_cmd},
+                            "tool_output": f"Error: {result.error}",
+                            "is_error": True
+                        }
+                    ],
                     metadata={"error": result.error}
                 )
         else:
             # No tool registry available
             print("   ⚠️  No tool registry - cannot pre-execute")
             return IntentResult(
-                enriched_message=user_message,
                 metadata={"error": "No tool registry"}
             )
 
@@ -160,7 +172,7 @@ Based on these files, please answer the user's question about the project."""
 class ListFilesHandler(IntentHandler):
     """Handler for 'list_files' intent.
 
-    Similar to ExploreProjectHandler but more focused on just listing.
+    Similar to ExploreProjectHandler but can skip LLM if result is complete.
     """
 
     def can_handle(self, intent: str) -> bool:
@@ -168,14 +180,17 @@ class ListFilesHandler(IntentHandler):
         return intent == "list_files"
 
     def handle(self, user_message: str, intent: str) -> IntentResult:
-        """Pre-execute directory listing.
+        """Pre-execute directory listing and return as tool result.
+
+        NEW: Returns tool_results instead of enriched_message!
+        Can optionally skip_llm if result is complete.
 
         Args:
             user_message: Original message
             intent: Should be "list_files"
 
         Returns:
-            IntentResult with file listing
+            IntentResult with tool_results (file listing)
         """
         import sys
 
@@ -188,25 +203,32 @@ class ListFilesHandler(IntentHandler):
             result = self.tool_registry.execute_tool("bash", command=list_cmd)
 
             if result.status.value == "success":
-                enriched = f"""Files in current directory:
-
-```
-{result.output}
-```"""
-
+                # Return as TOOL RESULT with skip_llm option
                 return IntentResult(
-                    enriched_message=enriched,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": list_cmd},
+                            "tool_output": result.output
+                        }
+                    ],
                     metadata={"tool_executed": "bash", "command": list_cmd},
                     skip_llm=True  # Result is complete, no need for LLM
                 )
             else:
                 return IntentResult(
-                    enriched_message=user_message,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": list_cmd},
+                            "tool_output": f"Error: {result.error}",
+                            "is_error": True
+                        }
+                    ],
                     metadata={"error": result.error}
                 )
 
         return IntentResult(
-            enriched_message=user_message,
             metadata={"error": "No tool registry"}
         )
 
@@ -216,7 +238,7 @@ class GitLogHandler(IntentHandler):
 
     Pre-executes:
     1. git log to show recent commits
-    2. Enriches user message with commit history
+    2. Returns tool results in Anthropic API format (zero redundancy!)
     3. Claude responds based on actual git data
     """
 
@@ -225,14 +247,18 @@ class GitLogHandler(IntentHandler):
         return intent == "git_log"
 
     def handle(self, user_message: str, intent: str) -> IntentResult:
-        """Pre-execute git log and enrich message.
+        """Pre-execute git log and return as tool result.
+
+        NEW: Returns tool_results instead of enriched_message!
+        This follows Anthropic API best practices - tool results are injected
+        as proper tool_use/tool_result messages, not text concatenation.
 
         Args:
             user_message: Original message (e.g., "widzisz ostatniego commita?")
             intent: Should be "git_log"
 
         Returns:
-            IntentResult with git log embedded in message
+            IntentResult with tool_results (zero redundancy!)
         """
         print("🎯 [GitLogHandler] Pre-executing git log...")
 
@@ -245,19 +271,15 @@ class GitLogHandler(IntentHandler):
                 git_log = result.output
                 print(f"   ✅ Got {len(git_log)} chars of git log")
 
-                # Enrich message with actual git log
-                enriched = f"""The user asked: "{user_message}"
-
-Here are the last 5 commits from git log:
-
-```
-{git_log}
-```
-
-Based on this commit history, please answer the user's question."""
-
+                # Return as TOOL RESULT (Anthropic API format - best practice!)
                 return IntentResult(
-                    enriched_message=enriched,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": "git log --oneline -5"},
+                            "tool_output": git_log
+                        }
+                    ],
                     metadata={
                         "tool_executed": "bash",
                         "command": "git log --oneline -5",
@@ -268,21 +290,22 @@ Based on this commit history, please answer the user's question."""
                 # Git failed - maybe not a git repo
                 print(f"   ❌ git log failed: {result.error}")
 
-                # Try to provide helpful context
-                enriched = f"""The user asked: "{user_message}"
-
-However, this doesn't appear to be a git repository (git log failed).
-Please explain this to the user politely."""
-
+                # Return error in tool result format
                 return IntentResult(
-                    enriched_message=enriched,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": "git log --oneline -5"},
+                            "tool_output": f"Error: {result.error}",
+                            "is_error": True
+                        }
+                    ],
                     metadata={"error": result.error}
                 )
         else:
             # No tool registry available
             print("   ⚠️  No tool registry - cannot pre-execute")
             return IntentResult(
-                enriched_message=user_message,
                 metadata={"error": "No tool registry"}
             )
 
@@ -296,25 +319,36 @@ class AnalyzeChangesHandler(IntentHandler):
     2. Pre-executes git show <hash>
     3. Enriches message with actual diff
 
-    This is the NUCLEAR OPTION to force Claude to use tools.
+    NEW: Uses ContextManager for safe caching:
+    - Caches commit hash for 5 minutes
+    - Auto-verifies before use
+    - Prevents showing stale commits
     """
 
-    def __init__(self, tool_registry: Optional["ToolRegistry"] = None, messages: list = None):
+    def __init__(self, tool_registry: Optional["ToolRegistry"] = None, messages: list = None, context_manager=None):
         """Initialize with tool registry and conversation messages.
 
         Args:
             tool_registry: Registry for executing tools
             messages: Conversation history (to extract commit hash from)
+            context_manager: ContextManager for safe caching (optional)
         """
         super().__init__(tool_registry)
         self.messages = messages or []
+        self.context_manager = context_manager
 
     def can_handle(self, intent: str) -> bool:
         """Check if intent is analyze_changes."""
         return intent == "analyze_changes"
 
     def _extract_commit_hash(self) -> Optional[str]:
-        """Extract commit hash from recent conversation.
+        """Extract commit hash from recent conversation with safe caching.
+
+        NEW: Uses ContextManager to cache last seen commit:
+        - First checks cache (with auto-verification!)
+        - If cache fresh, returns immediately
+        - If cache stale/missing, extracts from messages
+        - Stores in cache for future use
 
         Looks for patterns like:
         - "e35c4f4"
@@ -326,6 +360,19 @@ class AnalyzeChangesHandler(IntentHandler):
         """
         import re
 
+        # Try cache first (with auto-verification!)
+        if self.context_manager:
+            cached = self.context_manager.get_verified("last_commit_hash")
+
+            if cached and cached["status"] == "fresh":
+                print(f"   💾 Using cached commit hash: {cached['value']} (age: {cached['age_seconds']:.0f}s)")
+                return cached["value"]
+            elif cached and cached["status"] == "stale":
+                print(f"   ⚠️  Cached commit changed: {cached['cached_value']} → {cached['live_value']}")
+                # Return NEW value (auto-updated!)
+                return cached["live_value"]
+
+        # Cache miss or stale - extract from messages
         # Check last 3 messages (user + assistant messages)
         recent_messages = self.messages[-3:] if len(self.messages) >= 3 else self.messages
 
@@ -339,20 +386,33 @@ class AnalyzeChangesHandler(IntentHandler):
                 if match:
                     hash_candidate = match.group(1)
                     print(f"   🔍 Found potential commit hash: {hash_candidate}")
+
+                    # Store in cache with verification
+                    if self.context_manager:
+                        self.context_manager.store(
+                            "last_commit_hash",
+                            hash_candidate,
+                            ttl_seconds=300,  # Valid for 5 minutes
+                            verification_cmd="git log -1 --format=%H"
+                        )
+
                     return hash_candidate
 
         print("   ⚠️  No commit hash found in recent messages")
         return None
 
     def handle(self, user_message: str, intent: str) -> IntentResult:
-        """Pre-execute git show and enrich message.
+        """Pre-execute git show and return as tool result.
+
+        NEW: Returns tool_results with analysis instructions in metadata!
+        This follows Anthropic API best practices.
 
         Args:
             user_message: Original message (e.g., "przeanalizuj zmiany")
             intent: Should be "analyze_changes"
 
         Returns:
-            IntentResult with git show output embedded
+            IntentResult with tool_results (git show output)
         """
         print("🎯 [AnalyzeChangesHandler] Pre-executing git show...")
 
@@ -370,13 +430,11 @@ class AnalyzeChangesHandler(IntentHandler):
                 else:
                     print(f"   ❌ git log failed: {result.error}")
                     return IntentResult(
-                        enriched_message=user_message,
                         metadata={"error": "No commit hash found and git log failed"}
                     )
             else:
                 print("   ❌ No tool registry for fallback")
                 return IntentResult(
-                    enriched_message=user_message,
                     metadata={"error": "No commit hash found"}
                 )
 
@@ -390,41 +448,45 @@ class AnalyzeChangesHandler(IntentHandler):
             if result.status.value == "success":
                 print(f"   ✅ Got {len(result.output)} chars of diff")
 
-                # Enrich message with actual diff + explicit instructions
-                enriched = f"""User asked: "{user_message}"
-
-Here is the full diff from git show {commit_hash}:
-
-```
-{result.output}
-```
-
-INSTRUCTIONS: Analyze WHAT CHANGED in this commit:
+                # Return as TOOL RESULT with analysis instructions in metadata
+                return IntentResult(
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": cmd},
+                            "tool_output": result.output
+                        }
+                    ],
+                    metadata={
+                        "tool_executed": "bash",
+                        "command": cmd,
+                        "commit_hash": commit_hash,
+                        # Analysis instructions (will be added to system prompt)
+                        "analysis_instructions": """Analyze WHAT CHANGED in this commit:
 1. List which files were modified
 2. Summarize key changes (added functions, deleted code, refactored logic)
 3. Explain the purpose of these changes
 4. Focus on CONCRETE changes, not meta-commentary about design patterns
 
 Be specific and practical."""
-
-                return IntentResult(
-                    enriched_message=enriched,
-                    metadata={
-                        "tool_executed": "bash",
-                        "command": cmd,
-                        "commit_hash": commit_hash
                     }
                 )
             else:
                 print(f"   ❌ git show failed: {result.error}")
                 return IntentResult(
-                    enriched_message=user_message,
+                    tool_results=[
+                        {
+                            "tool_name": "bash",
+                            "tool_input": {"command": cmd},
+                            "tool_output": f"Error: {result.error}",
+                            "is_error": True
+                        }
+                    ],
                     metadata={"error": result.error}
                 )
         else:
             print("   ⚠️  No tool registry - cannot pre-execute")
             return IntentResult(
-                enriched_message=user_message,
                 metadata={"error": "No tool registry"}
             )
 
@@ -438,13 +500,15 @@ class IntentRouter:
     - Extensible: just add more handlers to the chain
     """
 
-    def __init__(self, tool_registry: Optional["ToolRegistry"] = None):
+    def __init__(self, tool_registry: Optional["ToolRegistry"] = None, context_manager=None):
         """Initialize router with handlers.
 
         Args:
             tool_registry: Tool registry to pass to handlers
+            context_manager: ContextManager for safe caching (optional)
         """
         self.tool_registry = tool_registry
+        self.context_manager = context_manager
 
         # Chain of handlers (order matters - first match wins)
         # Note: AnalyzeChangesHandler needs messages, created dynamically in route()
@@ -465,9 +529,13 @@ class IntentRouter:
         Returns:
             IntentResult if handler found, None otherwise
         """
-        # For analyze_changes intent, create handler with conversation context
+        # For analyze_changes intent, create handler with conversation context + safe caching
         if intent == "analyze_changes":
-            handler = AnalyzeChangesHandler(self.tool_registry, messages)
+            handler = AnalyzeChangesHandler(
+                self.tool_registry,
+                messages,
+                context_manager=self.context_manager  # NEW: Safe memory!
+            )
             if handler.can_handle(intent):
                 print(f"🎯 [IntentRouter] Routing '{intent}' to {handler.__class__.__name__}")
                 return handler.handle(user_message, intent)
