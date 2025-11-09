@@ -461,7 +461,29 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> bool:
         return True
 
     _proxy_instance = ClaudeAIProxyServer(oauth_token, port)
-    return _proxy_instance.start_server()
+    started = _proxy_instance.start_server()
+
+    if not started:
+        return False
+
+    # Wait for Flask to be ready (health check loop)
+    import time
+    import requests
+    max_wait = 5  # seconds
+    start_time = time.time()
+
+    while time.time() - start_time < max_wait:
+        try:
+            response = requests.get(f"http://127.0.0.1:{port}/health", timeout=1)
+            if response.status_code == 200:
+                print(f"✅ Proxy health check passed - ready to accept requests")
+                return True
+        except:
+            pass
+        time.sleep(0.1)
+
+    print(f"⚠️  Proxy health check timeout - may not be ready")
+    return True  # Continue anyway
 
 
 def get_proxy_base_url(port: int = 8765) -> str:
