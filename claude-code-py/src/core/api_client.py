@@ -251,28 +251,121 @@ class ClaudeAPIClient:
         Yields:
             Events containing response chunks and tool execution info
         """
-        # OAuth backend - simplified tool support (experimental)
+        # OAuth backend - tool support with local execution
         if self.backend_type == "oauth":
-            # For now, just use chat() which passes tools to claude.ai
-            # Tool execution will be handled in a simplified way
-            # TODO: Implement full multi-turn tool calling loop for OAuth
-            for event in self.chat(user_message, system):
-                # Detect tool use events
-                if event.get("type") == "tool_use_start":
-                    tool_name = event.get("tool_name", "unknown")
-                    tool_id = event.get("tool_id", "")
+            # Multi-turn tool calling loop
+            max_tool_rounds = 5
+            tool_round = 0
 
-                    # Notify user that tool was requested
-                    yield {
-                        "type": "tool_use_detected",
-                        "tool_name": tool_name,
-                        "content": f"Claude wants to use tool: {tool_name}"
-                    }
+            while tool_round < max_tool_rounds:
+                # Stream response and collect tool calls
+                tool_blocks = []
+                assistant_text = []  # Track assistant response for all rounds
 
-                    # TODO: Execute tool locally and send results back
-                    # For now, just pass through the event
+                # First round: use chat() which adds user message to history
+                # Subsequent rounds: use client directly with existing messages (including tool results)
+                if tool_round == 0:
+                    # Add user message via chat()
+                    events = self.chat(user_message, system)
+                else:
+                    # Use client directly with messages that already include tool results
+                    events = self.client.chat_streaming(
+                        messages=self.messages,
+                        system=system,
+                        tools=self.tools if self.tools else None,
+                    )
 
-                yield event
+                for event in events:
+                    # Collect tool blocks
+                    if event.get("type") == "tool_calls_complete":
+                        tool_blocks = event.get("tool_blocks", [])
+
+                    # Collect assistant message for history (only needed for round 1+)
+                    if tool_round > 0 and event.get("type") == "text":
+                        assistant_text.append(event.get("content", ""))
+
+                    # Yield event to user
+                    yield event
+
+                # Add assistant response to history for round 1+
+                if tool_round > 0 and assistant_text:
+                    self.add_message("assistant", "".join(assistant_text))
+
+                # Check if Claude requested tools
+                if not tool_blocks:
+                    # No tools requested, done
+                    break
+
+                # Execute tools locally
+                tool_round += 1
+                yield {
+                    "type": "tool_round_start",
+                    "content": f"Tool execution round {tool_round}"
+                }
+
+                tool_results = []
+                for tool_block in tool_blocks:
+                    tool_name = tool_block.get("name", "")
+                    tool_id = tool_block.get("id", "")
+                    tool_input = tool_block.get("input", {})
+
+                    # Execute tool locally
+                    if self.tool_registry:
+                        result = self.tool_registry.execute_tool(tool_name, **tool_input)
+
+                        # Yield execution event
+                        yield {
+                            "type": "tool_execute",
+                            "tool_name": tool_name,
+                            "tool_input": tool_input,
+                            "result": result,
+                            "content": ""
+                        }
+
+                        # Format result for claude.ai
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": result.output if result.status.value == "success" else f"Error: {result.error}"
+                        })
+
+                # Add assistant message with tool_use to history
+                # TODO: This should include full tool_use blocks, not just text
+                # For now, add properly formatted content with tool_use blocks
+                assistant_message_content = []
+                for tool_block in tool_blocks:
+                    assistant_message_content.append({
+                        "type": "tool_use",
+                        "id": tool_block["id"],
+                        "name": tool_block["name"],
+                        "input": tool_block["input"]
+                    })
+
+                self.messages.append({
+                    "role": "assistant",
+                    "content": assistant_message_content
+                })
+
+                # Add tool results as user message
+                self.messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+
+                yield {
+                    "type": "tool_round_complete",
+                    "content": f"Completed {len(tool_results)} tool(s)"
+                }
+
+                # Continue loop - next iteration will send tool results to Claude
+                user_message = ""  # Don't send user message again
+
+            if tool_round >= max_tool_rounds:
+                yield {
+                    "type": "error",
+                    "content": f"Maximum tool rounds ({max_tool_rounds}) reached"
+                }
+
             return
 
         # API key backend - full tool support

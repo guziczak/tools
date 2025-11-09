@@ -99,6 +99,10 @@ class OAuthAnthropicClient:
             print(f"📊 [OAuth Client] Response status: {response.status_code}")
             response.raise_for_status()
 
+            # Track tool uses for building complete blocks
+            current_tool_blocks = []
+            all_content_blocks = []
+
             # Parse SSE stream
             for line in response.iter_lines():
                 if not line or not line.startswith("data: "):
@@ -108,6 +112,14 @@ class OAuthAnthropicClient:
 
                 # Handle [DONE] marker
                 if data_str.strip() == "[DONE]":
+                    # Yield collected tool blocks before finishing
+                    if current_tool_blocks:
+                        yield {
+                            "type": "tool_calls_complete",
+                            "tool_blocks": current_tool_blocks,
+                            "content": ""
+                        }
+
                     yield {
                         "type": "message_done",
                         "content": ""
@@ -119,7 +131,42 @@ class OAuthAnthropicClient:
                     import json
                     event = json.loads(data_str)
 
-                    # Convert to our standard format
+                    # Track content blocks for tool execution
+                    event_type = event.get("type", "")
+
+                    # Collect tool_use blocks
+                    if event_type == "content_block_start":
+                        content_block = event.get("content_block", {})
+                        if content_block.get("type") == "tool_use":
+                            # Start new tool block
+                            current_tool_blocks.append({
+                                "type": "tool_use",
+                                "id": content_block.get("id", ""),
+                                "name": content_block.get("name", ""),
+                                "input": {}
+                            })
+
+                    elif event_type == "content_block_delta":
+                        delta = event.get("delta", {})
+                        if delta.get("type") == "input_json_delta" and current_tool_blocks:
+                            # Accumulate tool input (it's streamed as JSON chunks)
+                            # We'll parse the complete JSON later
+                            if "input_json" not in current_tool_blocks[-1]:
+                                current_tool_blocks[-1]["input_json"] = ""
+                            current_tool_blocks[-1]["input_json"] += delta.get("partial_json", "")
+
+                    elif event_type == "content_block_stop":
+                        # Complete the current tool block if any
+                        if current_tool_blocks and "input_json" in current_tool_blocks[-1]:
+                            try:
+                                # Parse complete JSON input
+                                input_json = current_tool_blocks[-1].pop("input_json")
+                                current_tool_blocks[-1]["input"] = json.loads(input_json)
+                            except json.JSONDecodeError:
+                                # If parsing fails, keep empty input
+                                pass
+
+                    # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
                     if converted_event:
                         yield converted_event
