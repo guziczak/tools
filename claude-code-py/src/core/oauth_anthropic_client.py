@@ -140,10 +140,17 @@ class OAuthAnthropicClient:
                     # Track content blocks for tool execution
                     event_type = event.get("type", "")
 
+                    # DEBUG: Log ONLY tool_use events (removed excessive logging)
+
                     # Collect tool_use blocks
                     if event_type == "content_block_start":
                         content_block = event.get("content_block", {})
-                        if content_block.get("type") == "tool_use":
+                        block_type = content_block.get("type", "")
+
+                        # DEBUG: Always log content_block_start to see what we get
+                        print(f"🔎 [OAuth Client] content_block_start: type={block_type}")
+
+                        if block_type == "tool_use":
                             tool_name = content_block.get("name", "")
                             tool_id = content_block.get("id", "")
                             print(f"🔍 [OAuth Client] Tool use detected: {tool_name} (id: {tool_id})")

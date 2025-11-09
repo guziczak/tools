@@ -251,10 +251,11 @@ class ClaudeAIProxyServer:
             "rendering_mode": "messages",
         }
 
-        # Add tools if provided (experimental - testing if claude.ai supports this)
+        # DON'T send tools to claude.ai - it has its own built-in tools
+        # We'll intercept tool_use blocks and execute locally with our tools
+        # This is the Interceptor Pattern for tool execution
         if tools:
-            claude_request["tools"] = tools
-            print(f"🔧 [Proxy] Adding {len(tools)} tools to claude.ai request")
+            print(f"ℹ️  [Proxy] Interceptor mode: {len(tools)} local tools available (not sending to claude.ai)")
 
         try:
             # Use the /completion endpoint that we know works (returns 200)
@@ -328,6 +329,13 @@ class ClaudeAIProxyServer:
 
                                 try:
                                     data = json.loads(data_str)
+
+                                    # DEBUG: Log ONLY tool_use events
+                                    event_type = data.get("type", "")
+                                    if event_type == "content_block_start":
+                                        cb = data.get("content_block", {})
+                                        if cb.get("type") == "tool_use":
+                                            print(f"🔍 [Proxy] tool_use detected: {cb.get('name', 'unknown')} (id: {cb.get('id', 'N/A')})")
 
                                     # Claude.ai already sends Anthropic SSE format!
                                     # Just check for text_delta in content_block_delta events
