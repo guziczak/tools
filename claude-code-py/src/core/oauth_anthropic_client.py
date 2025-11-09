@@ -51,6 +51,7 @@ class OAuthAnthropicClient:
         thinking_enabled: bool = True,
         thinking_budget: int = 10000,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Dict[str, Any]] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Send chat message and stream response using OAuth authentication.
 
@@ -63,11 +64,14 @@ class OAuthAnthropicClient:
             thinking_enabled: Enable extended thinking
             thinking_budget: Token budget for thinking
             tools: Optional tool definitions (Anthropic format)
+            tool_choice: Optional tool choice config (forces specific tool usage)
 
         Yields:
             Event dicts with streaming response
         """
         print(f"🚀 [OAuth Client] chat_streaming() CALLED! messages={len(messages)}, tools={'YES' if tools else 'NO'}")
+        if tool_choice:
+            print(f"⚡ [OAuth Client] tool_choice FORCED: {tool_choice}")
 
         # Build request payload (same format as standard API)
         payload = {
@@ -92,6 +96,10 @@ class OAuthAnthropicClient:
         # Add tools if provided
         if tools:
             payload["tools"] = tools
+
+        # Add tool_choice if provided (forces specific tool execution)
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
 
         # Make streaming request
         print(f"📡 [OAuth Client] Sending POST to {self.api_base}/v1/messages")

@@ -22,6 +22,30 @@ except ImportError:
     UnifiedClaudeClient = None
     is_oauth_token = None
 
+# Import intent handlers (STATE OF THE ART: Strategy Pattern)
+try:
+    from .intent_handlers import IntentRouter
+    INTENT_HANDLERS_AVAILABLE = True
+except ImportError:
+    INTENT_HANDLERS_AVAILABLE = False
+    IntentRouter = None
+
+# Import query normalizer (Best Practices: Single Responsibility)
+try:
+    from .query_normalizer import QueryNormalizer
+    QUERY_NORMALIZER_AVAILABLE = True
+except ImportError:
+    QUERY_NORMALIZER_AVAILABLE = False
+    QueryNormalizer = None
+
+# Import command validator (Best Practices: Chain of Responsibility)
+try:
+    from .command_validator import create_default_validator_chain
+    COMMAND_VALIDATOR_AVAILABLE = True
+except ImportError:
+    COMMAND_VALIDATOR_AVAILABLE = False
+    create_default_validator_chain = None
+
 if TYPE_CHECKING:
     from tools import ToolRegistry
 
@@ -96,6 +120,20 @@ class ClaudeAPIClient:
         # Tool executor (created lazily if needed)
         self._tool_executor = None
 
+        # Intent router (STATE OF THE ART: Strategy Pattern with Dependency Injection)
+        # Routes user intents to pre-execution handlers
+        self.intent_router = None
+        if INTENT_HANDLERS_AVAILABLE and tool_registry:
+            self.intent_router = IntentRouter(tool_registry)
+            print("🎯 [API Client] IntentRouter initialized (Strategy Pattern enabled)")
+
+        # Command validator (Chain of Responsibility Pattern)
+        # Validates and transforms commands for platform compatibility
+        self.command_validator = None
+        if COMMAND_VALIDATOR_AVAILABLE:
+            self.command_validator = create_default_validator_chain()
+            print("🔧 [API Client] CommandValidator chain initialized")
+
         # Conversation history
         self.messages: List[Dict[str, Any]] = []
 
@@ -107,23 +145,234 @@ class ClaudeAPIClient:
         """Clear conversation history."""
         self.messages = []
 
+    def _levenshtein_distance(self, s1: str, s2: str) -> int:
+        """Calculate Levenshtein (edit) distance between two strings.
+
+        This is for fuzzy matching - catches typos like "widziszi" vs "widzisz".
+
+        Args:
+            s1: First string
+            s2: Second string
+
+        Returns:
+            Minimum number of edits (insert/delete/replace) to transform s1 into s2
+        """
+        if len(s1) < len(s2):
+            return self._levenshtein_distance(s2, s1)
+
+        if len(s2) == 0:
+            return len(s1)
+
+        previous_row = range(len(s2) + 1)
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                # Cost of insertions, deletions, or substitutions
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+
+        return previous_row[-1]
+
+    def _fuzzy_match(self, query: str, triggers: List[str], max_distance: int = 2) -> bool:
+        """Check if query fuzzy-matches any trigger (catches typos).
+
+        Args:
+            query: User query
+            triggers: List of trigger phrases
+            max_distance: Maximum Levenshtein distance to consider a match
+
+        Returns:
+            True if query is within max_distance of any trigger
+        """
+        query_lower = query.lower().strip()
+
+        for trigger in triggers:
+            distance = self._levenshtein_distance(query_lower, trigger)
+            if distance <= max_distance:
+                print(f"🎯 [Fuzzy] Match! '{query_lower}' ~= '{trigger}' (distance={distance})")
+                return True
+
+        return False
+
+    def _get_semantic_similarity(self, query: str, reference_queries: List[str]) -> float:
+        """Calculate semantic similarity using simple cosine similarity of word overlaps.
+
+        This is a lightweight approach. For production, you'd use embeddings from
+        Anthropic/OpenAI, but this is good enough for MVP.
+
+        Args:
+            query: User's query
+            reference_queries: List of reference queries to compare against
+
+        Returns:
+            Max similarity score (0-1)
+        """
+        # Simple word overlap similarity (good enough for MVP)
+        query_words = set(query.lower().split())
+
+        max_similarity = 0.0
+        for ref in reference_queries:
+            ref_words = set(ref.lower().split())
+            if not ref_words:
+                continue
+
+            # Jaccard similarity: intersection / union
+            intersection = len(query_words & ref_words)
+            union = len(query_words | ref_words)
+            similarity = intersection / union if union > 0 else 0
+
+            max_similarity = max(max_similarity, similarity)
+
+        return max_similarity
+
+    def _classify_query_intent(self, message: str) -> tuple[str, Optional[Dict[str, Any]]]:
+        """Classify user query intent using 4-tier state-of-the-art approach:
+
+        Tier 1: Exact trigger matching (fast path)
+        Tier 1.5: Fuzzy matching (catches typos with Levenshtein distance)
+        Tier 2: Semantic similarity matching (flexible)
+        Tier 3: Let Claude decide (fallback)
+
+        This combines:
+        - Speed of exact matching
+        - Robustness to typos (fuzzy)
+        - Flexibility of semantic understanding
+        - Intelligence of LLM decision making
+
+        Args:
+            message: User's message
+
+        Returns:
+            Tuple of (intent, tool_choice_config)
+            - intent: "explore_project", "list_files", "general"
+            - tool_choice_config: Dict for API tool_choice parameter, or None
+        """
+        message_lower = message.lower().strip()
+
+        # TIER 1: Exact trigger matching (O(1) - fast path)
+        # Intent: Explore project (Polish + English)
+        explore_triggers = [
+            "widzisz projekt", "czy widzisz projekt",
+            "do you see project", "do you see the project",
+            "show me the project", "what's in the project"
+        ]
+
+        if any(trigger in message_lower for trigger in explore_triggers):
+            print("🎯 [Intent] Tier 1 match: explore_project (exact trigger)")
+            return ("explore_project", {
+                "type": "tool",
+                "name": "bash"
+            })
+
+        # Intent: List files
+        list_triggers = [
+            "jakie pliki", "jakie są pliki", "list files",
+            "show files", "what files", "list directory"
+        ]
+
+        if any(trigger in message_lower for trigger in list_triggers):
+            print("🎯 [Intent] Tier 1 match: list_files (exact trigger)")
+            return ("list_files", {
+                "type": "tool",
+                "name": "bash"
+            })
+
+        # TIER 1.5: Fuzzy matching (catches typos like "widziszi projekt")
+        # Uses Levenshtein distance - allows up to 2 character edits
+        if self._fuzzy_match(message, explore_triggers, max_distance=2):
+            print("🎯 [Intent] Tier 1.5 match: explore_project (fuzzy - caught typo!)")
+            return ("explore_project", {
+                "type": "tool",
+                "name": "bash"
+            })
+
+        if self._fuzzy_match(message, list_triggers, max_distance=2):
+            print("🎯 [Intent] Tier 1.5 match: list_files (fuzzy - caught typo!)")
+            return ("list_files", {
+                "type": "tool",
+                "name": "bash"
+            })
+
+        # Intent: Git log / commits (WORD-ORDER INVARIANT!)
+        # Uses QueryNormalizer for flexible keyword matching
+        # "widzisz commita ostatniego?" → {widzisz, commit, ostatni} ✅
+        # "ostatni commit widzisz?" → {widzisz, commit, ostatni} ✅
+        if QUERY_NORMALIZER_AVAILABLE:
+            # Keyword-based matching (bag of words)
+            # Polish: ostatni/ostatniego + commit/commita
+            if QueryNormalizer.contains_keywords(message, ["ostatni", "commit"]):
+                print("🎯 [Intent] Tier 1 match: git_log (keyword: ostatni+commit)")
+                return ("git_log", None)
+
+            # English: last/recent + commit/commits
+            if QueryNormalizer.contains_keywords(message, ["last", "commit"]) or \
+               QueryNormalizer.contains_keywords(message, ["recent", "commit"]):
+                print("🎯 [Intent] Tier 1 match: git_log (keyword: last/recent+commit)")
+                return ("git_log", None)
+
+            # git log / git history
+            if QueryNormalizer.contains_keywords(message, ["git", "log"]) or \
+               QueryNormalizer.contains_keywords(message, ["git", "history"]):
+                print("🎯 [Intent] Tier 1 match: git_log (keyword: git+log/history)")
+                return ("git_log", None)
+        else:
+            # Fallback: exact matching (for backwards compatibility)
+            git_triggers = [
+                "ostatni commit", "widzisz ostatniego commita", "ostatniego commita",
+                "git log", "git history", "last commit", "recent commits",
+                "show commits", "commit history"
+            ]
+
+            if any(trigger in message_lower for trigger in git_triggers):
+                print("🎯 [Intent] Tier 1 match: git_log (exact trigger)")
+                return ("git_log", None)
+
+            if self._fuzzy_match(message, git_triggers, max_distance=2):
+                print("🎯 [Intent] Tier 1.5 match: git_log (fuzzy - caught typo!)")
+                return ("git_log", None)
+
+        # TIER 2: Semantic similarity matching
+        # Reference queries for "explore project" intent
+        explore_references = [
+            "show project files",
+            "what is in this project",
+            "list project contents",
+            "see project",
+            "project structure"
+        ]
+
+        similarity = self._get_semantic_similarity(message, explore_references)
+        if similarity > 0.4:  # Threshold tuned for balance
+            print(f"🎯 [Intent] Tier 2 match: explore_project (similarity={similarity:.2f})")
+            return ("explore_project", {
+                "type": "tool",
+                "name": "bash"
+            })
+
+        # TIER 3: Let Claude decide (general query)
+        print("🎯 [Intent] Tier 3: general (Claude decides)")
+        return ("general", None)
+
     def _fix_tool_input(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
         """Fix Claude's bad habits from claude.ai before executing tools.
 
-        This interceptor automatically fixes common issues:
-        - Virtual paths from claude.ai (/mnt/user-data/uploads/) -> local CWD
-        - Unix commands on Windows (ls -la -> dir)
-        - etc.
+        Uses CommandValidator chain (Chain of Responsibility Pattern) for:
+        - Blocking Unix-specific commands on Windows
+        - Transforming Unix syntax to PowerShell
+        - Fixing virtual paths from claude.ai
 
         Args:
             tool_name: Name of the tool being called
             tool_input: Original tool input from Claude
 
         Returns:
-            Fixed tool input
+            Fixed tool input (or original if validation failed)
         """
         # Only fix bash tool
-        if tool_name != "bash":
+        if tool_name != "bash" and tool_name != "bash_tool":
             return tool_input
 
         # Get command
@@ -131,34 +380,29 @@ class ClaudeAPIClient:
         if not cmd:
             return tool_input
 
-        original_cmd = cmd
+        # Use CommandValidator chain if available
+        if self.command_validator:
+            result = self.command_validator.validate(cmd)
 
-        # Fix 1: Replace claude.ai virtual paths with local CWD
-        cmd = cmd.replace("/mnt/user-data/uploads/", "./")
-        cmd = cmd.replace("/mnt/user-data/", "./")
-
-        # Fix 2: Windows PowerShell compatibility
-        is_windows = sys.platform.startswith('win')
-        if is_windows:
-            # Replace common Unix commands with Windows equivalents
-
-            # ls with flags -> dir (PowerShell doesn't support -la, -l, etc.)
-            cmd = re.sub(r'\bls\s+-[a-z]+\s*', 'dir ', cmd)
-
-            # Standalone ls -> dir
-            cmd = re.sub(r'\bls\b', 'dir', cmd)
-
-            # cat -> type (Windows equivalent)
-            cmd = re.sub(r'\bcat\b', 'type', cmd)
-
-        # Log if changed
-        if cmd != original_cmd:
-            print(f"   🔧 Fixed command:")
-            print(f"      Before: {original_cmd}")
-            print(f"      After:  {cmd}")
-
-        # Return modified input
-        return {**tool_input, "command": cmd}
+            if result.is_valid:
+                # Validation passed, use transformed command
+                if result.transformed_command and result.transformed_command != cmd:
+                    print(f"   🔧 [CommandValidator] Fixed command:")
+                    print(f"      Before: {cmd}")
+                    print(f"      After:  {result.transformed_command}")
+                    return {**tool_input, "command": result.transformed_command}
+                else:
+                    # No transformation needed
+                    return tool_input
+            else:
+                # Validation failed - command is blocked
+                print(f"   ❌ [CommandValidator] Command blocked: {result.error_message}")
+                # Return original input - it will fail when executed, with helpful error
+                # Alternatively, we could inject the error into tool_input
+                return {**tool_input, "command": f"echo 'Error: {result.error_message}'"}
+        else:
+            # Fallback: no validator available, return original
+            return tool_input
 
     def chat(self, user_message: str, system: Optional[str] = None) -> Iterator[Dict[str, Any]]:
         """Send a message and stream the response.
@@ -170,7 +414,11 @@ class ClaudeAPIClient:
         Yields:
             Events containing response chunks with type and data
         """
-        # Add user message to history
+        # STATE OF THE ART: 3-tier intent classification
+        # Tier 1: Exact triggers | Tier 2: Semantic matching | Tier 3: Claude decides
+        intent, tool_choice = self._classify_query_intent(user_message)
+
+        # Add user message to history (original, not preprocessed)
         self.add_message("user", user_message)
 
         # Use appropriate backend
@@ -183,6 +431,7 @@ class ClaudeAPIClient:
                 messages=self.messages,
                 system=system,
                 tools=self.tools if self.tools else None,  # Pass tools to OAuth backend
+                tool_choice=tool_choice,  # STATE OF THE ART: Force tool execution based on intent
             ):
                 # Collect assistant message
                 if event["type"] == "text":
@@ -314,6 +563,34 @@ class ClaudeAPIClient:
         """
         print(f"🎬 [API Client] chat_with_tools() CALLED! backend_type={self.backend_type}, has_tools={bool(self.tools)}")
 
+        # STATE OF THE ART: Pre-execution based on intent (Strategy Pattern)
+        # Classify intent and potentially pre-execute tools before calling Claude
+        intent, tool_choice = self._classify_query_intent(user_message)
+        message_to_send = user_message  # Default: use original message
+        intent_result = None
+
+        # If intent router available, try to handle intent via pre-execution
+        if self.intent_router and intent != "general":
+            intent_result = self.intent_router.route(intent, user_message)
+
+            if intent_result:
+                # Handler successfully pre-executed tools
+                message_to_send = intent_result.enriched_message
+                print(f"📝 [API Client] Message enriched with pre-executed tool results")
+
+                # If handler says skip LLM, return result directly
+                if intent_result.skip_llm:
+                    print("⚡ [API Client] Handler requests skip_llm - returning result directly")
+                    yield {
+                        "type": "text",
+                        "content": intent_result.enriched_message
+                    }
+                    yield {
+                        "type": "message_done",
+                        "content": ""
+                    }
+                    return
+
         # OAuth backend - tool support with local execution
         if self.backend_type == "oauth":
             print(f"🌐 [API Client] Entering OAuth tool execution loop")
@@ -329,8 +606,8 @@ class ClaudeAPIClient:
                 # First round: use chat() which adds user message to history
                 # Subsequent rounds: use client directly with existing messages (including tool results)
                 if tool_round == 0:
-                    # Add user message via chat()
-                    events = self.chat(user_message, system)
+                    # Add user message via chat() (use enriched message if available)
+                    events = self.chat(message_to_send, system)
                 else:
                     # Use client directly with messages that already include tool results
                     events = self.client.chat_streaming(

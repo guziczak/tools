@@ -74,6 +74,9 @@ class UnifiedClaudeClient:
         """
         print(f"🔀 [UnifiedClient] chat_streaming() called. backend_type={self.backend_type}, backend={type(self.backend).__name__}")
 
+        # Extract tool_choice from kwargs (state-of-the-art intent classification)
+        tool_choice = kwargs.get('tool_choice', None)
+
         if self.backend_type == "oauth":
             print(f"✅ [UnifiedClient] Using OAuth backend")
             # Use OAuth backend (Bearer auth with tools support)
@@ -86,6 +89,7 @@ class UnifiedClaudeClient:
                 thinking_enabled=self.thinking_enabled,
                 thinking_budget=self.thinking_budget,
                 tools=tools,  # Pass tools to OAuth backend
+                tool_choice=tool_choice,  # Pass tool_choice for forced execution
             )
         else:
             # Use Anthropic backend (API key)
