@@ -101,7 +101,11 @@ class ToolRegistry:
         mapped_params = kwargs.copy()
         if tool_name in ["create_file", "write_file", "Write"]:
             if "path" in mapped_params:
-                mapped_params["file_path"] = mapped_params.pop("path")
+                path = mapped_params.pop("path")
+                # Strip claude.ai virtual paths and use just filename in CWD
+                if path.startswith("/mnt/user-data/outputs/"):
+                    path = path.replace("/mnt/user-data/outputs/", "")
+                mapped_params["file_path"] = path
             if "file_text" in mapped_params:
                 mapped_params["content"] = mapped_params.pop("file_text")
             # Remove claude.ai-specific params

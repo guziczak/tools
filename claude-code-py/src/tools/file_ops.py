@@ -14,7 +14,7 @@ class ReadTool(BaseTool):
 
     def get_aliases(self) -> list[str]:
         """Return aliases for claude.ai compatibility."""
-        return ["Read"]
+        return ["Read", "view"]
 
     def get_description(self) -> str:
         return "Read contents of a file. Returns the file contents as text."
@@ -115,37 +115,56 @@ class WriteTool(BaseTool):
             }
         }
 
-    def execute(self, file_path: str, content: str, **kwargs) -> ToolResult:
+    def execute(self, file_path: str = None, content: str = None, path: str = None, file_text: str = None, **kwargs) -> ToolResult:
         """Write content to file.
 
         Args:
-            file_path: Path to file to write
-            content: Content to write
+            file_path: Path to file to write (or use 'path')
+            content: Content to write (or use 'file_text')
+            path: Alternative parameter name for file_path (claude.ai compatibility)
+            file_text: Alternative parameter name for content (claude.ai compatibility)
 
         Returns:
             ToolResult with operation status
         """
+        # Map claude.ai parameter names to our names
+        if path and not file_path:
+            file_path = path
+        if file_text and not content:
+            content = file_text
+
+        # Validate required parameters
+        if not file_path or not content:
+            return ToolResult(
+                status=ToolStatus.ERROR,
+                output="",
+                error=f"Missing required parameters: file_path={bool(file_path)}, content={bool(content)}"
+            )
+
         try:
+            print(f"📝 [WriteTool] Executing with file_path='{file_path}', content_len={len(content)}")
+
             # Resolve path
-            path = Path(file_path).expanduser().resolve()
+            resolved_path = Path(file_path).expanduser().resolve()
+            print(f"📁 [WriteTool] Resolved to: {resolved_path}")
 
             # Create parent directories if they don't exist
-            path.parent.mkdir(parents=True, exist_ok=True)
+            resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Check if we're overwriting
-            is_overwrite = path.exists()
+            is_overwrite = resolved_path.exists()
 
             # Write file
-            with open(path, 'w', encoding='utf-8') as f:
+            with open(resolved_path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
             action = "overwrote" if is_overwrite else "created"
 
             return ToolResult(
                 status=ToolStatus.SUCCESS,
-                output=f"Successfully {action} file: {path}",
+                output=f"Successfully {action} file: {resolved_path}",
                 metadata={
-                    "file_path": str(path),
+                    "file_path": str(resolved_path),
                     "size": len(content),
                     "lines": content.count('\n') + 1,
                     "overwrite": is_overwrite

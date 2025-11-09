@@ -285,9 +285,9 @@ class ClaudeAPIClient:
                     )
 
                 for event in events:
-                    # Collect tool blocks
+                    # Collect tool blocks (EXTEND instead of overwrite!)
                     if event.get("type") == "tool_calls_complete":
-                        tool_blocks = event.get("tool_blocks", [])
+                        tool_blocks.extend(event.get("tool_blocks", []))
 
                     # Collect assistant message for history (only needed for round 1+)
                     if tool_round > 0 and event.get("type") == "text":
