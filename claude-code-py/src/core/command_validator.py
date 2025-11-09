@@ -28,6 +28,7 @@ class ValidationResult:
         transformed_command: Transformed command (if modified)
         error_message: Error message if invalid
     """
+
     is_valid: bool
     transformed_command: Optional[str] = None
     error_message: Optional[str] = None
@@ -36,7 +37,7 @@ class ValidationResult:
 class CommandValidator(ABC):
     """Abstract base class for command validators (Chain of Responsibility)."""
 
-    def __init__(self, next_validator: Optional['CommandValidator'] = None):
+    def __init__(self, next_validator: Optional["CommandValidator"] = None):
         """Initialize validator with optional next validator in chain.
 
         Args:
@@ -90,7 +91,7 @@ class ClaudeAIPathBlocker(CommandValidator):
     This validator detects them and provides helpful error message.
     """
 
-    BLOCKED_PATHS = ['/home/claude', '/mnt/user-data', '/mnt/']
+    BLOCKED_PATHS = ["/home/claude", "/mnt/user-data", "/mnt/"]
 
     def _validate_impl(self, command: str) -> ValidationResult:
         """Block claude.ai Linux paths.
@@ -123,12 +124,12 @@ class UnixCommandBlocker(CommandValidator):
 
     # Commands that are Unix-specific and have no good PowerShell equivalent
     BLOCKED_COMMANDS = {
-        'find': 'Use Get-ChildItem or dir instead',
-        'grep': 'Use Select-String instead',
-        'awk': 'Use PowerShell string manipulation',
-        'sed': 'Use PowerShell -replace operator',
-        'tail': 'Use Get-Content -Tail',
-        'head': 'Use Get-Content -Head or Select-Object -First',
+        "find": "Use Get-ChildItem or dir instead",
+        "grep": "Use Select-String instead",
+        "awk": "Use PowerShell string manipulation",
+        "sed": "Use PowerShell -replace operator",
+        "tail": "Use Get-Content -Tail",
+        "head": "Use Get-Content -Head or Select-Object -First",
     }
 
     def _validate_impl(self, command: str) -> ValidationResult:
@@ -140,7 +141,7 @@ class UnixCommandBlocker(CommandValidator):
         Returns:
             ValidationResult (invalid if Unix command on Windows)
         """
-        is_windows = sys.platform.startswith('win')
+        is_windows = sys.platform.startswith("win")
 
         if not is_windows:
             # On Unix, all commands are OK
@@ -148,7 +149,7 @@ class UnixCommandBlocker(CommandValidator):
 
         # Check if command starts with blocked Unix command
         command_lower = command.lower().strip()
-        first_word = command_lower.split()[0] if command_lower else ''
+        first_word = command_lower.split()[0] if command_lower else ""
 
         if first_word in self.BLOCKED_COMMANDS:
             suggestion = self.BLOCKED_COMMANDS[first_word]
@@ -177,7 +178,7 @@ class PowerShellSyntaxFixer(CommandValidator):
         Returns:
             ValidationResult with transformed command
         """
-        is_windows = sys.platform.startswith('win')
+        is_windows = sys.platform.startswith("win")
 
         if not is_windows:
             # On Unix, no fixes needed
@@ -186,24 +187,24 @@ class PowerShellSyntaxFixer(CommandValidator):
         transformed = command
 
         # Fix 1: Command chaining operators
-        transformed = transformed.replace(' && ', '; ')
-        transformed = transformed.replace(' || ', '; ')
+        transformed = transformed.replace(" && ", "; ")
+        transformed = transformed.replace(" || ", "; ")
 
         # Fix 2: Redirect stderr to null
-        transformed = transformed.replace('2>/dev/null', '2>$null')
-        transformed = transformed.replace('2> /dev/null', '2>$null')
+        transformed = transformed.replace("2>/dev/null", "2>$null")
+        transformed = transformed.replace("2> /dev/null", "2>$null")
 
         # Fix 3: ls with flags → dir
-        transformed = re.sub(r'\bls\s+-[a-z]+', 'dir', transformed)
-        transformed = re.sub(r'\bls\b', 'dir', transformed)
+        transformed = re.sub(r"\bls\s+-[a-z]+", "dir", transformed)
+        transformed = re.sub(r"\bls\b", "dir", transformed)
 
         # Fix 4: cat → type
-        transformed = re.sub(r'\bcat\b', 'type', transformed)
+        transformed = re.sub(r"\bcat\b", "type", transformed)
 
         # Fix 5: Virtual paths
-        transformed = transformed.replace('/mnt/user-data/uploads/', './')
-        transformed = transformed.replace('/mnt/user-data/', './')
-        transformed = transformed.replace('/home/claude', '.')
+        transformed = transformed.replace("/mnt/user-data/uploads/", "./")
+        transformed = transformed.replace("/mnt/user-data/", "./")
+        transformed = transformed.replace("/home/claude", ".")
 
         # Return transformed if changed
         if transformed != command:

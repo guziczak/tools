@@ -57,7 +57,7 @@ class ExactMatcher(MatcherStrategy):
                     return IntentMatch(
                         intent=intent,
                         confidence=1.0,
-                        metadata={"trigger": trigger, "method": "exact"}
+                        metadata={"trigger": trigger, "method": "exact"},
                     )
 
         return None
@@ -86,11 +86,7 @@ class FuzzyMatcher(MatcherStrategy):
         # => IntentMatch(intent="git_log", confidence=0.92)
     """
 
-    def __init__(
-        self,
-        trigger_map: Dict[str, List[str]],
-        threshold: int = 85
-    ):
+    def __init__(self, trigger_map: Dict[str, List[str]], threshold: int = 85):
         """Initialize fuzzy matcher.
 
         Args:
@@ -103,6 +99,7 @@ class FuzzyMatcher(MatcherStrategy):
         # Try to import fuzzywuzzy
         try:
             from fuzzywuzzy import fuzz
+
             self.fuzz = fuzz
             self.available = True
         except ImportError:
@@ -136,11 +133,7 @@ class FuzzyMatcher(MatcherStrategy):
                     best_match = IntentMatch(
                         intent=intent,
                         confidence=score / 100.0,  # Normalize to 0-1
-                        metadata={
-                            "trigger": trigger,
-                            "score": score,
-                            "method": "fuzzy"
-                        }
+                        metadata={"trigger": trigger, "score": score, "method": "fuzzy"},
                     )
                     best_score = score
 
@@ -200,10 +193,7 @@ class KeywordMatcher(MatcherStrategy):
                     return IntentMatch(
                         intent=intent,
                         confidence=0.8,  # Medium confidence
-                        metadata={
-                            "keywords": keyword_set,
-                            "method": "keyword"
-                        }
+                        metadata={"keywords": keyword_set, "method": "keyword"},
                     )
 
         return None
@@ -235,11 +225,7 @@ class SemanticMatcher(MatcherStrategy):
         # => IntentMatch(intent="explore_project", confidence=0.67)
     """
 
-    def __init__(
-        self,
-        reference_map: Dict[str, List[str]],
-        threshold: float = 0.4
-    ):
+    def __init__(self, reference_map: Dict[str, List[str]], threshold: float = 0.4):
         """Initialize semantic matcher.
 
         Args:
@@ -282,8 +268,8 @@ class SemanticMatcher(MatcherStrategy):
                         metadata={
                             "reference": reference,
                             "similarity": similarity,
-                            "method": "semantic"
-                        }
+                            "method": "semantic",
+                        },
                     )
                     best_similarity = similarity
 

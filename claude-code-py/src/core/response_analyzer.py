@@ -25,6 +25,7 @@ class PasteRequest:
         original_text: Original text that triggered detection
         confidence: Confidence score (0-1) that this is a paste request
     """
+
     detected: bool
     command: Optional[str] = None
     original_text: Optional[str] = None
@@ -62,14 +63,12 @@ class RegexPasteDetector(PasteRequestDetector):
         # Polish
         r'wklej\s+(?:mi\s+)?(?:output\s+z|wynik\s+z?|rezultat)\s+[`"]?([^`"\n]+)[`"]?',
         r'(?:możesz|proszę)\s+wkleić\s+[`"]?([^`"\n]+)[`"]?',
-
         # English
         r'paste\s+(?:the\s+)?(?:output\s+(?:of|from)|result\s+of)\s+[`"]?([^`"\n]+)[`"]?',
         r'please\s+paste\s+[`"]?([^`"\n]+)[`"]?',
         r'can\s+you\s+paste\s+[`"]?([^`"\n]+)[`"]?',
-
         # Command in code block followed by "paste"
-        r'```(?:bash|sh)?\n([^`]+)\n```\s*(?:.*)?(?:wklej|paste)',
+        r"```(?:bash|sh)?\n([^`]+)\n```\s*(?:.*)?(?:wklej|paste)",
     ]
 
     def detect(self, response_text: str) -> PasteRequest:
@@ -84,7 +83,7 @@ class RegexPasteDetector(PasteRequestDetector):
         text_lower = response_text.lower()
 
         # Quick check: does it contain paste-related keywords?
-        if 'wklej' not in text_lower and 'paste' not in text_lower:
+        if "wklej" not in text_lower and "paste" not in text_lower:
             return PasteRequest(detected=False)
 
         # Try each pattern
@@ -93,22 +92,14 @@ class RegexPasteDetector(PasteRequestDetector):
             if match:
                 command = match.group(1).strip()
                 # Clean up command (remove trailing punctuation)
-                command = command.rstrip('.,;:!?')
+                command = command.rstrip(".,;:!?")
 
                 return PasteRequest(
-                    detected=True,
-                    command=command,
-                    original_text=match.group(0),
-                    confidence=0.9
+                    detected=True, command=command, original_text=match.group(0), confidence=0.9
                 )
 
         # Pattern not matched, but contains paste keywords - low confidence
-        return PasteRequest(
-            detected=True,
-            command=None,
-            original_text=None,
-            confidence=0.3
-        )
+        return PasteRequest(detected=True, command=None, original_text=None, confidence=0.3)
 
 
 class CodeBlockDetector(PasteRequestDetector):
@@ -132,7 +123,7 @@ class CodeBlockDetector(PasteRequestDetector):
             PasteRequest if code block suggests user should run command
         """
         # Find code blocks with bash/sh
-        pattern = r'```(?:bash|sh|shell)?\n([^`]+)\n```'
+        pattern = r"```(?:bash|sh|shell)?\n([^`]+)\n```"
         matches = re.findall(pattern, response_text, re.MULTILINE)
 
         if not matches:
@@ -140,8 +131,14 @@ class CodeBlockDetector(PasteRequestDetector):
 
         # Check if there's text after code block suggesting user should run it
         suggestion_keywords = [
-            'możesz uruchomić', 'możesz wykonać', 'uruchom', 'wykonaj',
-            'you can run', 'run this', 'execute this', 'try running'
+            "możesz uruchomić",
+            "możesz wykonać",
+            "uruchom",
+            "wykonaj",
+            "you can run",
+            "run this",
+            "execute this",
+            "try running",
         ]
 
         text_lower = response_text.lower()
@@ -151,10 +148,7 @@ class CodeBlockDetector(PasteRequestDetector):
             # Return first command found
             command = matches[0].strip()
             return PasteRequest(
-                detected=True,
-                command=command,
-                original_text=f"```\n{command}\n```",
-                confidence=0.7
+                detected=True, command=command, original_text=f"```\n{command}\n```", confidence=0.7
             )
 
         return PasteRequest(detected=False)

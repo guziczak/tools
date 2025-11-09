@@ -27,6 +27,7 @@ class IntentMatch:
         confidence: Confidence score (0.0-1.0)
         metadata: Optional metadata about the match (trigger used, distance, etc.)
     """
+
     intent: str
     confidence: float
     metadata: Optional[dict] = None
@@ -99,11 +100,7 @@ class IntentClassifier:
         """
         self.matchers.append(matcher)
 
-    def classify(
-        self,
-        query: str,
-        confidence_threshold: float = 0.5
-    ) -> IntentMatch:
+    def classify(self, query: str, confidence_threshold: float = 0.5) -> IntentMatch:
         """Classify user query intent.
 
         Tries matchers in order and returns first match with sufficient confidence.
@@ -125,7 +122,5 @@ class IntentClassifier:
 
         # No match found - return general intent
         return IntentMatch(
-            intent="general",
-            confidence=1.0,
-            metadata={"reason": "no_matcher_found"}
+            intent="general", confidence=1.0, metadata={"reason": "no_matcher_found"}
         )

@@ -41,8 +41,7 @@ class AgentRegistry:
             # Remove from role list
             if agent.role in self._agents_by_role:
                 self._agents_by_role[agent.role] = [
-                    a for a in self._agents_by_role[agent.role]
-                    if a.name != agent_name
+                    a for a in self._agents_by_role[agent.role] if a.name != agent_name
                 ]
 
             return True

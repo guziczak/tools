@@ -22,11 +22,12 @@ from dataclasses import dataclass
 
 class ConfidenceLevel(Enum):
     """Confidence level categories."""
-    VERY_HIGH = "very_high"    # 90-100%
-    HIGH = "high"              # 75-89%
-    MEDIUM = "medium"          # 50-74%
-    LOW = "low"                # 25-49%
-    VERY_LOW = "very_low"      # 0-24%
+
+    VERY_HIGH = "very_high"  # 90-100%
+    HIGH = "high"  # 75-89%
+    MEDIUM = "medium"  # 50-74%
+    LOW = "low"  # 25-49%
+    VERY_LOW = "very_low"  # 0-24%
 
 
 @dataclass
@@ -40,6 +41,7 @@ class ConfidenceScore:
         reasoning: Human-readable explanation
         warnings: Any warnings about data quality
     """
+
     score: float  # 0.0-1.0
     level: ConfidenceLevel
     factors: Dict[str, float]
@@ -53,7 +55,7 @@ class ConfidenceScore:
             "level": self.level.value,
             "factors": self.factors,
             "reasoning": self.reasoning,
-            "warnings": self.warnings
+            "warnings": self.warnings,
         }
 
 
@@ -79,17 +81,14 @@ class ConfidenceScorer:
         self.factors: Dict[str, float] = {}
         self.warnings: List[str] = []
         self.weights: Dict[str, float] = {
-            "data_freshness": 0.4,   # Most important (prevents stale data)
-            "verification": 0.3,      # Second most important
-            "intent_match": 0.2,      # Important for correct handling
-            "tool_success": 0.1       # Least important (usually succeeds)
+            "data_freshness": 0.4,  # Most important (prevents stale data)
+            "verification": 0.3,  # Second most important
+            "intent_match": 0.2,  # Important for correct handling
+            "tool_success": 0.1,  # Least important (usually succeeds)
         }
 
     def add_data_freshness(
-        self,
-        age_seconds: float,
-        verified: bool = False,
-        ttl_seconds: Optional[float] = None
+        self, age_seconds: float, verified: bool = False, ttl_seconds: Optional[float] = None
     ) -> "ConfidenceScorer":
         """Add data freshness factor.
 
@@ -127,9 +126,7 @@ class ConfidenceScorer:
         return self
 
     def add_verification_status(
-        self,
-        verified: bool,
-        verification_method: Optional[str] = None
+        self, verified: bool, verification_method: Optional[str] = None
     ) -> "ConfidenceScorer":
         """Add verification status factor.
 
@@ -156,9 +153,7 @@ class ConfidenceScorer:
         return self
 
     def add_intent_match(
-        self,
-        match_type: str,
-        confidence: Optional[float] = None
+        self, match_type: str, confidence: Optional[float] = None
     ) -> "ConfidenceScorer":
         """Add intent matching factor.
 
@@ -171,11 +166,11 @@ class ConfidenceScorer:
         """
         # Map match type to confidence
         type_scores = {
-            "exact": 1.0,      # Exact trigger match
-            "fuzzy": 0.85,     # Fuzzy match (caught typo)
-            "keyword": 0.80,   # Keyword match (word-order invariant)
+            "exact": 1.0,  # Exact trigger match
+            "fuzzy": 0.85,  # Fuzzy match (caught typo)
+            "keyword": 0.80,  # Keyword match (word-order invariant)
             "semantic": 0.70,  # Semantic similarity
-            "general": 0.50    # Let Claude decide
+            "general": 0.50,  # Let Claude decide
         }
 
         score = type_scores.get(match_type, 0.50)
@@ -191,9 +186,7 @@ class ConfidenceScorer:
         return self
 
     def add_tool_success(
-        self,
-        success_rate: float,
-        failures: Optional[List[str]] = None
+        self, success_rate: float, failures: Optional[List[str]] = None
     ) -> "ConfidenceScorer":
         """Add tool execution success factor.
 
@@ -255,7 +248,7 @@ class ConfidenceScorer:
             level=level,
             factors=self.factors.copy(),
             reasoning=reasoning,
-            warnings=self.warnings.copy()
+            warnings=self.warnings.copy(),
         )
 
     def _build_reasoning(self, score: float, level: ConfidenceLevel) -> str:
@@ -276,7 +269,7 @@ class ConfidenceScorer:
             reasoning_parts = [
                 f"Confidence: {score:.0%} ({level.value})",
                 f"Strongest: {strongest[0]} ({strongest[1]:.0%})",
-                f"Weakest: {weakest[0]} ({weakest[1]:.0%})"
+                f"Weakest: {weakest[0]} ({weakest[1]:.0%})",
             ]
 
             return " | ".join(reasoning_parts)
@@ -287,7 +280,7 @@ class ConfidenceScorer:
 def create_confidence_from_context(
     context_result: Optional[Dict[str, Any]] = None,
     intent_match: Optional[str] = None,
-    tool_success_rate: float = 1.0
+    tool_success_rate: float = 1.0,
 ) -> ConfidenceScore:
     """Convenience function to create confidence score from context.
 

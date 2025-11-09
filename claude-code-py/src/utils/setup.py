@@ -19,7 +19,7 @@ def validate_api_key(key: str) -> bool:
         True if valid format
     """
     # Anthropic API keys start with sk-ant-
-    return bool(re.match(r'^sk-ant-[a-zA-Z0-9\-_]+$', key.strip()))
+    return bool(re.match(r"^sk-ant-[a-zA-Z0-9\-_]+$", key.strip()))
 
 
 def get_env_file_path() -> Path:
@@ -49,44 +49,37 @@ def save_api_key_to_env(api_key: str) -> bool:
 
         # If .env doesn't exist but .env.example does, copy it
         if not env_path.exists() and env_example.exists():
-            with open(env_example, 'r') as f:
+            with open(env_example, "r") as f:
                 content = f.read()
         elif env_path.exists():
             # Read existing .env
-            with open(env_path, 'r') as f:
+            with open(env_path, "r") as f:
                 content = f.read()
         else:
             # Create minimal .env
             content = "# Anthropic API Configuration\nANTHROPIC_API_KEY=\n"
 
         # Update or add API key
-        if 'ANTHROPIC_API_KEY=' in content:
+        if "ANTHROPIC_API_KEY=" in content:
             # Replace existing line
-            content = re.sub(
-                r'ANTHROPIC_API_KEY=.*',
-                f'ANTHROPIC_API_KEY={api_key}',
-                content
-            )
+            content = re.sub(r"ANTHROPIC_API_KEY=.*", f"ANTHROPIC_API_KEY={api_key}", content)
         else:
             # Add new line
-            content += f'\nANTHROPIC_API_KEY={api_key}\n'
+            content += f"\nANTHROPIC_API_KEY={api_key}\n"
 
         # Ensure OAuth is disabled
-        if 'CLAUDE_USE_OAUTH=' in content:
-            content = re.sub(
-                r'CLAUDE_USE_OAUTH=.*',
-                'CLAUDE_USE_OAUTH=false',
-                content
-            )
+        if "CLAUDE_USE_OAUTH=" in content:
+            content = re.sub(r"CLAUDE_USE_OAUTH=.*", "CLAUDE_USE_OAUTH=false", content)
         else:
-            content += 'CLAUDE_USE_OAUTH=false\n'
+            content += "CLAUDE_USE_OAUTH=false\n"
 
         # Write back
-        with open(env_path, 'w') as f:
+        with open(env_path, "w") as f:
             f.write(content)
 
         # Reload environment
         from dotenv import load_dotenv
+
         load_dotenv(override=True)
 
         return True
@@ -136,7 +129,7 @@ def interactive_setup() -> Optional[str]:
             api_key = input("  Paste your API key here: ").strip()
 
             # Allow user to cancel
-            if api_key.lower() in ['exit', 'quit', 'cancel', '']:
+            if api_key.lower() in ["exit", "quit", "cancel", ""]:
                 print()
                 print("  ❌ Setup cancelled.")
                 print()
@@ -146,7 +139,9 @@ def interactive_setup() -> Optional[str]:
             if not validate_api_key(api_key):
                 print()
                 print("  ⚠️  Invalid API key format!")
-                print("     API keys should start with 'sk-ant-' followed by alphanumeric characters")
+                print(
+                    "     API keys should start with 'sk-ant-' followed by alphanumeric characters"
+                )
                 print()
                 if attempt < max_attempts - 1:
                     print(f"  💡 Try again ({max_attempts - attempt - 1} attempts left)...")

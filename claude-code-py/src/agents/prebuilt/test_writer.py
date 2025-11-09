@@ -35,10 +35,16 @@ When writing tests:
 Always aim for >80% code coverage and write tests that are maintainable and readable.""",
             thinking_budget=15000,
             keywords=[
-                "write test", "add test", "test for", "unit test",
-                "integration test", "test coverage", "pytest",
-                "test this", "need tests"
-            ]
+                "write test",
+                "add test",
+                "test for",
+                "unit test",
+                "integration test",
+                "test coverage",
+                "pytest",
+                "test this",
+                "need tests",
+            ],
         )
         super().__init__(config)
 
@@ -55,17 +61,18 @@ Always aim for >80% code coverage and write tests that are maintainable and read
 
         # High confidence keywords
         high_confidence = [
-            "write test", "add test", "create test",
-            "test for", "unit test", "integration test"
+            "write test",
+            "add test",
+            "create test",
+            "test for",
+            "unit test",
+            "integration test",
         ]
         if any(keyword in task_lower for keyword in high_confidence):
             return 0.9
 
         # Medium confidence keywords
-        medium_confidence = [
-            "pytest", "test coverage", "test case",
-            "test this", "need test"
-        ]
+        medium_confidence = ["pytest", "test coverage", "test case", "test this", "need test"]
         if any(keyword in task_lower for keyword in medium_confidence):
             return 0.7
 

@@ -22,20 +22,30 @@ class ThinkingLevel(Enum):
 # Keywords that trigger different thinking levels
 THINKING_KEYWORDS = {
     ThinkingLevel.ULTRA: [
-        "ultrathink", "ultra think", "think ultra", "maximum thinking",
-        "think harder", "think hardest", "megathink"
+        "ultrathink",
+        "ultra think",
+        "think ultra",
+        "maximum thinking",
+        "think harder",
+        "think hardest",
+        "megathink",
     ],
     ThinkingLevel.DEEP: [
-        "think deep", "deep think", "think carefully", "think thoroughly",
-        "analyze deeply", "deep analysis"
+        "think deep",
+        "deep think",
+        "think carefully",
+        "think thoroughly",
+        "analyze deeply",
+        "deep analysis",
     ],
     ThinkingLevel.STANDARD: [
-        "think hard", "think about", "consider carefully",
-        "analyze this", "reason about"
+        "think hard",
+        "think about",
+        "consider carefully",
+        "analyze this",
+        "reason about",
     ],
-    ThinkingLevel.BASIC: [
-        "think", "consider", "analyze", "evaluate"
-    ],
+    ThinkingLevel.BASIC: ["think", "consider", "analyze", "evaluate"],
 }
 
 
@@ -54,17 +64,17 @@ def detect_thinking_level(message: str) -> Tuple[ThinkingLevel, bool]:
     for level, keywords in THINKING_KEYWORDS.items():
         for keyword in keywords:
             # Use word boundaries to avoid partial matches
-            pattern = r'\b' + re.escape(keyword) + r'\b'
+            pattern = r"\b" + re.escape(keyword) + r"\b"
             if re.search(pattern, message_lower):
                 return (level, True)
 
     # Check if message suggests complex task (implicit thinking)
     complex_indicators = [
-        r'\b(refactor|redesign|architect)\b',
-        r'\b(complex|complicated|difficult)\b',
-        r'\b(comprehensive|thorough|detailed)\b',
-        r'\b(optimize|improve significantly)\b',
-        r'\b(multiple|several) .*(files|components|modules)\b',
+        r"\b(refactor|redesign|architect)\b",
+        r"\b(complex|complicated|difficult)\b",
+        r"\b(comprehensive|thorough|detailed)\b",
+        r"\b(optimize|improve significantly)\b",
+        r"\b(multiple|several) .*(files|components|modules)\b",
     ]
 
     for pattern in complex_indicators:
@@ -72,7 +82,7 @@ def detect_thinking_level(message: str) -> Tuple[ThinkingLevel, bool]:
             return (ThinkingLevel.STANDARD, False)
 
     # Default: basic thinking for agent tasks, none for simple queries
-    if len(message.split()) > 20 or '?' not in message:
+    if len(message.split()) > 20 or "?" not in message:
         # Longer statements or commands suggest tasks
         return (ThinkingLevel.BASIC, False)
 

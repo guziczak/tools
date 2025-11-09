@@ -40,6 +40,7 @@ class IntentResult:
         tool_results: (NEW - PREFERRED) List of pre-executed tool results.
                      Each dict should have: tool_name, tool_input, tool_output
     """
+
     enriched_message: Optional[str] = None  # Made optional (deprecated)
     metadata: Dict[str, Any] = field(default_factory=dict)
     skip_llm: bool = False
@@ -121,7 +122,7 @@ class ExploreProjectHandler(IntentHandler):
         print("🎯 [ExploreProjectHandler] Pre-executing directory listing...")
 
         # Determine correct command for platform
-        is_windows = sys.platform.startswith('win')
+        is_windows = sys.platform.startswith("win")
         list_cmd = "dir" if is_windows else "ls"
 
         # Execute bash tool to list files
@@ -138,14 +139,14 @@ class ExploreProjectHandler(IntentHandler):
                         {
                             "tool_name": "bash",
                             "tool_input": {"command": list_cmd},
-                            "tool_output": file_list
+                            "tool_output": file_list,
                         }
                     ],
                     metadata={
                         "tool_executed": "bash",
                         "command": list_cmd,
-                        "output_length": len(file_list)
-                    }
+                        "output_length": len(file_list),
+                    },
                 )
             else:
                 # Tool failed, fall back to original message
@@ -156,17 +157,15 @@ class ExploreProjectHandler(IntentHandler):
                             "tool_name": "bash",
                             "tool_input": {"command": list_cmd},
                             "tool_output": f"Error: {result.error}",
-                            "is_error": True
+                            "is_error": True,
                         }
                     ],
-                    metadata={"error": result.error}
+                    metadata={"error": result.error},
                 )
         else:
             # No tool registry available
             print("   ⚠️  No tool registry - cannot pre-execute")
-            return IntentResult(
-                metadata={"error": "No tool registry"}
-            )
+            return IntentResult(metadata={"error": "No tool registry"})
 
 
 class ListFilesHandler(IntentHandler):
@@ -196,7 +195,7 @@ class ListFilesHandler(IntentHandler):
 
         print("🎯 [ListFilesHandler] Pre-executing directory listing...")
 
-        is_windows = sys.platform.startswith('win')
+        is_windows = sys.platform.startswith("win")
         list_cmd = "dir" if is_windows else "ls"
 
         if self.tool_registry:
@@ -209,11 +208,11 @@ class ListFilesHandler(IntentHandler):
                         {
                             "tool_name": "bash",
                             "tool_input": {"command": list_cmd},
-                            "tool_output": result.output
+                            "tool_output": result.output,
                         }
                     ],
                     metadata={"tool_executed": "bash", "command": list_cmd},
-                    skip_llm=True  # Result is complete, no need for LLM
+                    skip_llm=True,  # Result is complete, no need for LLM
                 )
             else:
                 return IntentResult(
@@ -222,15 +221,13 @@ class ListFilesHandler(IntentHandler):
                             "tool_name": "bash",
                             "tool_input": {"command": list_cmd},
                             "tool_output": f"Error: {result.error}",
-                            "is_error": True
+                            "is_error": True,
                         }
                     ],
-                    metadata={"error": result.error}
+                    metadata={"error": result.error},
                 )
 
-        return IntentResult(
-            metadata={"error": "No tool registry"}
-        )
+        return IntentResult(metadata={"error": "No tool registry"})
 
 
 class GitLogHandler(IntentHandler):
@@ -277,14 +274,14 @@ class GitLogHandler(IntentHandler):
                         {
                             "tool_name": "bash",
                             "tool_input": {"command": "git log --oneline -5"},
-                            "tool_output": git_log
+                            "tool_output": git_log,
                         }
                     ],
                     metadata={
                         "tool_executed": "bash",
                         "command": "git log --oneline -5",
-                        "output_length": len(git_log)
-                    }
+                        "output_length": len(git_log),
+                    },
                 )
             else:
                 # Git failed - maybe not a git repo
@@ -297,17 +294,15 @@ class GitLogHandler(IntentHandler):
                             "tool_name": "bash",
                             "tool_input": {"command": "git log --oneline -5"},
                             "tool_output": f"Error: {result.error}",
-                            "is_error": True
+                            "is_error": True,
                         }
                     ],
-                    metadata={"error": result.error}
+                    metadata={"error": result.error},
                 )
         else:
             # No tool registry available
             print("   ⚠️  No tool registry - cannot pre-execute")
-            return IntentResult(
-                metadata={"error": "No tool registry"}
-            )
+            return IntentResult(metadata={"error": "No tool registry"})
 
 
 class AnalyzeChangesHandler(IntentHandler):
@@ -325,7 +320,12 @@ class AnalyzeChangesHandler(IntentHandler):
     - Prevents showing stale commits
     """
 
-    def __init__(self, tool_registry: Optional["ToolRegistry"] = None, messages: list = None, context_manager=None):
+    def __init__(
+        self,
+        tool_registry: Optional["ToolRegistry"] = None,
+        messages: list = None,
+        context_manager=None,
+    ):
         """Initialize with tool registry and conversation messages.
 
         Args:
@@ -365,10 +365,14 @@ class AnalyzeChangesHandler(IntentHandler):
             cached = self.context_manager.get_verified("last_commit_hash")
 
             if cached and cached["status"] == "fresh":
-                print(f"   💾 Using cached commit hash: {cached['value']} (age: {cached['age_seconds']:.0f}s)")
+                print(
+                    f"   💾 Using cached commit hash: {cached['value']} (age: {cached['age_seconds']:.0f}s)"
+                )
                 return cached["value"]
             elif cached and cached["status"] == "stale":
-                print(f"   ⚠️  Cached commit changed: {cached['cached_value']} → {cached['live_value']}")
+                print(
+                    f"   ⚠️  Cached commit changed: {cached['cached_value']} → {cached['live_value']}"
+                )
                 # Return NEW value (auto-updated!)
                 return cached["live_value"]
 
@@ -382,7 +386,7 @@ class AnalyzeChangesHandler(IntentHandler):
                 # Pattern: 6+ character hex string (git short hash)
                 # Git uses 6-40 character hashes (default: 7, but 6 is valid)
                 # Common formats: "e35c4f4", "commit e35c4f4", "hash: e35c4f4"
-                match = re.search(r'\b([0-9a-f]{6,40})\b', content, re.IGNORECASE)
+                match = re.search(r"\b([0-9a-f]{6,40})\b", content, re.IGNORECASE)
                 if match:
                     hash_candidate = match.group(1)
                     print(f"   🔍 Found potential commit hash: {hash_candidate}")
@@ -393,7 +397,7 @@ class AnalyzeChangesHandler(IntentHandler):
                             "last_commit_hash",
                             hash_candidate,
                             ttl_seconds=300,  # Valid for 5 minutes
-                            verification_cmd="git log -1 --format=%H"
+                            verification_cmd="git log -1 --format=%H",
                         )
 
                     return hash_candidate
@@ -434,9 +438,7 @@ class AnalyzeChangesHandler(IntentHandler):
                     )
             else:
                 print("   ❌ No tool registry for fallback")
-                return IntentResult(
-                    metadata={"error": "No commit hash found"}
-                )
+                return IntentResult(metadata={"error": "No commit hash found"})
 
         # Execute git show
         if self.tool_registry:
@@ -454,7 +456,7 @@ class AnalyzeChangesHandler(IntentHandler):
                         {
                             "tool_name": "bash",
                             "tool_input": {"command": cmd},
-                            "tool_output": result.output
+                            "tool_output": result.output,
                         }
                     ],
                     metadata={
@@ -468,8 +470,8 @@ class AnalyzeChangesHandler(IntentHandler):
 3. Explain the purpose of these changes
 4. Focus on CONCRETE changes, not meta-commentary about design patterns
 
-Be specific and practical."""
-                    }
+Be specific and practical.""",
+                    },
                 )
             else:
                 print(f"   ❌ git show failed: {result.error}")
@@ -479,16 +481,14 @@ Be specific and practical."""
                             "tool_name": "bash",
                             "tool_input": {"command": cmd},
                             "tool_output": f"Error: {result.error}",
-                            "is_error": True
+                            "is_error": True,
                         }
                     ],
-                    metadata={"error": result.error}
+                    metadata={"error": result.error},
                 )
         else:
             print("   ⚠️  No tool registry - cannot pre-execute")
-            return IntentResult(
-                metadata={"error": "No tool registry"}
-            )
+            return IntentResult(metadata={"error": "No tool registry"})
 
 
 class IntentRouter:
@@ -518,7 +518,9 @@ class IntentRouter:
             GitLogHandler(tool_registry),  # NEW: Git support!
         ]
 
-    def route(self, intent: str, user_message: str, messages: list = None) -> Optional[IntentResult]:
+    def route(
+        self, intent: str, user_message: str, messages: list = None
+    ) -> Optional[IntentResult]:
         """Route intent to appropriate handler.
 
         Args:
@@ -534,7 +536,7 @@ class IntentRouter:
             handler = AnalyzeChangesHandler(
                 self.tool_registry,
                 messages,
-                context_manager=self.context_manager  # NEW: Safe memory!
+                context_manager=self.context_manager,  # NEW: Safe memory!
             )
             if handler.can_handle(intent):
                 print(f"🎯 [IntentRouter] Routing '{intent}' to {handler.__class__.__name__}")

@@ -26,7 +26,7 @@ from .validator import (
     WhitelistPolicy,
     BlacklistPolicy,
     LengthPolicy,
-    PatternPolicy
+    PatternPolicy,
 )
 
 __all__ = [
@@ -36,5 +36,5 @@ __all__ = [
     "WhitelistPolicy",
     "BlacklistPolicy",
     "LengthPolicy",
-    "PatternPolicy"
+    "PatternPolicy",
 ]

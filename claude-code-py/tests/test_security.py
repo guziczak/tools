@@ -23,7 +23,7 @@ from core.security import (
     BlacklistPolicy,
     LengthPolicy,
     PatternPolicy,
-    ValidationResult
+    ValidationResult,
 )
 
 
@@ -166,9 +166,11 @@ class TestCommandSecurityValidator:
 
     def test_whitelist_mode_blocks_by_default(self):
         """In whitelist mode, should block commands not in whitelist."""
-        validator = CommandSecurityValidator([
-            WhitelistPolicy(["git log", "ls"]),
-        ])
+        validator = CommandSecurityValidator(
+            [
+                WhitelistPolicy(["git log", "ls"]),
+            ]
+        )
 
         # Whitelisted - allow
         assert validator.validate("git log --oneline").is_safe
@@ -179,10 +181,12 @@ class TestCommandSecurityValidator:
 
     def test_all_policies_must_pass(self):
         """All policies must pass (AND logic)."""
-        validator = CommandSecurityValidator([
-            WhitelistPolicy(["git log", "ls", "rm"]),  # rm is in whitelist
-            BlacklistPolicy(["rm "]),                  # But also in blacklist
-        ])
+        validator = CommandSecurityValidator(
+            [
+                WhitelistPolicy(["git log", "ls", "rm"]),  # rm is in whitelist
+                BlacklistPolicy(["rm "]),  # But also in blacklist
+            ]
+        )
 
         # Blocked by blacklist even though in whitelist
         result = validator.validate("rm file.txt")
@@ -191,12 +195,14 @@ class TestCommandSecurityValidator:
 
     def test_defense_in_depth(self):
         """Multiple layers catch different bypass attempts."""
-        validator = CommandSecurityValidator([
-            WhitelistPolicy(["git", "ls", "cat"]),
-            BlacklistPolicy(["rm ", "sudo "]),
-            LengthPolicy(100),
-            PatternPolicy(["eval", "exec"])
-        ])
+        validator = CommandSecurityValidator(
+            [
+                WhitelistPolicy(["git", "ls", "cat"]),
+                BlacklistPolicy(["rm ", "sudo "]),
+                LengthPolicy(100),
+                PatternPolicy(["eval", "exec"]),
+            ]
+        )
 
         # Caught by different policies
         assert not validator.validate("rm file.txt").is_safe  # Blacklist
@@ -205,11 +211,13 @@ class TestCommandSecurityValidator:
 
     def test_safe_command_passes_all_checks(self):
         """Safe commands should pass all policies."""
-        validator = CommandSecurityValidator([
-            WhitelistPolicy(["git log"]),
-            BlacklistPolicy(["rm ", "sudo "]),
-            LengthPolicy(100),
-        ])
+        validator = CommandSecurityValidator(
+            [
+                WhitelistPolicy(["git log"]),
+                BlacklistPolicy(["rm ", "sudo "]),
+                LengthPolicy(100),
+            ]
+        )
 
         result = validator.validate("git log --oneline")
         assert result.is_safe

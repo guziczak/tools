@@ -57,10 +57,7 @@ class TerminalUI:
 
         self.console.print()  # Blank line
         try:
-            user_input = Prompt.ask(
-                "[bold green]You[/bold green]",
-                console=self.console
-            )
+            user_input = Prompt.ask("[bold green]You[/bold green]", console=self.console)
             return user_input.strip()
         except EOFError:
             # EOF (Ctrl+D on Unix, Ctrl+Z on Windows) - return empty to continue
@@ -82,7 +79,7 @@ class TerminalUI:
             self.thinking_live = Live(
                 Text("∴ Thinking... (type '/thinking' to show)", style="dim cyan"),
                 console=self.console,
-                refresh_per_second=10
+                refresh_per_second=10,
             )
             self.thinking_live.__enter__()
 
@@ -95,8 +92,10 @@ class TerminalUI:
                 # More realistic time estimate: ~50 tokens/sec for thinking
                 seconds = max(1, self.thinking_token_count // 50)
                 self.thinking_live.update(
-                    Text(f"∴ Thinking... {seconds}s · {self.thinking_token_count} tokens (type '/thinking' to show)",
-                         style="dim cyan")
+                    Text(
+                        f"∴ Thinking... {seconds}s · {self.thinking_token_count} tokens (type '/thinking' to show)",
+                        style="dim cyan",
+                    )
                 )
 
             # If thinking is visible, show actual content
@@ -137,7 +136,7 @@ class TerminalUI:
 
         if self.thinking_visible and self.thinking_buffer:
             self.console.print("\n[bold cyan]💭 Thinking process:[/bold cyan]\n")
-            thinking_text = ''.join(self.thinking_buffer)
+            thinking_text = "".join(self.thinking_buffer)
             self.console.print(thinking_text, style="dim italic cyan")
             self.console.print()
         elif not self.thinking_visible:
@@ -147,7 +146,9 @@ class TerminalUI:
         """Print when tool usage starts."""
         self.current_tool = tool_name
         self.tool_buffer = []
-        self.console.print(f"\n[yellow]🔧 Using tool:[/yellow] [bold yellow]{tool_name}[/bold yellow]")
+        self.console.print(
+            f"\n[yellow]🔧 Using tool:[/yellow] [bold yellow]{tool_name}[/bold yellow]"
+        )
 
     def print_tool_result(self, tool_name: str, result_status: str, output: str):
         """Print tool execution result."""
@@ -162,7 +163,7 @@ class TerminalUI:
         self.console.print(f"{status_icon} Tool result ({status_text}):")
 
         # Show output (truncated if too long)
-        lines = output.strip().split('\n')
+        lines = output.strip().split("\n")
         if len(lines) <= 10:
             # Show all lines
             for line in lines:
@@ -303,7 +304,9 @@ class TerminalUI:
             elif event_type == "tool_use_detected":
                 # Tool use was detected in streaming
                 tool_name = event.get("tool_name", "unknown")
-                self.console.print(f"\n[yellow]🔧 Claude wants to use:[/yellow] [bold yellow]{tool_name}[/bold yellow]")
+                self.console.print(
+                    f"\n[yellow]🔧 Claude wants to use:[/yellow] [bold yellow]{tool_name}[/bold yellow]"
+                )
 
             elif event_type == "tool_execute":
                 # Tool was executed
@@ -311,7 +314,9 @@ class TerminalUI:
                 tool_input = event["tool_input"]
                 result = event["result"]
 
-                self.console.print(f"[yellow]⚙️  Executing tool:[/yellow] [bold yellow]{tool_name}[/bold yellow]")
+                self.console.print(
+                    f"[yellow]⚙️  Executing tool:[/yellow] [bold yellow]{tool_name}[/bold yellow]"
+                )
 
                 # Show input (if not too long)
                 input_str = str(tool_input)

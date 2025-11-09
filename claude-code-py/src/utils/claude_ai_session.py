@@ -9,6 +9,7 @@ from typing import Optional
 # Import automatic extractor
 try:
     from utils.auto_session_extractor import extract_session_key_auto
+
     AUTO_EXTRACTOR_AVAILABLE = True
 except ImportError:
     AUTO_EXTRACTOR_AVAILABLE = False
@@ -26,9 +27,9 @@ def get_session_key_interactive() -> Optional[str]:
         sessionKey or None if cancelled
     """
     print()
-    print("="*70)
+    print("=" * 70)
     print("  🔐 Getting sessionKey from claude.ai")
-    print("="*70)
+    print("=" * 70)
     print()
     print("  This will open claude.ai in your browser.")
     print("  You need to copy the sessionKey cookie from your browser.")
@@ -55,9 +56,9 @@ def get_session_key_interactive() -> Optional[str]:
         print("     Please open https://claude.ai/new manually")
 
     # Show instructions
-    print("="*70)
+    print("=" * 70)
     print("  📋 How to get your sessionKey:")
-    print("="*70)
+    print("=" * 70)
     print()
     print("  1. Make sure you're logged in to claude.ai")
     print("  2. Open Developer Tools (F12 or Ctrl+Shift+I)")
@@ -67,7 +68,7 @@ def get_session_key_interactive() -> Optional[str]:
     print("  6. Copy its VALUE (should start with 'sk-ant-sid01-')")
     print("  7. Paste it below")
     print()
-    print("="*70)
+    print("=" * 70)
     print()
 
     # Get sessionKey from user
@@ -90,7 +91,7 @@ def get_session_key_interactive() -> Optional[str]:
                 # Ask if they want to continue anyway
                 try:
                     confirm = input("  Use this token anyway? [y/N]: ").strip().lower()
-                    if confirm != 'y':
+                    if confirm != "y":
                         if attempt < max_attempts - 1:
                             print("  Try again...")
                             continue
@@ -140,7 +141,7 @@ def save_session_key_to_env(session_key: str) -> bool:
 
         # Read existing .env content
         if env_file.exists():
-            with open(env_file, 'r') as f:
+            with open(env_file, "r") as f:
                 lines = f.readlines()
         else:
             lines = []
@@ -149,23 +150,23 @@ def save_session_key_to_env(session_key: str) -> bool:
         # (We'll reuse this variable name for backwards compatibility)
         found = False
         for i, line in enumerate(lines):
-            if line.startswith('CLAUDE_CODE_OAUTH_TOKEN='):
-                lines[i] = f'CLAUDE_CODE_OAUTH_TOKEN={session_key}\n'
+            if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                lines[i] = f"CLAUDE_CODE_OAUTH_TOKEN={session_key}\n"
                 found = True
                 break
-            elif line.startswith('ANTHROPIC_API_KEY='):
+            elif line.startswith("ANTHROPIC_API_KEY="):
                 # Also update API key field
-                lines[i] = f'ANTHROPIC_API_KEY={session_key}\n'
+                lines[i] = f"ANTHROPIC_API_KEY={session_key}\n"
 
         if not found:
             # Add new line
-            if lines and not lines[-1].endswith('\n'):
-                lines.append('\n')
-            lines.append(f'\nCLAUDE_CODE_OAUTH_TOKEN={session_key}\n')
-            lines.append(f'ANTHROPIC_API_KEY={session_key}\n')
+            if lines and not lines[-1].endswith("\n"):
+                lines.append("\n")
+            lines.append(f"\nCLAUDE_CODE_OAUTH_TOKEN={session_key}\n")
+            lines.append(f"ANTHROPIC_API_KEY={session_key}\n")
 
         # Write back to file
-        with open(env_file, 'w') as f:
+        with open(env_file, "w") as f:
             f.writelines(lines)
 
         print("  ✅ sessionKey saved to .env!")
@@ -208,9 +209,9 @@ def setup_claude_ai_session() -> Optional[str]:
     if session_key:
         if save_session_key_to_env(session_key):
             print()
-            print("="*70)
+            print("=" * 70)
             print("  🎉 Setup Complete!")
-            print("="*70)
+            print("=" * 70)
             print()
             print("  ✅ sessionKey saved to .env")
             print("  ✅ Ready to use with claude.ai proxy!")

@@ -46,6 +46,7 @@ def mock_anthropic_client():
 def mock_console():
     """Mock Rich console for UI testing."""
     from unittest.mock import Mock
+
     console = Mock()
     console.print = Mock()
     return console
@@ -55,4 +56,5 @@ def mock_console():
 def tool_registry():
     """Create a tool registry with default tools."""
     from tools import create_default_registry
+
     return create_default_registry()

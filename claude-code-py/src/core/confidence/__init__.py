@@ -25,12 +25,12 @@ from .scorer import (
     ConfidenceScorer,
     ConfidenceScore,
     ConfidenceLevel,
-    create_confidence_from_context
+    create_confidence_from_context,
 )
 
 __all__ = [
     "ConfidenceScorer",
     "ConfidenceScore",
     "ConfidenceLevel",
-    "create_confidence_from_context"
+    "create_confidence_from_context",
 ]

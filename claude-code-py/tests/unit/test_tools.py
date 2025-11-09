@@ -82,11 +82,7 @@ class TestEditTool:
         """Test replacing text in a file."""
         tool = EditTool()
 
-        result = tool.execute(
-            file_path=str(sample_file),
-            old_text="Hello",
-            new_text="Goodbye"
-        )
+        result = tool.execute(file_path=str(sample_file), old_text="Hello", new_text="Goodbye")
 
         assert result.status == ToolStatus.SUCCESS
         assert "Goodbye" in sample_file.read_text()
@@ -97,9 +93,7 @@ class TestEditTool:
         tool = EditTool()
 
         result = tool.execute(
-            file_path=str(sample_file),
-            old_text="NonexistentText",
-            new_text="Replacement"
+            file_path=str(sample_file), old_text="NonexistentText", new_text="Replacement"
         )
 
         assert result.status == ToolStatus.ERROR
@@ -133,10 +127,7 @@ class TestBashTool:
         (temp_dir / "marker.txt").touch()
 
         # List files in that directory
-        result = tool.execute(
-            command="ls marker.txt",
-            cwd=str(temp_dir)
-        )
+        result = tool.execute(command="ls marker.txt", cwd=str(temp_dir))
 
         assert result.status == ToolStatus.SUCCESS
         assert "marker.txt" in result.output
@@ -149,10 +140,7 @@ class TestGrepTool:
         """Test grep finds pattern in file."""
         tool = GrepTool()
 
-        result = tool.execute(
-            pattern="Hello",
-            path=str(sample_file)
-        )
+        result = tool.execute(pattern="Hello", path=str(sample_file))
 
         assert result.status == ToolStatus.SUCCESS
         assert "Hello" in result.output
@@ -162,10 +150,7 @@ class TestGrepTool:
         """Test grep with no matches."""
         tool = GrepTool()
 
-        result = tool.execute(
-            pattern="NonexistentPattern",
-            path=str(sample_file)
-        )
+        result = tool.execute(pattern="NonexistentPattern", path=str(sample_file))
 
         assert result.status == ToolStatus.SUCCESS
         assert result.metadata["matches"] == 0
@@ -174,11 +159,7 @@ class TestGrepTool:
         """Test case-insensitive grep."""
         tool = GrepTool()
 
-        result = tool.execute(
-            pattern="hello",
-            path=str(sample_file),
-            case_sensitive=False
-        )
+        result = tool.execute(pattern="hello", path=str(sample_file), case_sensitive=False)
 
         assert result.status == ToolStatus.SUCCESS
         assert result.metadata["matches"] == 1
@@ -195,10 +176,7 @@ class TestGlobTool:
         (temp_dir / "other.md").touch()
 
         tool = GlobTool()
-        result = tool.execute(
-            pattern="*.txt",
-            cwd=str(temp_dir)
-        )
+        result = tool.execute(pattern="*.txt", cwd=str(temp_dir))
 
         assert result.status == ToolStatus.SUCCESS
         assert result.metadata["matches"] == 2
@@ -212,10 +190,7 @@ class TestGlobTool:
         (subdir / "nested.py").touch()
 
         tool = GlobTool()
-        result = tool.execute(
-            pattern="**/*.py",
-            cwd=str(temp_dir)
-        )
+        result = tool.execute(pattern="**/*.py", cwd=str(temp_dir))
 
         assert result.status == ToolStatus.SUCCESS
         assert result.metadata["matches"] == 2

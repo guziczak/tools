@@ -50,10 +50,19 @@ Always provide:
 - Prevention strategies""",
             thinking_budget=25000,
             keywords=[
-                "bug", "error", "fix", "broken", "not working",
-                "issue", "problem", "crash", "exception",
-                "debug", "fails", "doesn't work"
-            ]
+                "bug",
+                "error",
+                "fix",
+                "broken",
+                "not working",
+                "issue",
+                "problem",
+                "crash",
+                "exception",
+                "debug",
+                "fails",
+                "doesn't work",
+            ],
         )
         super().__init__(config)
 
@@ -63,18 +72,20 @@ Always provide:
 
         # High confidence
         high_confidence = [
-            "fix bug", "debug", "not working",
-            "broken", "error", "exception",
-            "crash", "fails"
+            "fix bug",
+            "debug",
+            "not working",
+            "broken",
+            "error",
+            "exception",
+            "crash",
+            "fails",
         ]
         if any(keyword in task_lower for keyword in high_confidence):
             return 0.95
 
         # Medium confidence
-        medium_confidence = [
-            "issue", "problem", "doesn't work",
-            "wrong", "incorrect", "unexpected"
-        ]
+        medium_confidence = ["issue", "problem", "doesn't work", "wrong", "incorrect", "unexpected"]
         if any(keyword in task_lower for keyword in medium_confidence):
             return 0.75
 

@@ -23,7 +23,7 @@ class ReadTool(BaseTool):
         return {
             "file_path": {
                 "type": "string",
-                "description": "Path to the file to read (absolute or relative)"
+                "description": "Path to the file to read (absolute or relative)",
             }
         }
 
@@ -44,9 +44,7 @@ class ReadTool(BaseTool):
         # Validate required parameter
         if not file_path:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error="Missing required parameter: file_path"
+                status=ToolStatus.ERROR, output="", error="Missing required parameter: file_path"
             )
 
         try:
@@ -55,12 +53,13 @@ class ReadTool(BaseTool):
             # Map claude.ai virtual paths to local paths
             # Claude.ai uses /mnt/user-data/outputs/ but we're in working directory
             import os
-            if file_path.startswith('/mnt/user-data/outputs/'):
+
+            if file_path.startswith("/mnt/user-data/outputs/"):
                 # Extract relative path after /mnt/user-data/outputs/
-                relative_path = file_path[len('/mnt/user-data/outputs/'):]
+                relative_path = file_path[len("/mnt/user-data/outputs/") :]
                 file_path = os.path.join(os.getcwd(), relative_path)
                 print(f"📍 [ReadTool] Mapped claude.ai path to: {file_path}")
-            elif file_path == '/mnt/user-data/outputs':
+            elif file_path == "/mnt/user-data/outputs":
                 # User asked about directory - use current working directory
                 file_path = os.getcwd()
                 print(f"📍 [ReadTool] Mapped claude.ai outputs dir to CWD: {file_path}")
@@ -74,12 +73,13 @@ class ReadTool(BaseTool):
                 return ToolResult(
                     status=ToolStatus.ERROR,
                     output="",
-                    error=f"File not found: {resolved_path}\n\nTip: Make sure the path is correct and the file exists."
+                    error=f"File not found: {resolved_path}\n\nTip: Make sure the path is correct and the file exists.",
                 )
 
             # Check if it's a directory - if so, list contents instead of error
             if resolved_path.is_dir():
                 import os
+
                 try:
                     files = os.listdir(resolved_path)
                     if not files:
@@ -91,21 +91,17 @@ class ReadTool(BaseTool):
                     return ToolResult(
                         status=ToolStatus.SUCCESS,
                         output=content,
-                        metadata={
-                            "is_directory": True,
-                            "file_count": len(files),
-                            "files": files
-                        }
+                        metadata={"is_directory": True, "file_count": len(files), "files": files},
                     )
                 except PermissionError:
                     return ToolResult(
                         status=ToolStatus.ERROR,
                         output="",
-                        error=f"Permission denied to read directory: {resolved_path}"
+                        error=f"Permission denied to read directory: {resolved_path}",
                     )
 
             # Read file contents
-            with open(resolved_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
 
             return ToolResult(
@@ -114,27 +110,27 @@ class ReadTool(BaseTool):
                 metadata={
                     "file_path": str(resolved_path),
                     "size": len(content),
-                    "lines": content.count('\n') + 1
-                }
+                    "lines": content.count("\n") + 1,
+                },
             )
 
         except PermissionError:
             return ToolResult(
                 status=ToolStatus.ERROR,
                 output="",
-                error=f"Permission denied: {file_path}\n\nTip: Check if you have read permissions for this file."
+                error=f"Permission denied: {file_path}\n\nTip: Check if you have read permissions for this file.",
             )
         except UnicodeDecodeError:
             return ToolResult(
                 status=ToolStatus.ERROR,
                 output="",
-                error=f"File is not a text file or has unsupported encoding: {file_path}\n\nTip: This might be a binary file (image, executable, etc.). Try a different tool or viewer."
+                error=f"File is not a text file or has unsupported encoding: {file_path}\n\nTip: This might be a binary file (image, executable, etc.). Try a different tool or viewer.",
             )
         except Exception as e:
             return ToolResult(
                 status=ToolStatus.ERROR,
                 output="",
-                error=f"Failed to read file: {str(e)}\n\nFile path attempted: {file_path}"
+                error=f"Failed to read file: {str(e)}\n\nFile path attempted: {file_path}",
             )
 
 
@@ -155,15 +151,19 @@ class WriteTool(BaseTool):
         return {
             "file_path": {
                 "type": "string",
-                "description": "Path to the file to write (absolute or relative)"
+                "description": "Path to the file to write (absolute or relative)",
             },
-            "content": {
-                "type": "string",
-                "description": "Content to write to the file"
-            }
+            "content": {"type": "string", "description": "Content to write to the file"},
         }
 
-    def execute(self, file_path: str = None, content: str = None, path: str = None, file_text: str = None, **kwargs) -> ToolResult:
+    def execute(
+        self,
+        file_path: str = None,
+        content: str = None,
+        path: str = None,
+        file_text: str = None,
+        **kwargs,
+    ) -> ToolResult:
         """Write content to file.
 
         Args:
@@ -186,16 +186,19 @@ class WriteTool(BaseTool):
             return ToolResult(
                 status=ToolStatus.ERROR,
                 output="",
-                error=f"Missing required parameters: file_path={bool(file_path)}, content={bool(content)}"
+                error=f"Missing required parameters: file_path={bool(file_path)}, content={bool(content)}",
             )
 
         try:
-            print(f"📝 [WriteTool] Executing with file_path='{file_path}', content_len={len(content)}")
+            print(
+                f"📝 [WriteTool] Executing with file_path='{file_path}', content_len={len(content)}"
+            )
 
             # Map claude.ai virtual paths to local paths
             import os
-            if file_path.startswith('/mnt/user-data/outputs/'):
-                relative_path = file_path[len('/mnt/user-data/outputs/'):]
+
+            if file_path.startswith("/mnt/user-data/outputs/"):
+                relative_path = file_path[len("/mnt/user-data/outputs/") :]
                 file_path = os.path.join(os.getcwd(), relative_path)
                 print(f"📍 [WriteTool] Mapped claude.ai path to: {file_path}")
 
@@ -210,7 +213,7 @@ class WriteTool(BaseTool):
             is_overwrite = resolved_path.exists()
 
             # Write file
-            with open(resolved_path, 'w', encoding='utf-8') as f:
+            with open(resolved_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
             action = "overwrote" if is_overwrite else "created"
@@ -221,22 +224,18 @@ class WriteTool(BaseTool):
                 metadata={
                     "file_path": str(resolved_path),
                     "size": len(content),
-                    "lines": content.count('\n') + 1,
-                    "overwrite": is_overwrite
-                }
+                    "lines": content.count("\n") + 1,
+                    "overwrite": is_overwrite,
+                },
             )
 
         except PermissionError:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Permission denied: {file_path}"
+                status=ToolStatus.ERROR, output="", error=f"Permission denied: {file_path}"
             )
         except Exception as e:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Failed to write file: {str(e)}"
+                status=ToolStatus.ERROR, output="", error=f"Failed to write file: {str(e)}"
             )
 
 
@@ -255,22 +254,19 @@ class EditTool(BaseTool):
 
     def get_parameters(self) -> Dict[str, Any]:
         return {
-            "file_path": {
-                "type": "string",
-                "description": "Path to the file to edit"
-            },
-            "old_text": {
-                "type": "string",
-                "description": "Text to find and replace"
-            },
-            "new_text": {
-                "type": "string",
-                "description": "Text to replace with"
-            }
+            "file_path": {"type": "string", "description": "Path to the file to edit"},
+            "old_text": {"type": "string", "description": "Text to find and replace"},
+            "new_text": {"type": "string", "description": "Text to replace with"},
         }
 
-    def execute(self, file_path: str = None, old_text: str = None, new_text: str = None,
-                path: str = None, **kwargs) -> ToolResult:
+    def execute(
+        self,
+        file_path: str = None,
+        old_text: str = None,
+        new_text: str = None,
+        path: str = None,
+        **kwargs,
+    ) -> ToolResult:
         """Edit file by replacing text.
 
         Args:
@@ -291,16 +287,19 @@ class EditTool(BaseTool):
             return ToolResult(
                 status=ToolStatus.ERROR,
                 output="",
-                error=f"Missing required parameters: file_path={bool(file_path)}, old_text={old_text is not None}, new_text={new_text is not None}"
+                error=f"Missing required parameters: file_path={bool(file_path)}, old_text={old_text is not None}, new_text={new_text is not None}",
             )
 
         try:
-            print(f"✏️  [EditTool] Executing with file_path='{file_path}', old_text_len={len(old_text)}, new_text_len={len(new_text)}")
+            print(
+                f"✏️  [EditTool] Executing with file_path='{file_path}', old_text_len={len(old_text)}, new_text_len={len(new_text)}"
+            )
 
             # Map claude.ai virtual paths to local paths
             import os
-            if file_path.startswith('/mnt/user-data/outputs/'):
-                relative_path = file_path[len('/mnt/user-data/outputs/'):]
+
+            if file_path.startswith("/mnt/user-data/outputs/"):
+                relative_path = file_path[len("/mnt/user-data/outputs/") :]
                 file_path = os.path.join(os.getcwd(), relative_path)
                 print(f"📍 [EditTool] Mapped claude.ai path to: {file_path}")
 
@@ -311,13 +310,11 @@ class EditTool(BaseTool):
             # Check if file exists
             if not resolved_path.exists():
                 return ToolResult(
-                    status=ToolStatus.ERROR,
-                    output="",
-                    error=f"File not found: {resolved_path}"
+                    status=ToolStatus.ERROR, output="", error=f"File not found: {resolved_path}"
                 )
 
             # Read current content
-            with open(resolved_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
 
             # Check if old_text exists
@@ -325,7 +322,7 @@ class EditTool(BaseTool):
                 return ToolResult(
                     status=ToolStatus.ERROR,
                     output="",
-                    error=f"Text not found in file: '{old_text[:50]}...'"
+                    error=f"Text not found in file: '{old_text[:50]}...'",
                 )
 
             # Count occurrences
@@ -335,27 +332,20 @@ class EditTool(BaseTool):
             new_content = content.replace(old_text, new_text)
 
             # Write back
-            with open(resolved_path, 'w', encoding='utf-8') as f:
+            with open(resolved_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
             return ToolResult(
                 status=ToolStatus.SUCCESS,
                 output=f"Successfully replaced {count} occurrence(s) in {resolved_path}",
-                metadata={
-                    "file_path": str(resolved_path),
-                    "replacements": count
-                }
+                metadata={"file_path": str(resolved_path), "replacements": count},
             )
 
         except PermissionError:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Permission denied: {file_path}"
+                status=ToolStatus.ERROR, output="", error=f"Permission denied: {file_path}"
             )
         except Exception as e:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Failed to edit file: {str(e)}"
+                status=ToolStatus.ERROR, output="", error=f"Failed to edit file: {str(e)}"
             )

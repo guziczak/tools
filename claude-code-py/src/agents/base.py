@@ -8,6 +8,7 @@ from enum import Enum
 
 class AgentRole(Enum):
     """Agent specialization roles."""
+
     TEST_WRITER = "test_writer"
     CODE_REVIEWER = "code_reviewer"
     BUG_FIXER = "bug_fixer"
@@ -56,7 +57,7 @@ class AgentResult:
             "success": self.success,
             "output": self.output,
             "error": self.error,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
@@ -105,15 +106,15 @@ class BaseAgent(ABC):
                 "properties": {
                     "task": {
                         "type": "string",
-                        "description": "The specific task to delegate to this agent"
+                        "description": "The specific task to delegate to this agent",
                     },
                     "context": {
                         "type": "string",
-                        "description": "Additional context for the task (optional)"
-                    }
+                        "description": "Additional context for the task (optional)",
+                    },
                 },
-                "required": ["task"]
-            }
+                "required": ["task"],
+            },
         }
 
     def get_enhanced_system_prompt(self, task: str, context: Optional[str] = None) -> str:

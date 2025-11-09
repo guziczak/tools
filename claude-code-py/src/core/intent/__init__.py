@@ -15,12 +15,7 @@ Example:
 """
 
 from .strategies import IntentClassifier, IntentMatch, MatcherStrategy
-from .matchers import (
-    ExactMatcher,
-    FuzzyMatcher,
-    KeywordMatcher,
-    SemanticMatcher
-)
+from .matchers import ExactMatcher, FuzzyMatcher, KeywordMatcher, SemanticMatcher
 
 
 def create_default_classifier() -> IntentClassifier:
@@ -35,49 +30,59 @@ def create_default_classifier() -> IntentClassifier:
     classifier = IntentClassifier()
 
     # Tier 1: Exact matching (fastest - try first)
-    classifier.add_matcher(ExactMatcher({
-        "explore_project": [
-            "widzisz projekt", "czy widzisz projekt",
-            "do you see project", "show me the project"
-        ],
-        "list_files": [
-            "jakie pliki", "list files", "show files"
-        ],
-    }))
+    classifier.add_matcher(
+        ExactMatcher(
+            {
+                "explore_project": [
+                    "widzisz projekt",
+                    "czy widzisz projekt",
+                    "do you see project",
+                    "show me the project",
+                ],
+                "list_files": ["jakie pliki", "list files", "show files"],
+            }
+        )
+    )
 
     # Tier 1.5: Fuzzy matching (typo-tolerant)
-    classifier.add_matcher(FuzzyMatcher(
-        trigger_map={
-            "explore_project": ["widzisz projekt"],
-            "list_files": ["jakie pliki"],
-        },
-        threshold=85
-    ))
+    classifier.add_matcher(
+        FuzzyMatcher(
+            trigger_map={
+                "explore_project": ["widzisz projekt"],
+                "list_files": ["jakie pliki"],
+            },
+            threshold=85,
+        )
+    )
 
     # Tier 2: Keyword matching (word-order invariant)
-    classifier.add_matcher(KeywordMatcher({
-        "git_log": [
-            ["ostatni", "commit"],  # Polish
-            ["last", "commit"],     # English
-            ["git", "log"],
-            ["git", "history"]
-        ],
-        "explore_project": [
-            ["widzisz", "projekt"]
-        ]
-    }))
+    classifier.add_matcher(
+        KeywordMatcher(
+            {
+                "git_log": [
+                    ["ostatni", "commit"],  # Polish
+                    ["last", "commit"],  # English
+                    ["git", "log"],
+                    ["git", "history"],
+                ],
+                "explore_project": [["widzisz", "projekt"]],
+            }
+        )
+    )
 
     # Tier 2.5: Semantic matching (meaning-based)
-    classifier.add_matcher(SemanticMatcher(
-        reference_map={
-            "explore_project": [
-                "show project files",
-                "what is in this project",
-                "list project contents"
-            ]
-        },
-        threshold=0.4
-    ))
+    classifier.add_matcher(
+        SemanticMatcher(
+            reference_map={
+                "explore_project": [
+                    "show project files",
+                    "what is in this project",
+                    "list project contents",
+                ]
+            },
+            threshold=0.4,
+        )
+    )
 
     return classifier
 
@@ -90,5 +95,5 @@ __all__ = [
     "FuzzyMatcher",
     "KeywordMatcher",
     "SemanticMatcher",
-    "create_default_classifier"
+    "create_default_classifier",
 ]

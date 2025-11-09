@@ -36,6 +36,7 @@ class ValidationResult:
         matched_rule: Which rule triggered the decision
         confidence: Confidence in decision (0.0-1.0)
     """
+
     is_safe: bool
     reason: str
     matched_rule: Optional[str] = None
@@ -103,14 +104,12 @@ class WhitelistPolicy(ValidationPolicy):
                     is_safe=True,
                     reason=f"Matches whitelist: {prefix}",
                     matched_rule=prefix,
-                    confidence=1.0
+                    confidence=1.0,
                 )
 
         # Not in whitelist - block
         return ValidationResult(
-            is_safe=False,
-            reason="Command not in whitelist (fail secure)",
-            confidence=1.0
+            is_safe=False, reason="Command not in whitelist (fail secure)", confidence=1.0
         )
 
     def get_name(self) -> str:
@@ -162,14 +161,14 @@ class BlacklistPolicy(ValidationPolicy):
                     is_safe=False,
                     reason=f"Matches blacklist: {pattern}",
                     matched_rule=pattern,
-                    confidence=1.0
+                    confidence=1.0,
                 )
 
         # No blacklist match - allow
         return ValidationResult(
             is_safe=True,
             reason="No blacklist match",
-            confidence=0.7  # Lower confidence (could still be dangerous)
+            confidence=0.7,  # Lower confidence (could still be dangerous)
         )
 
     def get_name(self) -> str:
@@ -203,14 +202,10 @@ class LengthPolicy(ValidationPolicy):
             return ValidationResult(
                 is_safe=False,
                 reason=f"Command too long ({len(command)} > {self.max_length} chars)",
-                confidence=1.0
+                confidence=1.0,
             )
 
-        return ValidationResult(
-            is_safe=True,
-            reason="Length OK",
-            confidence=1.0
-        )
+        return ValidationResult(is_safe=True, reason="Length OK", confidence=1.0)
 
     def get_name(self) -> str:
         return "LengthPolicy"
@@ -247,14 +242,10 @@ class PatternPolicy(ValidationPolicy):
                     is_safe=False,
                     reason=f"Suspicious pattern detected: {pattern}",
                     matched_rule=pattern,
-                    confidence=0.9
+                    confidence=0.9,
                 )
 
-        return ValidationResult(
-            is_safe=True,
-            reason="No suspicious patterns",
-            confidence=1.0
-        )
+        return ValidationResult(is_safe=True, reason="No suspicious patterns", confidence=1.0)
 
     def get_name(self) -> str:
         return "PatternPolicy"
@@ -296,6 +287,7 @@ class CommandSecurityValidator:
             ValidationResult (first failure or final success)
         """
         from ..logging import get_logger
+
         logger = get_logger(__name__)
 
         logger.debug("Validating command: %s", command)
@@ -304,22 +296,18 @@ class CommandSecurityValidator:
         for policy in self.policies:
             result = policy.validate(command)
 
-            logger.debug("[%s] Result: safe=%s, reason=%s",
-                        policy.get_name(), result.is_safe, result.reason)
+            logger.debug(
+                "[%s] Result: safe=%s, reason=%s", policy.get_name(), result.is_safe, result.reason
+            )
 
             if not result.is_safe:
                 # First failure - block immediately
-                logger.warning("Command BLOCKED by %s: %s",
-                             policy.get_name(), result.reason)
+                logger.warning("Command BLOCKED by %s: %s", policy.get_name(), result.reason)
                 return result
 
         # All policies passed
         logger.info("Command ALLOWED: %s", command)
-        return ValidationResult(
-            is_safe=True,
-            reason="All policies passed",
-            confidence=1.0
-        )
+        return ValidationResult(is_safe=True, reason="All policies passed", confidence=1.0)
 
     @classmethod
     def from_config(cls, config_path: Path) -> "CommandSecurityValidator":
@@ -332,6 +320,7 @@ class CommandSecurityValidator:
             Configured CommandSecurityValidator
         """
         from ..logging import get_logger
+
         logger = get_logger(__name__)
 
         # Load config
@@ -378,23 +367,42 @@ class CommandSecurityValidator:
             CommandSecurityValidator with default policies
         """
         from ..logging import get_logger
+
         logger = get_logger(__name__)
 
         logger.warning("Using default security policy (no config file)")
 
         # Default: strict whitelist
         whitelist = [
-            "git log", "git show", "git diff", "git status", "git branch",
-            "ls", "cat", "pwd", "echo", "which"
+            "git log",
+            "git show",
+            "git diff",
+            "git status",
+            "git branch",
+            "ls",
+            "cat",
+            "pwd",
+            "echo",
+            "which",
         ]
 
         blacklist = [
-            "rm ", "del ", "sudo ", "su ", "format ", "dd ",
-            "git push", "git commit", "> ", ">> "
+            "rm ",
+            "del ",
+            "sudo ",
+            "su ",
+            "format ",
+            "dd ",
+            "git push",
+            "git commit",
+            "> ",
+            ">> ",
         ]
 
-        return cls([
-            WhitelistPolicy(whitelist),
-            BlacklistPolicy(blacklist),
-            LengthPolicy(500),
-        ])
+        return cls(
+            [
+                WhitelistPolicy(whitelist),
+                BlacklistPolicy(blacklist),
+                LengthPolicy(500),
+            ]
+        )

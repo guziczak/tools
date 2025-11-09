@@ -6,6 +6,7 @@ from anthropic.types import Message, ContentBlock, ToolUseBlock, TextBlock
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from core.tool_executor import ToolExecutor
@@ -26,10 +27,7 @@ class TestToolExecutor:
         """Test detecting tool_use in message."""
         # Message with tool use
         tool_block = ToolUseBlock(
-            id="tool_123",
-            type="tool_use",
-            name="read_file",
-            input={"file_path": "/test.txt"}
+            id="tool_123", type="tool_use", name="read_file", input={"file_path": "/test.txt"}
         )
 
         message_with_tool = Message(
@@ -39,7 +37,7 @@ class TestToolExecutor:
             content=[tool_block],
             model="claude-3",
             stop_reason="tool_use",
-            usage={"input_tokens": 10, "output_tokens": 20}
+            usage={"input_tokens": 10, "output_tokens": 20},
         )
 
         assert executor.has_tool_use(message_with_tool) is True
@@ -53,7 +51,7 @@ class TestToolExecutor:
             content=[text_block],
             model="claude-3",
             stop_reason="end_turn",
-            usage={"input_tokens": 10, "output_tokens": 20}
+            usage={"input_tokens": 10, "output_tokens": 20},
         )
 
         assert executor.has_tool_use(message_no_tool) is False
@@ -66,10 +64,7 @@ class TestToolExecutor:
 
         # Create message with read_file tool use
         tool_block = ToolUseBlock(
-            id="tool_456",
-            type="tool_use",
-            name="read_file",
-            input={"file_path": str(test_file)}
+            id="tool_456", type="tool_use", name="read_file", input={"file_path": str(test_file)}
         )
 
         message = Message(
@@ -79,7 +74,7 @@ class TestToolExecutor:
             content=[tool_block],
             model="claude-3",
             stop_reason="tool_use",
-            usage={"input_tokens": 10, "output_tokens": 20}
+            usage={"input_tokens": 10, "output_tokens": 20},
         )
 
         results = executor.execute_tools_from_message(message)
@@ -100,16 +95,10 @@ class TestToolExecutor:
 
         # Message with two tool uses
         tool1 = ToolUseBlock(
-            id="tool_1",
-            type="tool_use",
-            name="read_file",
-            input={"file_path": str(file1)}
+            id="tool_1", type="tool_use", name="read_file", input={"file_path": str(file1)}
         )
         tool2 = ToolUseBlock(
-            id="tool_2",
-            type="tool_use",
-            name="read_file",
-            input={"file_path": str(file2)}
+            id="tool_2", type="tool_use", name="read_file", input={"file_path": str(file2)}
         )
 
         message = Message(
@@ -119,7 +108,7 @@ class TestToolExecutor:
             content=[tool1, tool2],
             model="claude-3",
             stop_reason="tool_use",
-            usage={"input_tokens": 10, "output_tokens": 20}
+            usage={"input_tokens": 10, "output_tokens": 20},
         )
 
         results = executor.execute_tools_from_message(message)
@@ -134,7 +123,7 @@ class TestToolExecutor:
             id="tool_789",
             type="tool_use",
             name="read_file",
-            input={"file_path": "/nonexistent/file.txt"}
+            input={"file_path": "/nonexistent/file.txt"},
         )
 
         message = Message(
@@ -144,7 +133,7 @@ class TestToolExecutor:
             content=[tool_block],
             model="claude-3",
             stop_reason="tool_use",
-            usage={"input_tokens": 10, "output_tokens": 20}
+            usage={"input_tokens": 10, "output_tokens": 20},
         )
 
         results = executor.execute_tools_from_message(message)
@@ -155,12 +144,7 @@ class TestToolExecutor:
 
     def test_unknown_tool(self, executor):
         """Test handling unknown tool."""
-        tool_block = ToolUseBlock(
-            id="tool_999",
-            type="tool_use",
-            name="unknown_tool",
-            input={}
-        )
+        tool_block = ToolUseBlock(id="tool_999", type="tool_use", name="unknown_tool", input={})
 
         message = Message(
             id="msg_128",
@@ -169,7 +153,7 @@ class TestToolExecutor:
             content=[tool_block],
             model="claude-3",
             stop_reason="tool_use",
-            usage={"input_tokens": 10, "output_tokens": 20}
+            usage={"input_tokens": 10, "output_tokens": 20},
         )
 
         results = executor.execute_tools_from_message(message)

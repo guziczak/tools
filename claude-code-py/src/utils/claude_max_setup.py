@@ -12,6 +12,7 @@ from typing import Optional
 # Import OAuth to API key converter
 try:
     from utils.oauth_to_apikey import generate_api_key_from_oauth
+
     OAUTH_TO_APIKEY_AVAILABLE = True
 except ImportError:
     OAUTH_TO_APIKEY_AVAILABLE = False
@@ -19,6 +20,7 @@ except ImportError:
 # Import claude.ai session setup
 try:
     from utils.claude_ai_session import setup_claude_ai_session
+
     CLAUDE_AI_SESSION_AVAILABLE = True
 except ImportError:
     CLAUDE_AI_SESSION_AVAILABLE = False
@@ -37,7 +39,7 @@ def check_npm_installed() -> bool:
             capture_output=True,
             text=True,
             timeout=5,
-            shell=True  # Important for Windows!
+            shell=True,  # Important for Windows!
         )
         return result.returncode == 0
     except Exception:
@@ -60,7 +62,7 @@ def install_claude_code() -> bool:
             capture_output=True,
             text=True,
             timeout=120,
-            shell=True  # Important for Windows!
+            shell=True,  # Important for Windows!
         )
 
         if result.returncode == 0:
@@ -99,14 +101,14 @@ def run_claude_setup_token() -> Optional[str]:
             capture_output=True,  # Capture stdout/stderr
             text=True,  # Decode as text
             timeout=300,  # 5 minutes for user to authenticate
-            shell=True  # Important for Windows!
+            shell=True,  # Important for Windows!
         )
 
         # Combine stdout and stderr (token might be in either)
         output = result.stdout + result.stderr
 
         # Look for token in output (format: sk-ant-oat01-...)
-        token_pattern = r'(sk-ant-oat01-[A-Za-z0-9_-]+)'
+        token_pattern = r"(sk-ant-oat01-[A-Za-z0-9_-]+)"
         match = re.search(token_pattern, output)
 
         if match:
@@ -158,7 +160,7 @@ def save_api_key_to_env(api_key: str) -> bool:
 
         # Read existing .env content
         if env_file.exists():
-            with open(env_file, 'r') as f:
+            with open(env_file, "r") as f:
                 lines = f.readlines()
         else:
             lines = []
@@ -166,16 +168,16 @@ def save_api_key_to_env(api_key: str) -> bool:
         # Update or add ANTHROPIC_API_KEY line
         found = False
         for i, line in enumerate(lines):
-            if line.startswith('ANTHROPIC_API_KEY='):
-                lines[i] = f'ANTHROPIC_API_KEY={api_key}\n'
+            if line.startswith("ANTHROPIC_API_KEY="):
+                lines[i] = f"ANTHROPIC_API_KEY={api_key}\n"
                 found = True
                 break
 
         if not found:
-            lines.append(f'\nANTHROPIC_API_KEY={api_key}\n')
+            lines.append(f"\nANTHROPIC_API_KEY={api_key}\n")
 
         # Write back to file
-        with open(env_file, 'w') as f:
+        with open(env_file, "w") as f:
             f.writelines(lines)
 
         print(f"  ✅ API key saved to .env!")
@@ -208,7 +210,7 @@ def save_token_to_env(token: str) -> bool:
 
         # Read existing .env content
         if env_file.exists():
-            with open(env_file, 'r') as f:
+            with open(env_file, "r") as f:
                 lines = f.readlines()
         else:
             lines = []
@@ -216,21 +218,21 @@ def save_token_to_env(token: str) -> bool:
         # Check if CLAUDE_CODE_OAUTH_TOKEN already exists
         updated = False
         for i, line in enumerate(lines):
-            if line.startswith('CLAUDE_CODE_OAUTH_TOKEN='):
+            if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
                 # Update existing line
-                lines[i] = f'CLAUDE_CODE_OAUTH_TOKEN={token}\n'
+                lines[i] = f"CLAUDE_CODE_OAUTH_TOKEN={token}\n"
                 updated = True
                 break
 
         # Add new line if not found
         if not updated:
             # Add blank line if file is not empty and doesn't end with newline
-            if lines and not lines[-1].endswith('\n'):
-                lines.append('\n')
-            lines.append(f'CLAUDE_CODE_OAUTH_TOKEN={token}\n')
+            if lines and not lines[-1].endswith("\n"):
+                lines.append("\n")
+            lines.append(f"CLAUDE_CODE_OAUTH_TOKEN={token}\n")
 
         # Write back to file
-        with open(env_file, 'w') as f:
+        with open(env_file, "w") as f:
             f.writelines(lines)
 
         print("  ✅ Token saved to .env!")
@@ -284,7 +286,7 @@ def read_token() -> Optional[str]:
         return None
 
     try:
-        with open(token_path, 'r') as f:
+        with open(token_path, "r") as f:
             data = json.load(f)
 
         return data.get("accessToken") or data.get("access_token")
@@ -306,9 +308,9 @@ def automatic_claude_max_setup() -> Optional[str]:
         sessionKey or None if setup failed
     """
     print()
-    print("="*70)
+    print("=" * 70)
     print("  🚀 Automatic Claude Max Setup")
-    print("="*70)
+    print("=" * 70)
     print()
 
     # Use new claude.ai session setup (gets sessionKey from browser)
@@ -345,18 +347,18 @@ def automatic_claude_max_setup() -> Optional[str]:
 
     # Step 3: Run setup-token and capture token
     print()
-    print("="*70)
+    print("=" * 70)
     print("  🔐 Generating Claude Max Token")
-    print("="*70)
+    print("=" * 70)
 
     token = run_claude_setup_token()
 
     if token:
         # Token captured! Now try to generate API key from it
         print()
-        print("="*70)
+        print("=" * 70)
         print("  🔄 Converting OAuth token to API key...")
-        print("="*70)
+        print("=" * 70)
 
         # Try to generate API key from OAuth token
         api_key = None
@@ -367,9 +369,9 @@ def automatic_claude_max_setup() -> Optional[str]:
             # Successfully generated API key! Use it instead of OAuth token
             if save_api_key_to_env(api_key):
                 print()
-                print("="*70)
+                print("=" * 70)
                 print("  🎉 Setup Complete!")
-                print("="*70)
+                print("=" * 70)
                 print()
                 print("  ✅ OAuth token → API key conversion successful!")
                 print("  ✅ API key saved to .env!")
@@ -389,9 +391,9 @@ def automatic_claude_max_setup() -> Optional[str]:
 
         if save_token_to_env(token):
             print()
-            print("="*70)
+            print("=" * 70)
             print("  ⚠️  Setup Complete (OAuth token saved)")
-            print("="*70)
+            print("=" * 70)
             print()
             print("  ⚠️  OAuth tokens have limited functionality")
             print("  💡 For full features, use an API key instead")
@@ -429,9 +431,9 @@ def automatic_claude_max_setup() -> Optional[str]:
             # Successfully generated API key!
             if save_api_key_to_env(api_key):
                 print()
-                print("="*70)
+                print("=" * 70)
                 print("  🎉 Setup Complete!")
-                print("="*70)
+                print("=" * 70)
                 print()
                 print("  ✅ OAuth token → API key conversion successful!")
                 print("  ✅ API key saved to .env!")
@@ -446,9 +448,9 @@ def automatic_claude_max_setup() -> Optional[str]:
 
         if save_token_to_env(file_token):
             print()
-            print("="*70)
+            print("=" * 70)
             print("  ⚠️  Setup Complete (OAuth token saved)")
-            print("="*70)
+            print("=" * 70)
             print()
             print("  ⚠️  OAuth tokens have limited functionality")
             print()

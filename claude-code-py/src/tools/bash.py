@@ -19,23 +19,23 @@ class BashTool(BaseTool):
     def _detect_shell(self):
         """Detect available shell based on platform."""
         self.platform = sys.platform
-        self.is_windows = self.platform.startswith('win')
+        self.is_windows = self.platform.startswith("win")
 
         if self.is_windows:
             # Windows: prefer PowerShell, fallback to cmd
-            if shutil.which('pwsh'):  # PowerShell Core
-                self.shell = ['pwsh', '-Command']
-                self.shell_name = 'PowerShell Core'
-            elif shutil.which('powershell'):  # Windows PowerShell
-                self.shell = ['powershell', '-Command']
-                self.shell_name = 'PowerShell'
+            if shutil.which("pwsh"):  # PowerShell Core
+                self.shell = ["pwsh", "-Command"]
+                self.shell_name = "PowerShell Core"
+            elif shutil.which("powershell"):  # Windows PowerShell
+                self.shell = ["powershell", "-Command"]
+                self.shell_name = "PowerShell"
             else:  # CMD fallback
-                self.shell = ['cmd', '/c']
-                self.shell_name = 'CMD'
+                self.shell = ["cmd", "/c"]
+                self.shell_name = "CMD"
         else:
             # Linux/Mac: use bash
-            self.shell = ['/bin/bash', '-c']
-            self.shell_name = 'Bash'
+            self.shell = ["/bin/bash", "-c"]
+            self.shell_name = "Bash"
 
     def get_name(self) -> str:
         return "bash"
@@ -52,14 +52,11 @@ class BashTool(BaseTool):
 
     def get_parameters(self) -> Dict[str, Any]:
         return {
-            "command": {
-                "type": "string",
-                "description": "The shell command to execute"
-            },
+            "command": {"type": "string", "description": "The shell command to execute"},
             "cwd": {
                 "type": "string",
                 "description": "Working directory for command execution (optional)",
-            }
+            },
         }
 
     def validate_parameters(self, **kwargs) -> tuple[bool, Optional[str]]:
@@ -68,7 +65,9 @@ class BashTool(BaseTool):
             return False, "Missing required parameter: command"
         return True, None
 
-    def execute(self, command: str, cwd: Optional[str] = None, description: Optional[str] = None, **kwargs) -> ToolResult:
+    def execute(
+        self, command: str, cwd: Optional[str] = None, description: Optional[str] = None, **kwargs
+    ) -> ToolResult:
         """Execute shell command.
 
         Args:
@@ -89,7 +88,7 @@ class BashTool(BaseTool):
                     return ToolResult(
                         status=ToolStatus.ERROR,
                         output="",
-                        error=f"Invalid working directory: {cwd}"
+                        error=f"Invalid working directory: {cwd}",
                     )
 
             # Build command based on platform
@@ -102,8 +101,8 @@ class BashTool(BaseTool):
                 capture_output=True,
                 text=True,
                 timeout=30,  # 30 second timeout
-                encoding='utf-8',
-                errors='replace'
+                encoding="utf-8",
+                errors="replace",
             )
 
             # Combine stdout and stderr
@@ -126,21 +125,17 @@ class BashTool(BaseTool):
                 metadata={
                     "return_code": result.returncode,
                     "shell": self.shell_name,
-                    "cwd": str(work_dir) if work_dir else None
-                }
+                    "cwd": str(work_dir) if work_dir else None,
+                },
             )
 
         except subprocess.TimeoutExpired:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error="Command timed out (30 second limit)"
+                status=ToolStatus.ERROR, output="", error="Command timed out (30 second limit)"
             )
         except Exception as e:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Command execution failed: {str(e)}"
+                status=ToolStatus.ERROR, output="", error=f"Command execution failed: {str(e)}"
             )
 
 
@@ -160,14 +155,8 @@ class BashInteractiveTool(BaseTool):
 
     def get_parameters(self) -> Dict[str, Any]:
         return {
-            "command": {
-                "type": "string",
-                "description": "The shell command to execute"
-            },
-            "input": {
-                "type": "string",
-                "description": "Input to send to the command (optional)"
-            }
+            "command": {"type": "string", "description": "The shell command to execute"},
+            "input": {"type": "string", "description": "Input to send to the command (optional)"},
         }
 
     def validate_parameters(self, **kwargs) -> tuple[bool, Optional[str]]:
@@ -196,8 +185,8 @@ class BashInteractiveTool(BaseTool):
                 capture_output=True,
                 text=True,
                 timeout=30,
-                encoding='utf-8',
-                errors='replace'
+                encoding="utf-8",
+                errors="replace",
             )
 
             output = result.stdout
@@ -205,27 +194,22 @@ class BashInteractiveTool(BaseTool):
                 output += f"\n[stderr]\n{result.stderr}"
 
             status = ToolStatus.SUCCESS if result.returncode == 0 else ToolStatus.ERROR
-            error = None if result.returncode == 0 else f"Command exited with code {result.returncode}"
+            error = (
+                None if result.returncode == 0 else f"Command exited with code {result.returncode}"
+            )
 
             return ToolResult(
                 status=status,
                 output=output.strip() if output else "(no output)",
                 error=error,
-                metadata={
-                    "return_code": result.returncode,
-                    "shell": self.bash_tool.shell_name
-                }
+                metadata={"return_code": result.returncode, "shell": self.bash_tool.shell_name},
             )
 
         except subprocess.TimeoutExpired:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error="Command timed out (30 second limit)"
+                status=ToolStatus.ERROR, output="", error="Command timed out (30 second limit)"
             )
         except Exception as e:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Command execution failed: {str(e)}"
+                status=ToolStatus.ERROR, output="", error=f"Command execution failed: {str(e)}"
             )

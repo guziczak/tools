@@ -9,11 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.confidence import (
-    ConfidenceScorer,
-    ConfidenceLevel,
-    create_confidence_from_context
-)
+from core.confidence import ConfidenceScorer, ConfidenceLevel, create_confidence_from_context
 
 
 class TestConfidenceScorer:
@@ -22,12 +18,13 @@ class TestConfidenceScorer:
     def test_very_high_confidence(self):
         """Should give very high confidence for fresh verified data."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=2, verified=True)
-                 .add_verification_status(True, verification_method="exact")
-                 .add_intent_match("exact")
-                 .add_tool_success(1.0)
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=2, verified=True)
+            .add_verification_status(True, verification_method="exact")
+            .add_intent_match("exact")
+            .add_tool_success(1.0)
+            .build()
+        )
 
         assert score.level == ConfidenceLevel.VERY_HIGH
         assert score.score >= 0.90
@@ -36,12 +33,13 @@ class TestConfidenceScorer:
     def test_low_confidence_stale_data(self):
         """Should give low confidence for old unverified data."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=7200, verified=False)  # 2 hours old
-                 .add_verification_status(False)
-                 .add_intent_match("general")
-                 .add_tool_success(0.5)  # Half tools failed
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=7200, verified=False)  # 2 hours old
+            .add_verification_status(False)
+            .add_intent_match("general")
+            .add_tool_success(0.5)  # Half tools failed
+            .build()
+        )
 
         assert score.level in [ConfidenceLevel.LOW, ConfidenceLevel.VERY_LOW]
         assert score.score < 0.50
@@ -105,12 +103,13 @@ class TestConfidenceScorer:
     def test_warnings_accumulation(self):
         """Should accumulate warnings from multiple factors."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=1000, verified=False)  # Warning: old + unverified
-                 .add_verification_status(False)  # Warning: not verified
-                 .add_intent_match("general")  # Warning: unclear intent
-                 .add_tool_success(0.7, failures=["tool1"])  # Warning: some failed
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=1000, verified=False)  # Warning: old + unverified
+            .add_verification_status(False)  # Warning: not verified
+            .add_intent_match("general")  # Warning: unclear intent
+            .add_tool_success(0.7, failures=["tool1"])  # Warning: some failed
+            .build()
+        )
 
         # Should have multiple warnings
         assert len(score.warnings) >= 3
@@ -120,12 +119,13 @@ class TestConfidenceScorer:
         scorer = ConfidenceScorer()
 
         # Should be able to chain methods
-        result = (scorer
-                  .add_data_freshness(age_seconds=5)
-                  .add_verification_status(True)
-                  .add_intent_match("exact")
-                  .add_tool_success(1.0)
-                  .build())
+        result = (
+            scorer.add_data_freshness(age_seconds=5)
+            .add_verification_status(True)
+            .add_intent_match("exact")
+            .add_tool_success(1.0)
+            .build()
+        )
 
         assert isinstance(result.score, float)
         assert 0.0 <= result.score <= 1.0
@@ -149,16 +149,10 @@ class TestConfidenceFromContext:
 
     def test_create_from_fresh_context(self):
         """Should create confidence from fresh context."""
-        context_result = {
-            "status": "fresh",
-            "age_seconds": 5.0,
-            "verified": True
-        }
+        context_result = {"status": "fresh", "age_seconds": 5.0, "verified": True}
 
         score = create_confidence_from_context(
-            context_result=context_result,
-            intent_match="exact",
-            tool_success_rate=1.0
+            context_result=context_result, intent_match="exact", tool_success_rate=1.0
         )
 
         # Should be very high confidence
@@ -172,13 +166,11 @@ class TestConfidenceFromContext:
             "age_seconds": 300.0,
             "verified": True,
             "cached_value": "old",
-            "live_value": "new"
+            "live_value": "new",
         }
 
         score = create_confidence_from_context(
-            context_result=context_result,
-            intent_match="exact",
-            tool_success_rate=1.0
+            context_result=context_result, intent_match="exact", tool_success_rate=1.0
         )
 
         # Should have warnings about staleness
@@ -188,9 +180,7 @@ class TestConfidenceFromContext:
     def test_create_without_context(self):
         """Should handle missing context gracefully."""
         score = create_confidence_from_context(
-            context_result=None,
-            intent_match="fuzzy",
-            tool_success_rate=0.9
+            context_result=None, intent_match="fuzzy", tool_success_rate=0.9
         )
 
         # Should still produce a score
@@ -203,12 +193,13 @@ class TestRealWorldScenarios:
     def test_scenario_fresh_verified_commit(self):
         """Scenario: Show last commit (just executed git log)."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=2, verified=True)
-                 .add_verification_status(True, verification_method="exact")
-                 .add_intent_match("exact")
-                 .add_tool_success(1.0)
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=2, verified=True)
+            .add_verification_status(True, verification_method="exact")
+            .add_intent_match("exact")
+            .add_tool_success(1.0)
+            .build()
+        )
 
         # Should be very high confidence
         assert score.level == ConfidenceLevel.VERY_HIGH
@@ -219,12 +210,13 @@ class TestRealWorldScenarios:
     def test_scenario_cached_but_verified(self):
         """Scenario: Show cached commit (verified fresh 30s ago)."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=30, verified=True)
-                 .add_verification_status(True, verification_method="exact")
-                 .add_intent_match("exact")
-                 .add_tool_success(1.0)
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=30, verified=True)
+            .add_verification_status(True, verification_method="exact")
+            .add_intent_match("exact")
+            .add_tool_success(1.0)
+            .build()
+        )
 
         # Should be high confidence (slightly lower than fresh)
         assert score.level in [ConfidenceLevel.VERY_HIGH, ConfidenceLevel.HIGH]
@@ -234,27 +226,33 @@ class TestRealWorldScenarios:
     def test_scenario_stale_detected(self):
         """Scenario: Cached commit changed (verification detected staleness)."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=200, verified=True)  # Old but verified
-                 .add_verification_status(True, verification_method="exact")
-                 .add_intent_match("exact")
-                 .add_tool_success(1.0)
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=200, verified=True)  # Old but verified
+            .add_verification_status(True, verification_method="exact")
+            .add_intent_match("exact")
+            .add_tool_success(1.0)
+            .build()
+        )
 
         # Should be high (verified even if old = still trustworthy!)
-        assert score.level in [ConfidenceLevel.VERY_HIGH, ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM]
+        assert score.level in [
+            ConfidenceLevel.VERY_HIGH,
+            ConfidenceLevel.HIGH,
+            ConfidenceLevel.MEDIUM,
+        ]
         assert score.score >= 0.75  # At least HIGH
         print(f"\nScenario 3: {score.reasoning}")
 
     def test_scenario_unverified_old_data(self):
         """Scenario: Claude Desktop style (old data, no verification)."""
         scorer = ConfidenceScorer()
-        score = (scorer
-                 .add_data_freshness(age_seconds=86400, verified=False)  # 24h old!
-                 .add_verification_status(False)
-                 .add_intent_match("general")  # Unclear intent
-                 .add_tool_success(1.0)
-                 .build())
+        score = (
+            scorer.add_data_freshness(age_seconds=86400, verified=False)  # 24h old!
+            .add_verification_status(False)
+            .add_intent_match("general")  # Unclear intent
+            .add_tool_success(1.0)
+            .build()
+        )
 
         # Should be low confidence
         assert score.level in [ConfidenceLevel.LOW, ConfidenceLevel.VERY_LOW]

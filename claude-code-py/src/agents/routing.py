@@ -27,7 +27,7 @@ class AgentRouter:
         context: Optional[str],
         agent_name: str,
         model: str = "claude-sonnet-4-20250514",
-        max_tokens: int = 8000
+        max_tokens: int = 8000,
     ) -> Iterator[Dict[str, Any]]:
         """Route task to specific agent.
 
@@ -44,10 +44,7 @@ class AgentRouter:
         # Get agent
         agent = self.agent_registry.get_agent(agent_name)
         if not agent:
-            yield {
-                "type": "error",
-                "content": f"Agent not found: {agent_name}"
-            }
+            yield {"type": "error", "content": f"Agent not found: {agent_name}"}
             return
 
         # Detect thinking level from task
@@ -63,7 +60,7 @@ class AgentRouter:
             "agent_role": agent.role.value,
             "thinking_level": thinking_level.name,
             "thinking_budget": thinking_budget,
-            "content": f"Delegating to {agent.name}"
+            "content": f"Delegating to {agent.name}",
         }
 
         # Build enhanced system prompt
@@ -82,37 +79,34 @@ class AgentRouter:
                 temperature=agent.config.temperature,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
-                thinking={
-                    "type": "enabled",
-                    "budget_tokens": thinking_budget
-                }
+                thinking={"type": "enabled", "budget_tokens": thinking_budget},
             ) as stream:
                 # Stream thinking
                 for event in stream:
                     if event.type == "content_block_start":
-                        if hasattr(event, 'content_block'):
+                        if hasattr(event, "content_block"):
                             if event.content_block.type == "thinking":
                                 yield {"type": "thinking_start", "content": ""}
                             elif event.content_block.type == "text":
                                 yield {"type": "text_start", "content": ""}
 
                     elif event.type == "content_block_delta":
-                        if hasattr(event, 'delta'):
+                        if hasattr(event, "delta"):
                             delta = event.delta
-                            if hasattr(delta, 'type'):
+                            if hasattr(delta, "type"):
                                 if delta.type == "text_delta":
                                     yield {"type": "text", "content": getattr(delta, "text", "")}
                                 elif delta.type == "thinking_delta":
-                                    yield {"type": "thinking", "content": getattr(delta, "thinking", "")}
+                                    yield {
+                                        "type": "thinking",
+                                        "content": getattr(delta, "thinking", ""),
+                                    }
 
                     elif event.type == "message_stop":
                         yield {"type": "agent_complete", "content": ""}
 
         except Exception as e:
-            yield {
-                "type": "error",
-                "content": f"Agent execution failed: {str(e)}"
-            }
+            yield {"type": "error", "content": f"Agent execution failed: {str(e)}"}
 
     def detect_agent_from_delegation(self, tool_name: str) -> Optional[BaseAgent]:
         """Detect agent from delegation tool call.

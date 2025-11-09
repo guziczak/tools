@@ -62,10 +62,7 @@ class ClaudeAIClient:
 
         # Add thinking parameters if enabled
         if thinking_enabled:
-            request_params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget
-            }
+            request_params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
 
         # Stream the response using official library
         with self.client.messages.stream(**request_params) as stream:
@@ -86,44 +83,26 @@ class ClaudeAIClient:
         # Text delta (main response)
         if event.type == "content_block_delta":
             if hasattr(event.delta, "text"):
-                return {
-                    "type": "text",
-                    "content": event.delta.text
-                }
+                return {"type": "text", "content": event.delta.text}
             # Thinking delta
             elif hasattr(event.delta, "thinking"):
-                return {
-                    "type": "thinking",
-                    "content": event.delta.thinking
-                }
+                return {"type": "thinking", "content": event.delta.thinking}
 
         # Content block start
         elif event.type == "content_block_start":
             if hasattr(event.content_block, "type"):
                 if event.content_block.type == "thinking":
-                    return {
-                        "type": "thinking_start",
-                        "content": ""
-                    }
+                    return {"type": "thinking_start", "content": ""}
                 elif event.content_block.type == "text":
-                    return {
-                        "type": "text_start",
-                        "content": ""
-                    }
+                    return {"type": "text_start", "content": ""}
 
         # Content block stop
         elif event.type == "content_block_stop":
-            return {
-                "type": "block_stop",
-                "content": ""
-            }
+            return {"type": "block_stop", "content": ""}
 
         # Message complete
         elif event.type == "message_stop":
-            return {
-                "type": "message_done",
-                "content": ""
-            }
+            return {"type": "message_done", "content": ""}
 
         return None
 

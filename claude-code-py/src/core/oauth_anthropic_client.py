@@ -6,6 +6,19 @@ import httpx
 from anthropic import Anthropic, AnthropicBedrock
 from anthropic.types import MessageStreamEvent
 
+try:
+    # Try relative import first (preferred)
+    from ..logging.logger import get_logger
+except ImportError:
+    # Fallback for direct script execution
+    import sys  # noqa: E402
+    from pathlib import Path  # noqa: E402
+
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from logging.logger import get_logger  # noqa: E402
+
+logger = get_logger(__name__)
+
 
 class OAuthAnthropicClient:
     """Anthropic API client using OAuth Bearer authentication.
@@ -29,7 +42,7 @@ class OAuthAnthropicClient:
     def _get_client(self):
         """Get or create HTTP client (lazy initialization)."""
         if self._http_client is None:
-            print(f"🔧 [OAuth Client] Initializing with base_url: {self.api_base}")
+            logger.debug("Initializing with base_url: %s", self.api_base)
             self._http_client = httpx.Client(
                 base_url=self.api_base,
                 headers={
@@ -69,9 +82,13 @@ class OAuthAnthropicClient:
         Yields:
             Event dicts with streaming response
         """
-        print(f"🚀 [OAuth Client] chat_streaming() CALLED! messages={len(messages)}, tools={'YES' if tools else 'NO'}")
+        logger.info(
+            "chat_streaming() CALLED! messages=%d, tools=%s",
+            len(messages),
+            "YES" if tools else "NO",
+        )
         if tool_choice:
-            print(f"⚡ [OAuth Client] tool_choice FORCED: {tool_choice}")
+            logger.info("tool_choice FORCED: %s", tool_choice)
 
         # Build request payload (same format as standard API)
         payload = {
@@ -88,10 +105,7 @@ class OAuthAnthropicClient:
 
         # Add thinking parameters if enabled
         if thinking_enabled:
-            payload["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget
-            }
+            payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
 
         # Add tools if provided
         if tools:
@@ -102,11 +116,11 @@ class OAuthAnthropicClient:
             payload["tool_choice"] = tool_choice
 
         # Make streaming request
-        print(f"📡 [OAuth Client] Sending POST to {self.api_base}/v1/messages")
-        print(f"📦 [OAuth Client] Payload: {list(payload.keys())}")
+        logger.debug("Sending POST to %s/v1/messages", self.api_base)
+        logger.debug("Payload: %s", list(payload.keys()))
 
         with self._get_client().stream("POST", "/v1/messages", json=payload) as response:
-            print(f"📊 [OAuth Client] Response status: {response.status_code}")
+            logger.debug("Response status: %d", response.status_code)
             response.raise_for_status()
 
             # Track tool uses for building complete blocks
@@ -118,7 +132,7 @@ class OAuthAnthropicClient:
             for line in response.iter_lines():
                 line_count += 1
                 if line_count == 1:
-                    print(f"🔬 [OAuth Client] First line received: {line[:50]}...")
+                    logger.debug("First line received: %s...", line[:50])
 
                 if not line or not line.startswith("data: "):
                     continue
@@ -129,27 +143,30 @@ class OAuthAnthropicClient:
                 if data_str.strip() == "[DONE]":
                     # Yield collected tool blocks before finishing
                     if current_tool_blocks:
-                        print(f"🎯 [OAuth Client] Collected {len(current_tool_blocks)} tool blocks")
+                        logger.debug("Collected %d tool blocks", len(current_tool_blocks))
                         for idx, block in enumerate(current_tool_blocks):
-                            print(f"   Tool {idx+1}: {block['name']} - input keys: {list(block.get('input', {}).keys())}")
+                            logger.debug(
+                                "   Tool %d: %s - input keys: %s",
+                                idx + 1,
+                                block["name"],
+                                list(block.get("input", {}).keys()),
+                            )
 
                         yield {
                             "type": "tool_calls_complete",
                             "tool_blocks": current_tool_blocks,
-                            "content": ""
+                            "content": "",
                         }
                     else:
-                        print("ℹ️  [OAuth Client] No tool blocks collected")
+                        logger.debug("No tool blocks collected")
 
-                    yield {
-                        "type": "message_done",
-                        "content": ""
-                    }
+                    yield {"type": "message_done", "content": ""}
                     break
 
                 # Parse JSON event
                 try:
                     import json
+
                     event = json.loads(data_str)
 
                     # Track content blocks for tool execution
@@ -163,42 +180,46 @@ class OAuthAnthropicClient:
                         block_type = content_block.get("type", "")
 
                         # DEBUG: Always log content_block_start to see what we get
-                        print(f"🔎 [OAuth Client] content_block_start: type={block_type}")
+                        logger.debug("content_block_start: type=%s", block_type)
 
                         # CRITICAL: If claude.ai executed tool itself (tool_result), STOP streaming!
                         # Claude.ai /completion has built-in tools and will execute them
                         # We need to STOP and re-execute locally instead
                         if block_type == "tool_result":
-                            print(f"⚠️  [OAuth Client] Claude.ai executed tool (tool_result detected) - FORCING LOCAL EXECUTION")
+                            logger.warning(
+                                "Claude.ai executed tool (tool_result detected) - FORCING LOCAL EXECUTION"
+                            )
                             # Yield tool_calls_complete if we collected any tools
                             if current_tool_blocks:
-                                print(f"🎯 [OAuth Client] Collected {len(current_tool_blocks)} tool blocks before tool_result")
+                                logger.debug(
+                                    "Collected %d tool blocks before tool_result",
+                                    len(current_tool_blocks),
+                                )
                                 yield {
                                     "type": "tool_calls_complete",
                                     "tool_blocks": current_tool_blocks,
-                                    "content": ""
+                                    "content": "",
                                 }
                             # Force stop streaming
-                            yield {
-                                "type": "message_done",
-                                "content": ""
-                            }
+                            yield {"type": "message_done", "content": ""}
                             return  # Exit generator completely
 
                         # ONLY collect tool_use blocks (NOT tool_result, thinking, text, etc.)
                         if block_type == "tool_use":
                             tool_name = content_block.get("name", "")
                             tool_id = content_block.get("id", "")
-                            print(f"🔍 [OAuth Client] Tool use detected: {tool_name} (id: {tool_id})")
+                            logger.debug("Tool use detected: %s (id: %s)", tool_name, tool_id)
 
                             # Start new tool block
-                            current_tool_blocks.append({
-                                "type": "tool_use",
-                                "id": tool_id,
-                                "name": tool_name,
-                                "input": {},
-                                "_collecting": True  # Flag to track if we're still collecting this block
-                            })
+                            current_tool_blocks.append(
+                                {
+                                    "type": "tool_use",
+                                    "id": tool_id,
+                                    "name": tool_name,
+                                    "input": {},
+                                    "_collecting": True,  # Flag to track if we're still collecting this block
+                                }
+                            )
 
                     elif event_type == "content_block_delta":
                         delta = event.get("delta", {})
@@ -208,19 +229,26 @@ class OAuthAnthropicClient:
                         if delta_type == "input_json_delta" and current_tool_blocks:
                             # Check if last block is a tool_use and still collecting
                             last_block = current_tool_blocks[-1]
-                            if last_block.get("type") == "tool_use" and last_block.get("_collecting"):
+                            if last_block.get("type") == "tool_use" and last_block.get(
+                                "_collecting"
+                            ):
                                 partial = delta.get("partial_json", "")
                                 if partial:
                                     if "input_json" not in last_block:
                                         last_block["input_json"] = ""
-                                        print(f"📝 [OAuth Client] Starting to collect input JSON for {last_block['name']}")
+                                        logger.debug(
+                                            "Starting to collect input JSON for %s",
+                                            last_block["name"],
+                                        )
                                     last_block["input_json"] += partial
 
                     elif event_type == "content_block_stop":
                         # Complete the current tool block if it's a tool_use being collected
                         if current_tool_blocks:
                             last_block = current_tool_blocks[-1]
-                            if last_block.get("type") == "tool_use" and last_block.get("_collecting"):
+                            if last_block.get("type") == "tool_use" and last_block.get(
+                                "_collecting"
+                            ):
                                 # Mark as done collecting
                                 last_block.pop("_collecting", None)
 
@@ -229,14 +257,20 @@ class OAuthAnthropicClient:
                                     try:
                                         input_json = last_block.pop("input_json")
                                         last_block["input"] = json.loads(input_json)
-                                        print(f"✅ [OAuth Client] Parsed input for {last_block['name']}: {list(last_block['input'].keys())}")
+                                        logger.debug(
+                                            "Parsed input for %s: %s",
+                                            last_block["name"],
+                                            list(last_block["input"].keys()),
+                                        )
                                     except json.JSONDecodeError as e:
-                                        print(f"❌ [OAuth Client] Failed to parse JSON: {e}")
+                                        logger.error("Failed to parse JSON: %s", e)
                                         pass
 
                                 # DON'T yield immediately - wait for tool_result or [DONE]
                                 # Otherwise we'll yield the same tool twice!
-                                print(f"🎯 [OAuth Client] Tool block complete, waiting for tool_result or [DONE]")
+                                logger.debug(
+                                    "Tool block complete, waiting for tool_result or [DONE]"
+                                )
 
                     # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
@@ -263,15 +297,12 @@ class OAuthAnthropicClient:
             delta = event.get("delta", {})
 
             if "text" in delta:
-                return {
-                    "type": "text",
-                    "content": delta["text"]
-                }
+                text_content = delta["text"]
+                if text_content:  # Debug: log non-empty text
+                    logger.debug("Text delta received: '%s...'", text_content[:50])
+                return {"type": "text", "content": text_content}
             elif "thinking" in delta:
-                return {
-                    "type": "thinking",
-                    "content": delta["thinking"]
-                }
+                return {"type": "thinking", "content": delta["thinking"]}
 
         # Content block start
         elif event_type == "content_block_start":
@@ -279,37 +310,25 @@ class OAuthAnthropicClient:
             block_type = content_block.get("type", "")
 
             if block_type == "thinking":
-                return {
-                    "type": "thinking_start",
-                    "content": ""
-                }
+                return {"type": "thinking_start", "content": ""}
             elif block_type == "text":
-                return {
-                    "type": "text_start",
-                    "content": ""
-                }
+                return {"type": "text_start", "content": ""}
             elif block_type == "tool_use":
                 # Tool use block started
                 return {
                     "type": "tool_use_start",
                     "content": "",
                     "tool_name": content_block.get("name", "unknown"),
-                    "tool_id": content_block.get("id", "")
+                    "tool_id": content_block.get("id", ""),
                 }
 
         # Content block stop
         elif event_type == "content_block_stop":
-            return {
-                "type": "block_stop",
-                "content": ""
-            }
+            return {"type": "block_stop", "content": ""}
 
         # Message complete
         elif event_type == "message_stop" or event_type == "message_delta":
-            return {
-                "type": "message_done",
-                "content": ""
-            }
+            return {"type": "message_done", "content": ""}
 
         return None
 

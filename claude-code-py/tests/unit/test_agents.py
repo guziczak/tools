@@ -4,12 +4,7 @@ import pytest
 from agents.base import BaseAgent, AgentConfig, AgentRole, AgentResult
 from agents.registry import AgentRegistry
 from agents.thinking import detect_thinking_level, ThinkingLevel
-from agents.prebuilt import (
-    TestWriterAgent,
-    CodeReviewerAgent,
-    BugFixerAgent,
-    RefactorerAgent
-)
+from agents.prebuilt import TestWriterAgent, CodeReviewerAgent, BugFixerAgent, RefactorerAgent
 
 
 class TestThinkingLevel:

@@ -57,10 +57,16 @@ Focus on making code more:
 - Efficient and performant""",
             thinking_budget=20000,
             keywords=[
-                "refactor", "restructure", "improve code",
-                "clean up", "optimize", "reorganize",
-                "better design", "rewrite", "simplify"
-            ]
+                "refactor",
+                "restructure",
+                "improve code",
+                "clean up",
+                "optimize",
+                "reorganize",
+                "better design",
+                "rewrite",
+                "simplify",
+            ],
         )
         super().__init__(config)
 
@@ -69,18 +75,18 @@ Focus on making code more:
         task_lower = task_description.lower()
 
         # High confidence
-        high_confidence = [
-            "refactor", "restructure", "reorganize",
-            "clean up", "improve code"
-        ]
+        high_confidence = ["refactor", "restructure", "reorganize", "clean up", "improve code"]
         if any(keyword in task_lower for keyword in high_confidence):
             return 0.95
 
         # Medium confidence
         medium_confidence = [
-            "optimize", "simplify", "rewrite",
-            "better design", "improve structure",
-            "make better"
+            "optimize",
+            "simplify",
+            "rewrite",
+            "better design",
+            "improve structure",
+            "make better",
         ]
         if any(keyword in task_lower for keyword in medium_confidence):
             return 0.75

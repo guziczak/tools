@@ -39,13 +39,14 @@ def _ensure_proxy_dependencies():
     # Install missing packages
     if missing:
         import subprocess
+
         print(f"📦 Installing missing dependencies: {', '.join(missing)}...")
         print("   (This may take a moment...)")
         try:
             subprocess.check_call(
                 [sys.executable, "-m", "pip", "install", "--user", *missing],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
             print(f"✅ Successfully installed: {', '.join(missing)}")
             return True
@@ -55,7 +56,7 @@ def _ensure_proxy_dependencies():
                 subprocess.check_call(
                     [sys.executable, "-m", "pip", "install", *missing],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
                 )
                 print(f"✅ Successfully installed: {', '.join(missing)}")
                 return True
@@ -99,7 +100,8 @@ class ClaudeCodePy:
             "temperature": float(os.getenv("CLAUDE_TEMPERATURE", "1.0")),
             "thinking_enabled": os.getenv("CLAUDE_THINKING_ENABLED", "true").lower() == "true",
             "thinking_budget": int(os.getenv("CLAUDE_THINKING_BUDGET", "10000")),
-            "use_oauth": os.getenv("CLAUDE_USE_OAUTH", "false").lower() == "true",  # Default: false (OAuth doesn't work for third-party)
+            "use_oauth": os.getenv("CLAUDE_USE_OAUTH", "false").lower()
+            == "true",  # Default: false (OAuth doesn't work for third-party)
             "tools_enabled": os.getenv("CLAUDE_TOOLS_ENABLED", "true").lower() == "true",
             "agents_enabled": os.getenv("CLAUDE_AGENTS_ENABLED", "true").lower() == "true",
         }
@@ -215,10 +217,11 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
             # Create .env from .env.example if it exists
             if env_example.exists():
                 import shutil
+
                 shutil.copy(env_example, env_path)
             else:
                 # Create minimal .env with OAuth enabled
-                with open(env_path, 'w') as f:
+                with open(env_path, "w") as f:
                     f.write("# Claude Code Python Configuration\n")
                     f.write("# Auto-generated - feel free to edit!\n\n")
                     f.write("# OAuth Configuration (like official Claude Code)\n")
@@ -245,21 +248,21 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
 
         try:
             # Read existing .env
-            with open(env_path, 'r') as f:
+            with open(env_path, "r") as f:
                 lines = f.readlines()
 
             # Clear OAuth token and API key lines
             new_lines = []
             for line in lines:
-                if line.startswith('CLAUDE_CODE_OAUTH_TOKEN='):
-                    new_lines.append('CLAUDE_CODE_OAUTH_TOKEN=\n')
-                elif line.startswith('ANTHROPIC_API_KEY='):
-                    new_lines.append('ANTHROPIC_API_KEY=\n')
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    new_lines.append("CLAUDE_CODE_OAUTH_TOKEN=\n")
+                elif line.startswith("ANTHROPIC_API_KEY="):
+                    new_lines.append("ANTHROPIC_API_KEY=\n")
                 else:
                     new_lines.append(line)
 
             # Write back
-            with open(env_path, 'w') as f:
+            with open(env_path, "w") as f:
                 f.writelines(new_lines)
 
             # Reload environment
@@ -305,9 +308,9 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
         pass
 
         # Priority 4: Show options
-        self.ui.print_info("="*70)
+        self.ui.print_info("=" * 70)
         self.ui.print_info("  🔐 Authentication Setup")
-        self.ui.print_info("="*70)
+        self.ui.print_info("=" * 70)
         self.ui.print_info("")
         self.ui.print_info("  💎 [1] Claude Max/Pro - FULL AUTO!")
         self.ui.print_info("      → Browser → Sign in → DONE!")
@@ -318,7 +321,7 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
         self.ui.print_info("      → Copy/paste API key")
         self.ui.print_info("      → FREE $5 credit")
         self.ui.print_info("")
-        self.ui.print_info("="*70)
+        self.ui.print_info("=" * 70)
 
         # Ask which option
         try:
@@ -416,10 +419,8 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
 
             # Create agent router
             from anthropic import Anthropic
-            self.agent_router = AgentRouter(
-                self.agent_registry,
-                Anthropic(api_key=api_key)
-            )
+
+            self.agent_router = AgentRouter(self.agent_registry, Anthropic(api_key=api_key))
 
         # REVOLUTIONARY: Auto-start proxy for OAuth tokens and sessionKeys!
         if api_key.startswith("sk-ant-oat") or api_key.startswith("sk-ant-sid01-"):
@@ -442,12 +443,14 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
 
                     # Use proxy URL as base for API client (with actual port used)
                     import os
+
                     proxy_url = get_proxy_base_url(proxy_port)
                     os.environ["ANTHROPIC_BASE_URL"] = proxy_url
                     self.ui.print_info(f"   Set ANTHROPIC_BASE_URL={proxy_url}")
 
                     # Give proxy time to start
                     import time
+
                     time.sleep(1)
                 else:
                     self.ui.print_error("❌ Failed to start proxy - OAuth may not work")
@@ -514,7 +517,9 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
                     # Detect thinking level
                     thinking_level, explicit = detect_thinking_level(user_input)
                     if explicit:
-                        self.ui.print_info(f"Thinking level: {thinking_level.name} ({thinking_level.budget:,} tokens)")
+                        self.ui.print_info(
+                            f"Thinking level: {thinking_level.name} ({thinking_level.budget:,} tokens)"
+                        )
 
                     # Use chat_with_tools if tools/agents are enabled
                     if self.tool_registry or self.agent_registry:
@@ -616,7 +621,9 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
             self.ui.console.print(f"    Keywords: {', '.join(agent.keywords[:5])}")
             self.ui.console.print()
 
-        self.ui.console.print("[dim]Claude will automatically choose the right agent for your task![/dim]\n")
+        self.ui.console.print(
+            "[dim]Claude will automatically choose the right agent for your task![/dim]\n"
+        )
 
     def show_help(self):
         """Show help message."""

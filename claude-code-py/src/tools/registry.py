@@ -90,9 +90,7 @@ class ToolRegistry:
 
         if not tool:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Tool not found: {tool_name}"
+                status=ToolStatus.ERROR, output="", error=f"Tool not found: {tool_name}"
             )
 
         # Map claude.ai parameter names to our local parameter names
@@ -125,9 +123,7 @@ class ToolRegistry:
             return tool.execute(**mapped_params)
         except Exception as e:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Tool execution failed: {str(e)}"
+                status=ToolStatus.ERROR, output="", error=f"Tool execution failed: {str(e)}"
             )
 
     def __len__(self) -> int:

@@ -30,6 +30,7 @@ class ContextEntry:
         ttl_seconds: How long this is valid
         verification_command: Command to verify freshness (optional)
     """
+
     key: str
     value: Any
     timestamp: datetime
@@ -114,7 +115,7 @@ class ContextManager:
         self.entries: Dict[str, ContextEntry] = {}
         self.verification_strategies: Dict[str, VerificationStrategy] = {
             "exact": ExactMatchStrategy(),
-            "hash": HashMatchStrategy()
+            "hash": HashMatchStrategy(),
         }
 
     def store(
@@ -122,7 +123,7 @@ class ContextManager:
         key: str,
         value: Any,
         ttl_seconds: int = 300,  # Default: 5 minutes
-        verification_cmd: Optional[str] = None
+        verification_cmd: Optional[str] = None,
     ) -> None:
         """Store value in context with TTL and optional verification.
 
@@ -137,7 +138,7 @@ class ContextManager:
             value=value,
             timestamp=datetime.now(),
             ttl_seconds=ttl_seconds,
-            verification_command=verification_cmd
+            verification_command=verification_cmd,
         )
         self.entries[key] = entry
 
@@ -162,15 +163,15 @@ class ContextManager:
             return None
 
         if entry.is_expired() and not allow_expired:
-            print(f"⚠️  [ContextManager] '{key}' expired ({entry.age_seconds():.0f}s > {entry.ttl_seconds}s)")
+            print(
+                f"⚠️  [ContextManager] '{key}' expired ({entry.age_seconds():.0f}s > {entry.ttl_seconds}s)"
+            )
             return None
 
         return entry.value
 
     def get_verified(
-        self,
-        key: str,
-        verification_strategy: str = "exact"
+        self, key: str, verification_strategy: str = "exact"
     ) -> Optional[Dict[str, Any]]:
         """Get value with automatic freshness verification.
 
@@ -190,12 +191,7 @@ class ContextManager:
         entry = self.entries.get(key)
 
         if not entry:
-            return {
-                "value": None,
-                "status": "not_found",
-                "age_seconds": 0,
-                "verified": False
-            }
+            return {"value": None, "status": "not_found", "age_seconds": 0, "verified": False}
 
         # Check TTL first
         if entry.is_expired():
@@ -204,18 +200,20 @@ class ContextManager:
                 "status": "expired",
                 "age_seconds": entry.age_seconds(),
                 "verified": False,
-                "message": f"Data expired (age: {entry.age_seconds():.0f}s > TTL: {entry.ttl_seconds}s)"
+                "message": f"Data expired (age: {entry.age_seconds():.0f}s > TTL: {entry.ttl_seconds}s)",
             }
 
         # If no verification command, return with warning
         if not entry.verification_command:
-            print(f"⚠️  [ContextManager] '{key}' retrieved without verification (age: {entry.age_seconds():.0f}s)")
+            print(
+                f"⚠️  [ContextManager] '{key}' retrieved without verification (age: {entry.age_seconds():.0f}s)"
+            )
             return {
                 "value": entry.value,
                 "status": "unverified",
                 "age_seconds": entry.age_seconds(),
                 "verified": False,
-                "message": "No verification command configured"
+                "message": "No verification command configured",
             }
 
         # Execute verification command
@@ -226,7 +224,7 @@ class ContextManager:
                 "status": "unverified",
                 "age_seconds": entry.age_seconds(),
                 "verified": False,
-                "message": "No tool registry available"
+                "message": "No tool registry available",
             }
 
         # Verify freshness
@@ -242,7 +240,7 @@ class ContextManager:
                 "status": "verification_failed",
                 "age_seconds": entry.age_seconds(),
                 "verified": False,
-                "message": f"Verification command failed: {result.error}"
+                "message": f"Verification command failed: {result.error}",
             }
 
         # Compare cached vs live
@@ -256,7 +254,7 @@ class ContextManager:
                 "status": "fresh",
                 "age_seconds": entry.age_seconds(),
                 "verified": True,
-                "message": "Verified fresh"
+                "message": "Verified fresh",
             }
         else:
             print(f"   ⚠️  Data is STALE!")
@@ -269,7 +267,7 @@ class ContextManager:
                 "verified": True,
                 "cached_value": entry.value,
                 "live_value": live_value,
-                "message": f"Data changed: {entry.value} → {live_value}"
+                "message": f"Data changed: {entry.value} → {live_value}",
             }
 
     def clear(self, key: Optional[str] = None) -> None:

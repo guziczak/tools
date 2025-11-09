@@ -14,14 +14,17 @@ from urllib.parse import urlencode
 # Try to import cloudscraper for Cloudflare bypass (optional)
 try:
     import cloudscraper
+
     CLOUDSCRAPER_AVAILABLE = True
 except ImportError:
     import requests
+
     CLOUDSCRAPER_AVAILABLE = False
 
 
 class AuthenticationError(Exception):
     """Authentication error."""
+
     pass
 
 
@@ -55,7 +58,7 @@ class TokenStorage:
             token_data["expires_at"] = expires_at.isoformat()
 
         # Write with restricted permissions
-        with open(self.token_file, 'w') as f:
+        with open(self.token_file, "w") as f:
             json.dump(token_data, f, indent=2)
 
         # Ensure file is only readable by owner
@@ -71,7 +74,7 @@ class TokenStorage:
             return None
 
         try:
-            with open(self.token_file, 'r') as f:
+            with open(self.token_file, "r") as f:
                 token_data = json.load(f)
 
             # Check if token is expired
@@ -117,7 +120,7 @@ class TokenStorage:
             return None
 
         try:
-            with open(official_token_path, 'r') as f:
+            with open(official_token_path, "r") as f:
                 token_data = json.load(f)
 
             # Check if token is expired
@@ -139,7 +142,9 @@ class PKCEAuth:
 
     # Anthropic OAuth endpoints (EXACT same as official Claude Code - from reverse engineering!)
     AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
-    TOKEN_URL = "https://console.anthropic.com/oauth/token"  # Correct endpoint from claude_max research!
+    TOKEN_URL = (
+        "https://console.anthropic.com/oauth/token"  # Correct endpoint from claude_max research!
+    )
     REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 
     # Official Claude Code client ID
@@ -165,9 +170,9 @@ class PKCEAuth:
             Random code verifier string (43-128 chars)
         """
         # Generate 32 random bytes, base64url encode
-        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8')
+        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8")
         # Remove padding
-        return code_verifier.rstrip('=')
+        return code_verifier.rstrip("=")
 
     @staticmethod
     def generate_code_challenge(verifier: str) -> str:
@@ -180,11 +185,11 @@ class PKCEAuth:
             SHA256 hash of verifier, base64url encoded
         """
         # SHA256 hash
-        digest = hashlib.sha256(verifier.encode('utf-8')).digest()
+        digest = hashlib.sha256(verifier.encode("utf-8")).digest()
         # Base64url encode
-        challenge = base64.urlsafe_b64encode(digest).decode('utf-8')
+        challenge = base64.urlsafe_b64encode(digest).decode("utf-8")
         # Remove padding
-        return challenge.rstrip('=')
+        return challenge.rstrip("=")
 
     @staticmethod
     def generate_state() -> str:
@@ -193,7 +198,7 @@ class PKCEAuth:
         Returns:
             Random state string
         """
-        return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+        return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8").rstrip("=")
 
     def build_authorization_url(self) -> tuple[str, str]:
         """Build authorization URL with PKCE parameters.
@@ -208,14 +213,14 @@ class PKCEAuth:
 
         # Build query parameters (exactly like Claude Code)
         params = {
-            'code': 'true',
-            'client_id': self.CLIENT_ID,
-            'response_type': 'code',
-            'redirect_uri': self.REDIRECT_URI,
-            'scope': self.SCOPES,
-            'code_challenge': code_challenge,
-            'code_challenge_method': 'S256',
-            'state': state,
+            "code": "true",
+            "client_id": self.CLIENT_ID,
+            "response_type": "code",
+            "redirect_uri": self.REDIRECT_URI,
+            "scope": self.SCOPES,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "state": state,
         }
 
         url = f"{self.AUTHORIZE_URL}?{urlencode(params)}"
@@ -239,8 +244,8 @@ class PKCEAuth:
         try:
             # Clean authorization code - remove state parameter if present
             # Format: "code#state" -> we only need "code"
-            if '#' in authorization_code:
-                clean_code = authorization_code.split('#')[0]
+            if "#" in authorization_code:
+                clean_code = authorization_code.split("#")[0]
                 print(f"  Extracted code (removed state parameter)")
             else:
                 clean_code = authorization_code
@@ -278,36 +283,37 @@ class PKCEAuth:
                 # Create session with more aggressive browser emulation
                 scraper = cloudscraper.create_scraper(
                     browser={
-                        'browser': 'chrome',
-                        'platform': 'windows',
-                        'desktop': True,
-                        'mobile': False
+                        "browser": "chrome",
+                        "platform": "windows",
+                        "desktop": True,
+                        "mobile": False,
                     },
                     delay=10,  # Add delay to appear more human
-                    interpreter='native'  # Use native JS interpreter
+                    interpreter="native",  # Use native JS interpreter
                 )
 
                 # Add more realistic headers
-                headers['Sec-Fetch-Dest'] = 'empty'
-                headers['Sec-Fetch-Mode'] = 'cors'
-                headers['Sec-Fetch-Site'] = 'same-origin'
+                headers["Sec-Fetch-Dest"] = "empty"
+                headers["Sec-Fetch-Mode"] = "cors"
+                headers["Sec-Fetch-Site"] = "same-origin"
 
                 response = scraper.post(
                     self.TOKEN_URL,
                     data=payload,  # Use 'data' for form-encoded (not 'json')
                     headers=headers,
-                    timeout=30
+                    timeout=30,
                 )
             else:
                 # Fallback to regular requests (may fail with Cloudflare)
                 print("  Using requests library (may fail with Cloudflare)...")
                 print("  Install cloudscraper for better compatibility: pip install cloudscraper")
                 import requests
+
                 response = requests.post(
                     self.TOKEN_URL,
                     data=payload,  # Use 'data' for form-encoded (not 'json')
                     headers=headers,
-                    timeout=30
+                    timeout=30,
                 )
 
             if response.status_code == 200:
@@ -327,7 +333,9 @@ class PKCEAuth:
                         error_msg += "\n   Then try again with OAuth enabled."
                     else:
                         error_msg += "\n   Cloudflare blocked the request even with cloudscraper."
-                        error_msg += "\n   This endpoint may be restricted to official Claude Code only."
+                        error_msg += (
+                            "\n   This endpoint may be restricted to official Claude Code only."
+                        )
 
                 try:
                     error_data = response.json()
@@ -434,7 +442,9 @@ class AuthManager:
         if not force_reauth:
             official_token_data = self.token_storage.load_official_claude_token()
             if official_token_data:
-                access_token = official_token_data.get("accessToken") or official_token_data.get("access_token")
+                access_token = official_token_data.get("accessToken") or official_token_data.get(
+                    "access_token"
+                )
                 if access_token:
                     print("  ✅ Using token from official Claude Code (~/.claude/)")
                     return access_token

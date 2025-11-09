@@ -5,13 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c1b1f202-ffc4-4650-bb28-743b8e96d582" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude-code-py/src/core/command_validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/core/command_validator.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude-code-py/src/core/oauth_anthropic_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/core/oauth_anthropic_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude-code-py/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude-code-py/src/proxy/local_proxy.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/proxy/local_proxy.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude-code-py/src/tools/file_ops.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/tools/file_ops.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude-code-py/src/ui/terminal.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/ui/terminal.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

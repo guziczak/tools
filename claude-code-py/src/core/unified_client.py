@@ -59,7 +59,7 @@ class UnifiedClaudeClient:
         messages: List[Dict[str, str]],
         system: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-        **kwargs
+        **kwargs,
     ) -> Iterator[Dict[str, Any]]:
         """Send chat message and stream response.
 
@@ -72,10 +72,12 @@ class UnifiedClaudeClient:
         Yields:
             Event dicts with streaming response
         """
-        print(f"🔀 [UnifiedClient] chat_streaming() called. backend_type={self.backend_type}, backend={type(self.backend).__name__}")
+        print(
+            f"🔀 [UnifiedClient] chat_streaming() called. backend_type={self.backend_type}, backend={type(self.backend).__name__}"
+        )
 
         # Extract tool_choice from kwargs (state-of-the-art intent classification)
-        tool_choice = kwargs.get('tool_choice', None)
+        tool_choice = kwargs.get("tool_choice", None)
 
         if self.backend_type == "oauth":
             print(f"✅ [UnifiedClient] Using OAuth backend")
@@ -100,7 +102,7 @@ class UnifiedClaudeClient:
         messages: List[Dict[str, str]],
         system: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-        **kwargs
+        **kwargs,
     ) -> Iterator[Dict[str, Any]]:
         """Chat using Anthropic backend.
 
@@ -127,10 +129,7 @@ class UnifiedClaudeClient:
 
         # Add extended thinking if enabled
         if self.thinking_enabled:
-            request_params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget
-            }
+            request_params["thinking"] = {"type": "enabled", "budget_tokens": self.thinking_budget}
 
         # Add tools if provided
         if tools:
@@ -155,51 +154,33 @@ class UnifiedClaudeClient:
         # Text delta (main response)
         if event.type == "content_block_delta":
             if hasattr(event.delta, "text"):
-                return {
-                    "type": "text",
-                    "content": event.delta.text
-                }
+                return {"type": "text", "content": event.delta.text}
             # Thinking delta
             elif hasattr(event.delta, "thinking"):
-                return {
-                    "type": "thinking",
-                    "content": event.delta.thinking
-                }
+                return {"type": "thinking", "content": event.delta.thinking}
 
         # Content block start
         elif event.type == "content_block_start":
             if hasattr(event.content_block, "type"):
                 if event.content_block.type == "thinking":
-                    return {
-                        "type": "thinking_start",
-                        "content": ""
-                    }
+                    return {"type": "thinking_start", "content": ""}
                 elif event.content_block.type == "text":
-                    return {
-                        "type": "text_start",
-                        "content": ""
-                    }
+                    return {"type": "text_start", "content": ""}
                 elif event.content_block.type == "tool_use":
                     return {
                         "type": "tool_use_start",
                         "content": "",
                         "tool_name": getattr(event.content_block, "name", "unknown"),
-                        "tool_id": getattr(event.content_block, "id", "")
+                        "tool_id": getattr(event.content_block, "id", ""),
                     }
 
         # Content block stop
         elif event.type == "content_block_stop":
-            return {
-                "type": "block_stop",
-                "content": ""
-            }
+            return {"type": "block_stop", "content": ""}
 
         # Message complete
         elif event.type == "message_stop":
-            return {
-                "type": "message_done",
-                "content": ""
-            }
+            return {"type": "message_done", "content": ""}
 
         return None
 

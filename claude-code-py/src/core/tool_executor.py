@@ -6,6 +6,7 @@ from anthropic.types import Message, MessageStreamEvent, ToolUseBlock, TextBlock
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tools import ToolRegistry
@@ -49,17 +50,23 @@ class ToolExecutor:
                 tool_result = {
                     "type": "tool_result",
                     "tool_use_id": tool_id,
-                    "content": result.output if result.status.value == "success" else f"Error: {result.error}"
+                    "content": (
+                        result.output
+                        if result.status.value == "success"
+                        else f"Error: {result.error}"
+                    ),
                 }
 
                 # Add to results
-                tool_results.append({
-                    "tool_name": tool_name,
-                    "tool_id": tool_id,
-                    "input": tool_input,
-                    "result": result,
-                    "anthropic_result": tool_result
-                })
+                tool_results.append(
+                    {
+                        "tool_name": tool_name,
+                        "tool_id": tool_id,
+                        "input": tool_input,
+                        "result": result,
+                        "anthropic_result": tool_result,
+                    }
+                )
 
         return tool_results
 
@@ -87,7 +94,7 @@ class ToolExecutor:
         tools: Optional[List[Dict[str, Any]]] = None,
         thinking_enabled: bool = False,
         thinking_budget: int = 10000,
-        max_tool_rounds: int = 5
+        max_tool_rounds: int = 5,
     ) -> Iterator[Dict[str, Any]]:
         """Chat with Claude with automatic tool execution.
 
@@ -132,10 +139,7 @@ class ToolExecutor:
                 request_params["tools"] = tools
 
             if thinking_enabled:
-                request_params["thinking"] = {
-                    "type": "enabled",
-                    "budget_tokens": thinking_budget
-                }
+                request_params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
 
             # Stream the response and collect events
             message = None
@@ -145,7 +149,7 @@ class ToolExecutor:
                 for event in stream:
                     # Handle different event types
                     if event.type == "content_block_start":
-                        if hasattr(event, 'content_block'):
+                        if hasattr(event, "content_block"):
                             block = event.content_block
                             if block.type == "thinking":
                                 yield {"type": "thinking_start", "content": ""}
@@ -153,21 +157,23 @@ class ToolExecutor:
                                 yield {"type": "text_start", "content": ""}
                             elif block.type == "tool_use":
                                 # Tool use detected
-                                current_tool_uses.append({
-                                    "id": getattr(block, "id", ""),
-                                    "name": getattr(block, "name", "unknown"),
-                                    "input": {}
-                                })
+                                current_tool_uses.append(
+                                    {
+                                        "id": getattr(block, "id", ""),
+                                        "name": getattr(block, "name", "unknown"),
+                                        "input": {},
+                                    }
+                                )
                                 yield {
                                     "type": "tool_use_detected",
                                     "tool_name": getattr(block, "name", "unknown"),
-                                    "content": ""
+                                    "content": "",
                                 }
 
                     elif event.type == "content_block_delta":
-                        if hasattr(event, 'delta'):
+                        if hasattr(event, "delta"):
                             delta = event.delta
-                            if hasattr(delta, 'type'):
+                            if hasattr(delta, "type"):
                                 if delta.type == "text_delta":
                                     text = getattr(delta, "text", "")
                                     yield {"type": "text", "content": text}
@@ -188,18 +194,12 @@ class ToolExecutor:
             # Check if Claude wants to use tools
             if not message or not self.has_tool_use(message):
                 # No tools requested, we're done
-                yield {
-                    "type": "message_complete",
-                    "content": ""
-                }
+                yield {"type": "message_complete", "content": ""}
                 break
 
             # Execute tools
             tool_round += 1
-            yield {
-                "type": "tool_round_start",
-                "content": f"Tool execution round {tool_round}"
-            }
+            yield {"type": "tool_round_start", "content": f"Tool execution round {tool_round}"}
 
             tool_results = self.execute_tools_from_message(message)
 
@@ -210,30 +210,23 @@ class ToolExecutor:
                     "tool_name": tool_result["tool_name"],
                     "tool_input": tool_result["input"],
                     "result": tool_result["result"],
-                    "content": ""
+                    "content": "",
                 }
 
             # Add assistant message (with tool uses) to history
-            current_messages.append({
-                "role": "assistant",
-                "content": message.content
-            })
+            current_messages.append({"role": "assistant", "content": message.content})
 
             # Add tool results to history
-            current_messages.append({
-                "role": "user",
-                "content": [tr["anthropic_result"] for tr in tool_results]
-            })
+            current_messages.append(
+                {"role": "user", "content": [tr["anthropic_result"] for tr in tool_results]}
+            )
 
             yield {
                 "type": "tool_round_complete",
-                "content": f"Completed {len(tool_results)} tool(s)"
+                "content": f"Completed {len(tool_results)} tool(s)",
             }
 
             # Continue loop to get Claude's response to the tool results
 
         if tool_round >= max_tool_rounds:
-            yield {
-                "type": "error",
-                "content": f"Maximum tool rounds ({max_tool_rounds}) reached"
-            }
+            yield {"type": "error", "content": f"Maximum tool rounds ({max_tool_rounds}) reached"}

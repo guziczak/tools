@@ -32,17 +32,9 @@ class MockToolRegistry:
         self.calls.append((tool_name, kwargs))
 
         if self.success:
-            return ToolResult(
-                status=ToolStatus.SUCCESS,
-                output=self.output,
-                error=None
-            )
+            return ToolResult(status=ToolStatus.SUCCESS, output=self.output, error=None)
         else:
-            return ToolResult(
-                status=ToolStatus.ERROR,
-                output=None,
-                error="Mock error"
-            )
+            return ToolResult(status=ToolStatus.ERROR, output=None, error="Mock error")
 
 
 class TestContextManager:
@@ -127,10 +119,7 @@ class TestVerification:
 
         # Store with verification command
         ctx.store(
-            "last_commit",
-            "abc123",
-            ttl_seconds=300,
-            verification_cmd="git log -1 --format=%H"
+            "last_commit", "abc123", ttl_seconds=300, verification_cmd="git log -1 --format=%H"
         )
 
         # Get with verification
@@ -156,7 +145,7 @@ class TestVerification:
             "last_commit",
             "abc123",  # Old value
             ttl_seconds=300,
-            verification_cmd="git log -1 --format=%H"
+            verification_cmd="git log -1 --format=%H",
         )
 
         # Get with verification
@@ -175,12 +164,7 @@ class TestVerification:
         ctx = ContextManager(tool_registry=mock_registry)
 
         # Store with 0 TTL
-        ctx.store(
-            "last_commit",
-            "abc123",
-            ttl_seconds=0,
-            verification_cmd="git log -1 --format=%H"
-        )
+        ctx.store("last_commit", "abc123", ttl_seconds=0, verification_cmd="git log -1 --format=%H")
 
         time.sleep(0.01)
 
@@ -214,12 +198,7 @@ class TestVerification:
         """Should warn when no tool registry available."""
         ctx = ContextManager(tool_registry=None)
 
-        ctx.store(
-            "key1",
-            "value1",
-            ttl_seconds=300,
-            verification_cmd="git log"
-        )
+        ctx.store("key1", "value1", ttl_seconds=300, verification_cmd="git log")
 
         result = ctx.get_verified("key1")
 
@@ -233,12 +212,7 @@ class TestVerification:
         mock_registry = MockToolRegistry(success=False)
         ctx = ContextManager(tool_registry=mock_registry)
 
-        ctx.store(
-            "key1",
-            "value1",
-            ttl_seconds=300,
-            verification_cmd="git log"
-        )
+        ctx.store("key1", "value1", ttl_seconds=300, verification_cmd="git log")
 
         result = ctx.get_verified("key1")
 
@@ -260,10 +234,7 @@ class TestRealWorldScenario:
         ctx = ContextManager(tool_registry=mock_registry)
 
         ctx.store(
-            "last_commit",
-            "abc123",
-            ttl_seconds=300,
-            verification_cmd="git log -1 --format=%H"
+            "last_commit", "abc123", ttl_seconds=300, verification_cmd="git log -1 --format=%H"
         )
 
         result1 = ctx.get_verified("last_commit")

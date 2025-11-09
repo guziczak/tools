@@ -20,7 +20,7 @@ from core.intent import (
     FuzzyMatcher,
     KeywordMatcher,
     SemanticMatcher,
-    create_default_classifier
+    create_default_classifier,
 )
 
 
@@ -29,10 +29,9 @@ class TestExactMatcher:
 
     def test_exact_match(self):
         """Should match exact trigger phrases."""
-        matcher = ExactMatcher({
-            "git_log": ["ostatni commit", "git log"],
-            "explore_project": ["widzisz projekt"]
-        })
+        matcher = ExactMatcher(
+            {"git_log": ["ostatni commit", "git log"], "explore_project": ["widzisz projekt"]}
+        )
 
         result = matcher.match("widzisz projekt")
         assert result is not None
@@ -41,9 +40,7 @@ class TestExactMatcher:
 
     def test_case_insensitive(self):
         """Should be case insensitive."""
-        matcher = ExactMatcher({
-            "git_log": ["git log"]
-        })
+        matcher = ExactMatcher({"git_log": ["git log"]})
 
         result = matcher.match("GIT LOG")
         assert result is not None
@@ -51,9 +48,7 @@ class TestExactMatcher:
 
     def test_partial_match(self):
         """Should match trigger as substring."""
-        matcher = ExactMatcher({
-            "git_log": ["git log"]
-        })
+        matcher = ExactMatcher({"git_log": ["git log"]})
 
         # Trigger in longer query
         result = matcher.match("pokaz mi git log z ostatnich 10 commitów")
@@ -62,9 +57,7 @@ class TestExactMatcher:
 
     def test_no_match(self):
         """Should return None if no match."""
-        matcher = ExactMatcher({
-            "git_log": ["git log"]
-        })
+        matcher = ExactMatcher({"git_log": ["git log"]})
 
         result = matcher.match("cos zupelnie innego")
         assert result is None
@@ -75,10 +68,7 @@ class TestFuzzyMatcher:
 
     def test_typo_tolerance(self):
         """Should catch typos."""
-        matcher = FuzzyMatcher(
-            trigger_map={"git_log": ["ostatni commit"]},
-            threshold=85
-        )
+        matcher = FuzzyMatcher(trigger_map={"git_log": ["ostatni commit"]}, threshold=85)
 
         # Typo: "commita" instead of "commit"
         result = matcher.match("ostatniego commita")
@@ -88,8 +78,7 @@ class TestFuzzyMatcher:
     def test_similarity_threshold(self):
         """Should respect similarity threshold."""
         matcher = FuzzyMatcher(
-            trigger_map={"git_log": ["ostatni commit"]},
-            threshold=90  # High threshold
+            trigger_map={"git_log": ["ostatni commit"]}, threshold=90  # High threshold
         )
 
         # Very different - should not match
@@ -99,11 +88,7 @@ class TestFuzzyMatcher:
     def test_best_match_selection(self):
         """Should select best match when multiple possibilities."""
         matcher = FuzzyMatcher(
-            trigger_map={
-                "git_log": ["ostatni commit"],
-                "git_push": ["ostatni push"]
-            },
-            threshold=80
+            trigger_map={"git_log": ["ostatni commit"], "git_push": ["ostatni push"]}, threshold=80
         )
 
         # Closer to "ostatni commit"
@@ -117,9 +102,7 @@ class TestKeywordMatcher:
 
     def test_word_order_invariance(self):
         """Should match regardless of word order."""
-        matcher = KeywordMatcher({
-            "git_log": [["ostatni", "commit"]]
-        })
+        matcher = KeywordMatcher({"git_log": [["ostatni", "commit"]]})
 
         # Different word orders
         assert matcher.match("ostatni commit").intent == "git_log"
@@ -129,9 +112,7 @@ class TestKeywordMatcher:
 
     def test_all_keywords_required(self):
         """Should require ALL keywords in set."""
-        matcher = KeywordMatcher({
-            "git_log": [["ostatni", "commit"]]
-        })
+        matcher = KeywordMatcher({"git_log": [["ostatni", "commit"]]})
 
         # Missing "commit" - no match
         result = matcher.match("ostatni")
@@ -143,12 +124,9 @@ class TestKeywordMatcher:
 
     def test_multiple_keyword_sets(self):
         """Should match any keyword set (OR logic between sets)."""
-        matcher = KeywordMatcher({
-            "git_log": [
-                ["ostatni", "commit"],  # Polish
-                ["last", "commit"]      # English
-            ]
-        })
+        matcher = KeywordMatcher(
+            {"git_log": [["ostatni", "commit"], ["last", "commit"]]}  # Polish  # English
+        )
 
         # Match Polish
         assert matcher.match("ostatni commit").intent == "git_log"
@@ -158,9 +136,7 @@ class TestKeywordMatcher:
 
     def test_partial_word_matching(self):
         """Should match partial words (e.g., 'commita' contains 'commit')."""
-        matcher = KeywordMatcher({
-            "git_log": [["commit"]]
-        })
+        matcher = KeywordMatcher({"git_log": [["commit"]]})
 
         # "commita" contains "commit"
         result = matcher.match("ostatniego commita")
@@ -174,13 +150,8 @@ class TestSemanticMatcher:
     def test_word_overlap_similarity(self):
         """Should match based on word overlap."""
         matcher = SemanticMatcher(
-            reference_map={
-                "explore_project": [
-                    "show project files",
-                    "what is in this project"
-                ]
-            },
-            threshold=0.4
+            reference_map={"explore_project": ["show project files", "what is in this project"]},
+            threshold=0.4,
         )
 
         # High overlap with "show project files"
@@ -191,10 +162,8 @@ class TestSemanticMatcher:
     def test_similarity_threshold(self):
         """Should respect similarity threshold."""
         matcher = SemanticMatcher(
-            reference_map={
-                "explore_project": ["show project files"]
-            },
-            threshold=0.8  # High threshold
+            reference_map={"explore_project": ["show project files"]},
+            threshold=0.8,  # High threshold
         )
 
         # Low similarity - no match
@@ -210,14 +179,10 @@ class TestIntentClassifier:
         classifier = IntentClassifier()
 
         # Fast exact matcher first
-        classifier.add_matcher(ExactMatcher({
-            "git_log": ["git log"]
-        }))
+        classifier.add_matcher(ExactMatcher({"git_log": ["git log"]}))
 
         # Slower fuzzy matcher second
-        classifier.add_matcher(FuzzyMatcher({
-            "git_log": ["git log"]
-        }, threshold=85))
+        classifier.add_matcher(FuzzyMatcher({"git_log": ["git log"]}, threshold=85))
 
         result = classifier.classify("git log")
 
@@ -228,9 +193,7 @@ class TestIntentClassifier:
     def test_fallback_to_general(self):
         """Should return 'general' intent if no match."""
         classifier = IntentClassifier()
-        classifier.add_matcher(ExactMatcher({
-            "git_log": ["git log"]
-        }))
+        classifier.add_matcher(ExactMatcher({"git_log": ["git log"]}))
 
         result = classifier.classify("completely different query")
 
@@ -242,10 +205,12 @@ class TestIntentClassifier:
         classifier = IntentClassifier()
 
         # Add matcher that returns low confidence
-        classifier.add_matcher(SemanticMatcher(
-            reference_map={"explore_project": ["show project"]},
-            threshold=0.2  # Low threshold - will match with low confidence
-        ))
+        classifier.add_matcher(
+            SemanticMatcher(
+                reference_map={"explore_project": ["show project"]},
+                threshold=0.2,  # Low threshold - will match with low confidence
+            )
+        )
 
         # Query with very low similarity (but above matcher's threshold)
         result = classifier.classify("something else", confidence_threshold=0.8)

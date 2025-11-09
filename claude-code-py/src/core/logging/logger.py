@@ -18,6 +18,7 @@ Best Practices:
 
 import logging
 import sys
+import os
 from typing import Optional
 from pathlib import Path
 
@@ -31,21 +32,21 @@ class ColoredFormatter(logging.Formatter):
 
     # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[37m',       # White
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[37m",  # White
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
     }
-    RESET = '\033[0m'
+    RESET = "\033[0m"
 
     # Emoji prefixes (like current system)
     EMOJIS = {
-        'DEBUG': '🔍',
-        'INFO': 'ℹ',
-        'WARNING': '⚠️',
-        'ERROR': '❌',
-        'CRITICAL': '🔥',
+        "DEBUG": "🔍",
+        "INFO": "ℹ",
+        "WARNING": "⚠️",
+        "ERROR": "❌",
+        "CRITICAL": "🔥",
     }
 
     def format(self, record):
@@ -59,7 +60,7 @@ class ColoredFormatter(logging.Formatter):
         """
         # Get color and emoji for level
         color = self.COLORS.get(record.levelname, self.RESET)
-        emoji = self.EMOJIS.get(record.levelname, '')
+        emoji = self.EMOJIS.get(record.levelname, "")
 
         # Format: 🔍 [Module] Message
         log_fmt = f"{emoji} [{record.name}] {record.getMessage()}"
@@ -71,20 +72,22 @@ class ColoredFormatter(logging.Formatter):
 
 
 def setup_logger(
-    name: str,
-    level: str = "INFO",
-    log_file: Optional[Path] = None
+    name: str, level: Optional[str] = None, log_file: Optional[Path] = None
 ) -> logging.Logger:
     """Setup a logger with colored console output.
 
     Args:
         name: Logger name (usually module name)
-        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        level: Log level (DEBUG, INFO, WARNING, ERROR). If None, reads from LOG_LEVEL env var (default: INFO)
         log_file: Optional file path for logging to file
 
     Returns:
         Configured logger
     """
+    # Read log level from environment if not provided
+    if level is None:
+        level = os.getenv("LOG_LEVEL", "INFO")
+
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level.upper()))
 
@@ -100,7 +103,7 @@ def setup_logger(
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(
-            logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         logger.addHandler(file_handler)
 
@@ -142,8 +145,4 @@ def get_logger(name: str) -> logging.Logger:
 logger = get_logger(__name__)
 
 
-__all__ = [
-    "setup_logger",
-    "get_logger",
-    "ColoredFormatter"
-]
+__all__ = ["setup_logger", "get_logger", "ColoredFormatter"]

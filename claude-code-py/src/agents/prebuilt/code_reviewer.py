@@ -43,10 +43,16 @@ Provide clear, actionable feedback with:
 Focus on making the code better, safer, and more maintainable.""",
             thinking_budget=20000,
             keywords=[
-                "review", "code review", "check code", "look at",
-                "analyze code", "feedback on", "is this correct",
-                "anything wrong", "improve this"
-            ]
+                "review",
+                "code review",
+                "check code",
+                "look at",
+                "analyze code",
+                "feedback on",
+                "is this correct",
+                "anything wrong",
+                "improve this",
+            ],
         )
         super().__init__(config)
 
@@ -55,25 +61,25 @@ Focus on making the code better, safer, and more maintainable.""",
         task_lower = task_description.lower()
 
         # High confidence
-        high_confidence = [
-            "review", "code review", "check this",
-            "look at this", "feedback on"
-        ]
+        high_confidence = ["review", "code review", "check this", "look at this", "feedback on"]
         if any(keyword in task_lower for keyword in high_confidence):
             return 0.9
 
         # Medium confidence
         medium_confidence = [
-            "is this correct", "anything wrong",
-            "improve this", "better way",
-            "what do you think"
+            "is this correct",
+            "anything wrong",
+            "improve this",
+            "better way",
+            "what do you think",
         ]
         if any(keyword in task_lower for keyword in medium_confidence):
             return 0.7
 
         # Questions about code quality
-        if ("?" in task_description and
-            any(word in task_lower for word in ["code", "function", "class", "this"])):
+        if "?" in task_description and any(
+            word in task_lower for word in ["code", "function", "class", "this"]
+        ):
             return 0.5
 
         return 0.0

@@ -22,14 +22,43 @@ class QueryNormalizer:
 
     # Common Polish stop words that don't carry intent meaning
     POLISH_STOP_WORDS = {
-        "czy", "to", "jest", "są", "było", "będzie", "w", "na", "do",
-        "z", "ze", "o", "po", "dla", "od", "przez", "przy"
+        "czy",
+        "to",
+        "jest",
+        "są",
+        "było",
+        "będzie",
+        "w",
+        "na",
+        "do",
+        "z",
+        "ze",
+        "o",
+        "po",
+        "dla",
+        "od",
+        "przez",
+        "przy",
     }
 
     # Common English stop words
     ENGLISH_STOP_WORDS = {
-        "the", "a", "an", "is", "are", "was", "were", "in", "on", "at",
-        "to", "for", "of", "with", "by", "from"
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
     }
 
     STOP_WORDS = POLISH_STOP_WORDS | ENGLISH_STOP_WORDS
@@ -47,7 +76,7 @@ class QueryNormalizer:
         # Lowercase and split on whitespace/punctuation
         text = text.lower()
         # Remove punctuation except hyphens (for git-related terms)
-        text = re.sub(r'[^\w\s-]', ' ', text)
+        text = re.sub(r"[^\w\s-]", " ", text)
         tokens = text.split()
         return tokens
 
@@ -80,14 +109,14 @@ class QueryNormalizer:
         # Polish genitive/accusative endings (order matters - longest first!)
         # "ostatniego" → "ostatni" (remove "ego")
         # "commita" → "commit" (remove "a")
-        for ending in ['ego', 'ów', 'em', 'ach', 'ie', 'a', 'u']:
+        for ending in ["ego", "ów", "em", "ach", "ie", "a", "u"]:
             if word.endswith(ending) and len(word) > len(ending) + 2:
-                return word[:-len(ending)]
+                return word[: -len(ending)]
 
         # English plural/past tense
-        for ending in ['ing', 'ed', 's']:  # order matters - longest first!
+        for ending in ["ing", "ed", "s"]:  # order matters - longest first!
             if word.endswith(ending) and len(word) > len(ending) + 2:
-                return word[:-len(ending)]
+                return word[: -len(ending)]
 
         return word
 

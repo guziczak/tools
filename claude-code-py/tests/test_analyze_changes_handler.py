@@ -24,17 +24,9 @@ class MockToolRegistry:
         from tools.base import ToolResult, ToolStatus
 
         if self.success:
-            return ToolResult(
-                status=ToolStatus.SUCCESS,
-                output=self.output,
-                error=None
-            )
+            return ToolResult(status=ToolStatus.SUCCESS, output=self.output, error=None)
         else:
-            return ToolResult(
-                status=ToolStatus.ERROR,
-                output=None,
-                error="Mock error"
-            )
+            return ToolResult(status=ToolStatus.ERROR, output=None, error="Mock error")
 
 
 class TestAnalyzeChangesHandler:
@@ -50,7 +42,7 @@ class TestAnalyzeChangesHandler:
         """Should extract commit hash from conversation history."""
         messages = [
             {"role": "user", "content": "widzisz ostatniego commita?"},
-            {"role": "assistant", "content": "Tak, ostatni commit to e35c4f4 'update'"}
+            {"role": "assistant", "content": "Tak, ostatni commit to e35c4f4 'update'"},
         ]
 
         handler = AnalyzeChangesHandler(messages=messages)
@@ -73,7 +65,7 @@ class TestAnalyzeChangesHandler:
         """Should return None if no commit hash in messages."""
         messages = [
             {"role": "user", "content": "hello world"},
-            {"role": "assistant", "content": "how can I help?"}
+            {"role": "assistant", "content": "how can I help?"},
         ]
 
         handler = AnalyzeChangesHandler(messages=messages)
@@ -83,9 +75,7 @@ class TestAnalyzeChangesHandler:
 
     def test_handle_with_hash_success(self):
         """Should pre-execute git show when hash found."""
-        messages = [
-            {"role": "assistant", "content": "Last commit: abc123 'test'"}
-        ]
+        messages = [{"role": "assistant", "content": "Last commit: abc123 'test'"}]
 
         mock_registry = MockToolRegistry(output="diff --git a/file.txt...")
         handler = AnalyzeChangesHandler(tool_registry=mock_registry, messages=messages)
@@ -100,9 +90,7 @@ class TestAnalyzeChangesHandler:
 
     def test_handle_no_hash_in_context(self):
         """Should fail gracefully if no hash in context."""
-        messages = [
-            {"role": "user", "content": "random message"}
-        ]
+        messages = [{"role": "user", "content": "random message"}]
 
         mock_registry = MockToolRegistry()
         handler = AnalyzeChangesHandler(tool_registry=mock_registry, messages=messages)
@@ -115,9 +103,7 @@ class TestAnalyzeChangesHandler:
 
     def test_handle_git_show_fails(self):
         """Should handle git show failure gracefully."""
-        messages = [
-            {"role": "assistant", "content": "commit: abc123"}
-        ]
+        messages = [{"role": "assistant", "content": "commit: abc123"}]
 
         mock_registry = MockToolRegistry(success=False)
         handler = AnalyzeChangesHandler(tool_registry=mock_registry, messages=messages)
@@ -145,14 +131,12 @@ class TestIntegration:
         # Simulate conversation
         messages = [
             {"role": "user", "content": "widzisz ostatniego commita?"},
-            {"role": "assistant", "content": "Tak, ostatni commit to abc123 'test'"}
+            {"role": "assistant", "content": "Tak, ostatni commit to abc123 'test'"},
         ]
 
         # User asks to analyze
         result = router.route(
-            intent="analyze_changes",
-            user_message="przeanalizuj zmiany",
-            messages=messages
+            intent="analyze_changes", user_message="przeanalizuj zmiany", messages=messages
         )
 
         # Should execute git show and enrich message

@@ -18,12 +18,14 @@ import threading
 
 try:
     from flask import Flask, request, Response, stream_with_context
+
     FLASK_AVAILABLE = True
 except ImportError:
     FLASK_AVAILABLE = False
 
 try:
     import cloudscraper
+
     CLOUDSCRAPER_AVAILABLE = True
 except ImportError:
     CLOUDSCRAPER_AVAILABLE = False
@@ -52,11 +54,7 @@ class ClaudeAIProxyServer:
         # Initialize session with CloudScraper (bypasses Cloudflare!)
         if CLOUDSCRAPER_AVAILABLE:
             self.session = cloudscraper.create_scraper(
-                browser={
-                    'browser': 'chrome',
-                    'platform': 'windows',
-                    'desktop': True
-                }
+                browser={"browser": "chrome", "platform": "windows", "desktop": True}
             )
             # Disable auto-decompression for streaming
             # CloudScraper/requests might be eating the stream
@@ -64,6 +62,7 @@ class ClaudeAIProxyServer:
         else:
             # Fallback to requests
             import requests
+
             self.session = requests.Session()
 
         # Set headers (without Cookie - that goes in CookieJar)
@@ -87,14 +86,14 @@ class ClaudeAIProxyServer:
             # Create a cookie object for sessionKey
             cookie = Cookie(
                 version=0,
-                name='sessionKey',
+                name="sessionKey",
                 value=oauth_token,
                 port=None,
                 port_specified=False,
-                domain='.claude.ai',
+                domain=".claude.ai",
                 domain_specified=True,
                 domain_initial_dot=True,
-                path='/',
+                path="/",
                 path_specified=True,
                 secure=True,
                 expires=int(time.time()) + 86400,  # 24h from now
@@ -102,7 +101,7 @@ class ClaudeAIProxyServer:
                 comment=None,
                 comment_url=None,
                 rest={},
-                rfc2109=False
+                rfc2109=False,
             )
             self.session.cookies.set_cookie(cookie)
             print(f"✅ Using sessionKey authentication (claude.ai)")
@@ -159,16 +158,17 @@ class ClaudeAIProxyServer:
 
         # Retry up to 3 times (Cloudflare may need warming up)
         import time
+
         max_retries = 3
 
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
-                    time.sleep(2 ** attempt)  # 2s, 4s
+                    time.sleep(2**attempt)  # 2s, 4s
 
                 response = self.session.post(
                     f"{self.base_url}/api/organizations/{org_id}/chat_conversations",
-                    json={"name": "Python Session", "uuid": None}
+                    json={"name": "Python Session", "uuid": None},
                 )
 
                 if response.status_code == 201 or response.status_code == 200:
@@ -242,11 +242,11 @@ class ClaudeAIProxyServer:
             self._create_conversation()
 
             if not self.conversation_uuid:
-                error_msg = "Could not create conversation - check OAuth token and connection to claude.ai"
+                error_msg = (
+                    "Could not create conversation - check OAuth token and connection to claude.ai"
+                )
                 return Response(
-                    json.dumps({"error": error_msg}),
-                    status=500,
-                    content_type="application/json"
+                    json.dumps({"error": error_msg}), status=500, content_type="application/json"
                 )
 
         # Convert to claude.ai format
@@ -278,7 +278,9 @@ class ClaudeAIProxyServer:
         # We'll intercept tool_use blocks and execute locally with our tools
         # This is the Interceptor Pattern for tool execution
         if tools:
-            print(f"ℹ️  [Proxy] Interceptor mode: {len(tools)} local tools available (not sending to claude.ai)")
+            print(
+                f"ℹ️  [Proxy] Interceptor mode: {len(tools)} local tools available (not sending to claude.ai)"
+            )
 
         try:
             # Use the /completion endpoint that we know works (returns 200)
@@ -293,7 +295,7 @@ class ClaudeAIProxyServer:
                     "Accept-Encoding": "identity",  # Disable gzip
                 },
                 stream=True,
-                timeout=60
+                timeout=60,
             )
 
             if response.status_code != 200:
@@ -306,9 +308,14 @@ class ClaudeAIProxyServer:
                     pass
 
                 return Response(
-                    json.dumps({"error": f"claude.ai returned {response.status_code}", "details": error_text}),
+                    json.dumps(
+                        {
+                            "error": f"claude.ai returned {response.status_code}",
+                            "details": error_text,
+                        }
+                    ),
                     status=response.status_code,
-                    content_type="application/json"
+                    content_type="application/json",
                 )
 
             # Stream response back in Anthropic format (TRUE streaming!)
@@ -327,14 +334,14 @@ class ClaudeAIProxyServer:
                         buffer += chunk
 
                         # Process complete lines as they arrive
-                        while b'\n' in buffer:
-                            line_bytes, buffer = buffer.split(b'\n', 1)
+                        while b"\n" in buffer:
+                            line_bytes, buffer = buffer.split(b"\n", 1)
 
                             if not line_bytes:
                                 continue
 
                             try:
-                                line = line_bytes.decode('utf-8').strip()
+                                line = line_bytes.decode("utf-8").strip()
                             except UnicodeDecodeError:
                                 continue
 
@@ -342,12 +349,12 @@ class ClaudeAIProxyServer:
                                 continue
 
                             # SSE format: "data: {json}" or "event: type"
-                            if line.startswith('data: '):
+                            if line.startswith("data: "):
                                 event_count += 1
                                 data_str = line[6:]  # Remove "data: " prefix
 
                                 # Check for SSE end marker
-                                if data_str == '[DONE]':
+                                if data_str == "[DONE]":
                                     break
 
                                 try:
@@ -358,7 +365,9 @@ class ClaudeAIProxyServer:
                                     if event_type == "content_block_start":
                                         cb = data.get("content_block", {})
                                         if cb.get("type") == "tool_use":
-                                            print(f"🔍 [Proxy] tool_use detected: {cb.get('name', 'unknown')} (id: {cb.get('id', 'N/A')})")
+                                            print(
+                                                f"🔍 [Proxy] tool_use detected: {cb.get('name', 'unknown')} (id: {cb.get('id', 'N/A')})"
+                                            )
 
                                     # Claude.ai already sends Anthropic SSE format!
                                     # Just check for text_delta in content_block_delta events
@@ -383,7 +392,7 @@ class ClaudeAIProxyServer:
                                             }
 
                                     # Pass through events to client
-                                    yield f'data: {json.dumps(data)}\n\n'
+                                    yield f"data: {json.dumps(data)}\n\n"
 
                                     # Check for message_stop
                                     if event_type == "message_stop":
@@ -393,26 +402,22 @@ class ClaudeAIProxyServer:
                                     # Silently skip bad JSON
                                     continue
 
-                            elif line.startswith('event: '):
+                            elif line.startswith("event: "):
                                 # Pass through event lines too
-                                yield f'{line}\n'
+                                yield f"{line}\n"
 
                     # Done streaming
 
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
 
-            return Response(
-                stream_with_context(generate()),
-                content_type="text/event-stream"
-            )
+            return Response(stream_with_context(generate()), content_type="text/event-stream")
 
         except Exception as e:
             return Response(
-                json.dumps({"error": str(e)}),
-                status=500,
-                content_type="application/json"
+                json.dumps({"error": str(e)}), status=500, content_type="application/json"
             )
 
     def start_server(self):
@@ -423,7 +428,7 @@ class ClaudeAIProxyServer:
 
         self.app = Flask(__name__)
 
-        @self.app.route('/v1/messages', methods=['POST'])
+        @self.app.route("/v1/messages", methods=["POST"])
         def messages_endpoint():
             """Proxy endpoint for /v1/messages."""
             try:
@@ -431,19 +436,17 @@ class ClaudeAIProxyServer:
                 return self.proxy_messages_endpoint(data)
             except Exception as e:
                 return Response(
-                    json.dumps({"error": str(e)}),
-                    status=500,
-                    content_type="application/json"
+                    json.dumps({"error": str(e)}), status=500, content_type="application/json"
                 )
 
-        @self.app.route('/health', methods=['GET'])
+        @self.app.route("/health", methods=["GET"])
         def health():
             """Health check endpoint."""
             return Response(json.dumps({"status": "ok"}), content_type="application/json")
 
         # Run in background thread
         def run():
-            self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False)
+            self.app.run(host="127.0.0.1", port=self.port, debug=False, use_reloader=False)
 
         self.server_thread = threading.Thread(target=run, daemon=True)
         self.server_thread.start()
@@ -481,9 +484,10 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
 
         # Check if port is available
         import socket
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind(('127.0.0.1', try_port))
+            sock.bind(("127.0.0.1", try_port))
             sock.close()
             # Port is available!
             port = try_port
@@ -495,7 +499,9 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
             sock.close()
             continue
     else:
-        print(f"❌ [Proxy] Could not find available port (tried {original_port}-{original_port+max_attempts-1})")
+        print(
+            f"❌ [Proxy] Could not find available port (tried {original_port}-{original_port+max_attempts-1})"
+        )
         return (False, 0)
 
     _proxy_instance = ClaudeAIProxyServer(oauth_token, port)
@@ -507,6 +513,7 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
     # Wait for Flask to be ready (health check loop)
     import time
     import requests
+
     max_wait = 5  # seconds
     start_time = time.time()
 

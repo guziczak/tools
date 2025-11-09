@@ -8,6 +8,7 @@ from enum import Enum
 
 class ToolStatus(Enum):
     """Tool execution status."""
+
     SUCCESS = "success"
     ERROR = "error"
     PARTIAL = "partial"
@@ -16,6 +17,7 @@ class ToolStatus(Enum):
 @dataclass
 class ToolResult:
     """Result of tool execution."""
+
     status: ToolStatus
     output: str
     error: Optional[str] = None
@@ -91,8 +93,8 @@ class BaseTool(ABC):
             "input_schema": {
                 "type": "object",
                 "properties": self.parameters,
-                "required": list(self.parameters.keys())
-            }
+                "required": list(self.parameters.keys()),
+            },
         }
 
     def validate_parameters(self, **kwargs) -> tuple[bool, Optional[str]]:

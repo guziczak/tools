@@ -17,7 +17,9 @@ from typing import Optional
 from pathlib import Path
 
 
-def generate_api_key_from_oauth(oauth_token: str, key_name: str = "claude-code-python-auto") -> Optional[str]:
+def generate_api_key_from_oauth(
+    oauth_token: str, key_name: str = "claude-code-python-auto"
+) -> Optional[str]:
     """Generate API key from OAuth token automatically.
 
     Args:
@@ -35,14 +37,12 @@ def generate_api_key_from_oauth(oauth_token: str, key_name: str = "claude-code-p
             "Authorization": f"Bearer {oauth_token}",
             "Content-Type": "application/json",
         },
-        timeout=30.0
+        timeout=30.0,
     )
 
     try:
         # Try to generate API key using OAuth token
-        response = client.post("/api/oauth/claude_cli/create_api_key", json={
-            "name": key_name
-        })
+        response = client.post("/api/oauth/claude_cli/create_api_key", json={"name": key_name})
 
         if response.status_code == 200:
             data = response.json()
@@ -86,12 +86,9 @@ def save_oauth_token(oauth_token: str) -> bool:
 
         creds_file = creds_dir / "oauth_token.json"
 
-        data = {
-            "accessToken": oauth_token,
-            "source": "claude-code-python-auto-setup"
-        }
+        data = {"accessToken": oauth_token, "source": "claude-code-python-auto-setup"}
 
-        with open(creds_file, 'w') as f:
+        with open(creds_file, "w") as f:
             json.dump(data, f, indent=2)
 
         return True

@@ -39,7 +39,7 @@ def ensure_selenium_installed() -> bool:
             subprocess.check_call(
                 [sys.executable, "-m", "pip", "install", "--user", *missing],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
             print(f"  ✅ Installed: {', '.join(missing)}")
             return True
@@ -49,7 +49,7 @@ def ensure_selenium_installed() -> bool:
                 subprocess.check_call(
                     [sys.executable, "-m", "pip", "install", *missing],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
                 )
                 print(f"  ✅ Installed: {', '.join(missing)}")
                 return True
@@ -91,9 +91,9 @@ def extract_session_key_auto() -> Optional[str]:
         return None
 
     print()
-    print("="*70)
+    print("=" * 70)
     print("  🤖 FULL AUTO sessionKey Extraction")
-    print("="*70)
+    print("=" * 70)
     print()
     print("  🌐 Opening automated browser...")
     print("     Please sign in when the browser opens")
@@ -107,7 +107,7 @@ def extract_session_key_auto() -> Optional[str]:
         # Don't use headless - user needs to see to log in
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_experimental_option("useAutomationExtension", False)
 
         # Create driver with auto-downloaded ChromeDriver
         print("  🔧 Setting up Chrome driver...")
@@ -119,9 +119,9 @@ def extract_session_key_auto() -> Optional[str]:
         driver.get("https://claude.ai/new")
 
         print()
-        print("="*70)
+        print("=" * 70)
         print("  👤 Please sign in to claude.ai in the opened browser")
-        print("="*70)
+        print("=" * 70)
         print()
         print("  ⏳ Waiting for you to sign in...")
         print("     (Python will auto-detect when you're logged in)")
@@ -141,8 +141,8 @@ def extract_session_key_auto() -> Optional[str]:
             # Try to get sessionKey cookie
             cookies = driver.get_cookies()
             for cookie in cookies:
-                if cookie['name'] == 'sessionKey':
-                    session_key = cookie['value']
+                if cookie["name"] == "sessionKey":
+                    session_key = cookie["value"]
                     break
 
             if session_key:

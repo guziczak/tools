@@ -21,20 +21,17 @@ class GrepTool(BaseTool):
         return {
             "pattern": {
                 "type": "string",
-                "description": "Text pattern to search for (supports regex)"
+                "description": "Text pattern to search for (supports regex)",
             },
-            "path": {
-                "type": "string",
-                "description": "File or directory to search in"
-            },
+            "path": {"type": "string", "description": "File or directory to search in"},
             "recursive": {
                 "type": "boolean",
-                "description": "Search recursively in directories (default: false)"
+                "description": "Search recursively in directories (default: false)",
             },
             "case_sensitive": {
                 "type": "boolean",
-                "description": "Case sensitive search (default: true)"
-            }
+                "description": "Case sensitive search (default: true)",
+            },
         }
 
     def validate_parameters(self, **kwargs) -> tuple[bool, Optional[str]]:
@@ -51,7 +48,7 @@ class GrepTool(BaseTool):
         path: str,
         recursive: bool = False,
         case_sensitive: bool = True,
-        **kwargs
+        **kwargs,
     ) -> ToolResult:
         """Search for pattern in files.
 
@@ -71,9 +68,7 @@ class GrepTool(BaseTool):
                 regex = re.compile(pattern, flags)
             except re.error as e:
                 return ToolResult(
-                    status=ToolStatus.ERROR,
-                    output="",
-                    error=f"Invalid regex pattern: {e}"
+                    status=ToolStatus.ERROR, output="", error=f"Invalid regex pattern: {e}"
                 )
 
             # Resolve path
@@ -81,9 +76,7 @@ class GrepTool(BaseTool):
 
             if not search_path.exists():
                 return ToolResult(
-                    status=ToolStatus.ERROR,
-                    output="",
-                    error=f"Path not found: {path}"
+                    status=ToolStatus.ERROR, output="", error=f"Path not found: {path}"
                 )
 
             # Collect files to search
@@ -101,11 +94,7 @@ class GrepTool(BaseTool):
                     # Non-recursive
                     files_to_search = [f for f in search_path.iterdir() if f.is_file()]
             else:
-                return ToolResult(
-                    status=ToolStatus.ERROR,
-                    output="",
-                    error=f"Invalid path: {path}"
-                )
+                return ToolResult(status=ToolStatus.ERROR, output="", error=f"Invalid path: {path}")
 
             # Search in files
             matches = []
@@ -115,14 +104,16 @@ class GrepTool(BaseTool):
             for file_path in files_to_search:
                 files_searched += 1
                 try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                         for line_num, line in enumerate(f, 1):
                             if regex.search(line):
-                                matches.append({
-                                    "file": str(file_path),
-                                    "line": line_num,
-                                    "content": line.rstrip()
-                                })
+                                matches.append(
+                                    {
+                                        "file": str(file_path),
+                                        "line": line_num,
+                                        "content": line.rstrip(),
+                                    }
+                                )
                                 if line_num == 1 or matches[-2]["file"] != str(file_path):
                                     files_with_matches += 1
                 except Exception:
@@ -133,7 +124,9 @@ class GrepTool(BaseTool):
             if not matches:
                 output = f"No matches found for '{pattern}' in {files_searched} file(s)"
             else:
-                output_lines = [f"Found {len(matches)} match(es) in {files_with_matches} file(s):\n"]
+                output_lines = [
+                    f"Found {len(matches)} match(es) in {files_with_matches} file(s):\n"
+                ]
                 for match in matches[:100]:  # Limit to 100 matches
                     output_lines.append(f"{match['file']}:{match['line']}: {match['content']}")
 
@@ -148,16 +141,12 @@ class GrepTool(BaseTool):
                 metadata={
                     "matches": len(matches),
                     "files_searched": files_searched,
-                    "files_with_matches": files_with_matches
-                }
+                    "files_with_matches": files_with_matches,
+                },
             )
 
         except Exception as e:
-            return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Search failed: {str(e)}"
-            )
+            return ToolResult(status=ToolStatus.ERROR, output="", error=f"Search failed: {str(e)}")
 
 
 class GlobTool(BaseTool):
@@ -173,12 +162,12 @@ class GlobTool(BaseTool):
         return {
             "pattern": {
                 "type": "string",
-                "description": "File pattern to match (e.g., '*.py', '**/*.txt', 'src/**/test_*.py')"
+                "description": "File pattern to match (e.g., '*.py', '**/*.txt', 'src/**/test_*.py')",
             },
             "cwd": {
                 "type": "string",
-                "description": "Working directory for pattern matching (default: current directory)"
-            }
+                "description": "Working directory for pattern matching (default: current directory)",
+            },
         }
 
     def validate_parameters(self, **kwargs) -> tuple[bool, Optional[str]]:
@@ -205,7 +194,7 @@ class GlobTool(BaseTool):
                     return ToolResult(
                         status=ToolStatus.ERROR,
                         output="",
-                        error=f"Invalid working directory: {cwd}"
+                        error=f"Invalid working directory: {cwd}",
                     )
             else:
                 work_dir = Path.cwd()
@@ -216,7 +205,7 @@ class GlobTool(BaseTool):
 
             try:
                 # Use glob with recursive support
-                if '**' in pattern:
+                if "**" in pattern:
                     matches = glob_module.glob(pattern, recursive=True)
                 else:
                     matches = glob_module.glob(pattern)
@@ -247,16 +236,10 @@ class GlobTool(BaseTool):
             return ToolResult(
                 status=ToolStatus.SUCCESS,
                 output=output,
-                metadata={
-                    "matches": len(file_matches),
-                    "pattern": pattern,
-                    "cwd": str(work_dir)
-                }
+                metadata={"matches": len(file_matches), "pattern": pattern, "cwd": str(work_dir)},
             )
 
         except Exception as e:
             return ToolResult(
-                status=ToolStatus.ERROR,
-                output="",
-                error=f"Glob search failed: {str(e)}"
+                status=ToolStatus.ERROR, output="", error=f"Glob search failed: {str(e)}"
             )

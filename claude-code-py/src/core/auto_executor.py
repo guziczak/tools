@@ -27,6 +27,7 @@ class ExecutionResult:
         error: Error message (if failed)
         command: Original command that was executed
     """
+
     success: bool
     output: Optional[str] = None
     error: Optional[str] = None
@@ -66,9 +67,7 @@ class AutoExecutor:
         """
         if not self.tool_registry:
             return ExecutionResult(
-                success=False,
-                error="No tool registry available",
-                command=command
+                success=False, error="No tool registry available", command=command
             )
 
         print(f"🤖 [AutoExecutor] Auto-executing: {command}")
@@ -79,26 +78,14 @@ class AutoExecutor:
 
             if result.status.value == "success":
                 print(f"   ✅ Success: {len(result.output)} chars output")
-                return ExecutionResult(
-                    success=True,
-                    output=result.output,
-                    command=command
-                )
+                return ExecutionResult(success=True, output=result.output, command=command)
             else:
                 print(f"   ❌ Failed: {result.error}")
-                return ExecutionResult(
-                    success=False,
-                    error=result.error,
-                    command=command
-                )
+                return ExecutionResult(success=False, error=result.error, command=command)
 
         except Exception as e:
             print(f"   ❌ Exception: {e}")
-            return ExecutionResult(
-                success=False,
-                error=str(e),
-                command=command
-            )
+            return ExecutionResult(success=False, error=str(e), command=command)
 
     def should_auto_execute(self, command: str) -> bool:
         """Check if command should be auto-executed.
@@ -116,18 +103,27 @@ class AutoExecutor:
         """
         # List of dangerous command prefixes
         dangerous_prefixes = [
-            'rm ', 'del ', 'format ', 'dd ',  # Destructive
-            'git push', 'git commit',  # State-modifying (should be explicit)
-            'npm publish', 'pip install',  # Package management
-            'sudo ', 'su ',  # Privilege escalation
-            'vim ', 'nano ', 'emacs ',  # Interactive editors
-            '>', '>>',  # File redirection (could overwrite files)
+            "rm ",
+            "del ",
+            "format ",
+            "dd ",  # Destructive
+            "git push",
+            "git commit",  # State-modifying (should be explicit)
+            "npm publish",
+            "pip install",  # Package management
+            "sudo ",
+            "su ",  # Privilege escalation
+            "vim ",
+            "nano ",
+            "emacs ",  # Interactive editors
+            ">",
+            ">>",  # File redirection (could overwrite files)
         ]
 
         command_lower = command.lower().strip()
 
         for prefix in dangerous_prefixes:
-            if command_lower.startswith(prefix) or f' {prefix}' in command_lower:
+            if command_lower.startswith(prefix) or f" {prefix}" in command_lower:
                 print(f"   ⚠️  [AutoExecutor] Blocking dangerous command: {command}")
                 return False
 
