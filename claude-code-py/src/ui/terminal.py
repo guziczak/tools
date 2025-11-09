@@ -83,8 +83,10 @@ class TerminalUI:
 
             # Update Live display with current progress
             if self.thinking_live:
+                # More realistic time estimate: ~50 tokens/sec for thinking
+                seconds = max(1, self.thinking_token_count // 50)
                 self.thinking_live.update(
-                    Text(f"∴ Thought for {self.thinking_token_count//250}s · ↓ {self.thinking_token_count} tokens (type '/thinking' to show)",
+                    Text(f"∴ Thinking... {seconds}s · {self.thinking_token_count} tokens (type '/thinking' to show)",
                          style="dim cyan")
                 )
 
@@ -102,8 +104,9 @@ class TerminalUI:
         if self.thinking_buffer:
             # Final summary
             total_tokens = sum(self._estimate_tokens(chunk) for chunk in self.thinking_buffer)
+            seconds = max(1, total_tokens // 50)
             self.console.print(
-                f"[dim cyan]∴ Thought for {total_tokens//250}s (type '/thinking' to toggle visibility)[/dim cyan]"
+                f"[dim cyan]∴ Thinking complete ({seconds}s, {total_tokens} tokens) - type '/thinking' to view[/dim cyan]"
             )
 
             if self.thinking_visible:
