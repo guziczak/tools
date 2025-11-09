@@ -136,11 +136,21 @@ class ClaudeAPIClient:
         # Tool executor (created lazily if needed)
         self._tool_executor = None
 
+        # Context manager (SAFE MEMORY: prevents dezinformacja like Claude Desktop)
+        # Caches data with automatic verification and TTL
+        self.context_manager = None
+        try:
+            from .memory import ContextManager
+            self.context_manager = ContextManager(tool_registry)
+            print("💾 [API Client] ContextManager initialized (safe memory with verification)")
+        except ImportError:
+            print("⚠️  [API Client] ContextManager not available")
+
         # Intent router (STATE OF THE ART: Strategy Pattern with Dependency Injection)
         # Routes user intents to pre-execution handlers
         self.intent_router = None
         if INTENT_HANDLERS_AVAILABLE and tool_registry:
-            self.intent_router = IntentRouter(tool_registry)
+            self.intent_router = IntentRouter(tool_registry, context_manager=self.context_manager)
             print("🎯 [API Client] IntentRouter initialized (Strategy Pattern enabled)")
 
         # Command validator (Chain of Responsibility Pattern)
@@ -448,19 +458,25 @@ class ClaudeAPIClient:
             # Fallback: no validator available, return original
             return tool_input
 
-    def chat(self, user_message: str, system: Optional[str] = None) -> Iterator[Dict[str, Any]]:
+    def chat(self, user_message: str, system: Optional[str] = None,
+             tool_choice: Optional[Dict[str, Any]] = None) -> Iterator[Dict[str, Any]]:
         """Send a message and stream the response.
 
         Args:
             user_message: User's message
             system: Optional system prompt
+            tool_choice: Optional pre-classified tool choice (to avoid re-classification)
 
         Yields:
             Events containing response chunks with type and data
         """
-        # STATE OF THE ART: 3-tier intent classification
-        # Tier 1: Exact triggers | Tier 2: Semantic matching | Tier 3: Claude decides
-        intent, tool_choice = self._classify_query_intent(user_message)
+        # If tool_choice not provided, classify intent
+        # (This happens when chat() is called directly, not via chat_with_tools())
+        if tool_choice is None:
+            print("🎯 [Intent] Classifying in chat() (direct call, not from chat_with_tools)")
+            intent, tool_choice = self._classify_query_intent(user_message)
+        else:
+            print("🎯 [Intent] Using pre-classified tool_choice from chat_with_tools() (no re-classification)")
 
         # Add user message to history (original, not preprocessed)
         self.add_message("user", user_message)
@@ -652,7 +668,8 @@ class ClaudeAPIClient:
                 # Subsequent rounds: use client directly with existing messages (including tool results)
                 if tool_round == 0:
                     # Add user message via chat() (use enriched message if available)
-                    events = self.chat(message_to_send, system)
+                    # PASS tool_choice to avoid re-classification! ✅
+                    events = self.chat(message_to_send, system, tool_choice=tool_choice)
                 else:
                     # Use client directly with messages that already include tool results
                     events = self.client.chat_streaming(
