@@ -83,6 +83,37 @@ class CommandValidator(ABC):
         pass
 
 
+class ClaudeAIPathBlocker(CommandValidator):
+    """Blocks claude.ai Linux paths like /home/claude and /mnt.
+
+    These paths exist in claude.ai's Linux environment but NOT on local machine.
+    This validator detects them and provides helpful error message.
+    """
+
+    BLOCKED_PATHS = ['/home/claude', '/mnt/user-data', '/mnt/']
+
+    def _validate_impl(self, command: str) -> ValidationResult:
+        """Block claude.ai Linux paths.
+
+        Args:
+            command: Command to validate
+
+        Returns:
+            ValidationResult (invalid if claude.ai path detected)
+        """
+        # Check if command contains any blocked paths
+        for blocked_path in self.BLOCKED_PATHS:
+            if blocked_path in command:
+                error = (
+                    f"Command contains '{blocked_path}' which is claude.ai's Linux environment, not your local machine!\n"
+                    f"You are running on a local Windows machine.\n"
+                    f"Use relative paths (e.g., 'wierszyk.txt') or Windows paths instead."
+                )
+                return ValidationResult(is_valid=False, error_message=error)
+
+        return ValidationResult(is_valid=True, transformed_command=command)
+
+
 class UnixCommandBlocker(CommandValidator):
     """Blocks Unix-specific commands on Windows.
 
@@ -202,9 +233,10 @@ def create_default_validator_chain() -> CommandValidator:
     """Create default chain of validators for command validation.
 
     Chain order (most strict → most lenient):
-    1. UnixCommandBlocker - blocks unsupported Unix commands
-    2. PowerShellSyntaxFixer - fixes PowerShell syntax
-    3. GitCommandValidator - validates git commands
+    1. ClaudeAIPathBlocker - blocks claude.ai Linux paths like /home/claude
+    2. UnixCommandBlocker - blocks unsupported Unix commands
+    3. PowerShellSyntaxFixer - fixes PowerShell syntax
+    4. GitCommandValidator - validates git commands
 
     Returns:
         Head of validator chain
@@ -213,5 +245,6 @@ def create_default_validator_chain() -> CommandValidator:
     git_validator = GitCommandValidator(next_validator=None)
     syntax_fixer = PowerShellSyntaxFixer(next_validator=git_validator)
     unix_blocker = UnixCommandBlocker(next_validator=syntax_fixer)
+    path_blocker = ClaudeAIPathBlocker(next_validator=unix_blocker)
 
-    return unix_blocker
+    return path_blocker

@@ -46,6 +46,15 @@ class TerminalUI:
 
     def get_user_input(self) -> str:
         """Get input from user with rich prompt."""
+        # CRITICAL: Ensure Live display is closed before asking for input
+        # Otherwise Rich's Live will interfere with Prompt
+        if self.thinking_live:
+            try:
+                self.thinking_live.__exit__(None, None, None)
+            except Exception:
+                pass
+            self.thinking_live = None
+
         self.console.print()  # Blank line
         try:
             user_input = Prompt.ask(
@@ -96,10 +105,16 @@ class TerminalUI:
 
     def print_thinking_done(self):
         """Print when thinking is complete."""
-        # Stop Live display
+        # Stop Live display (only if it's active)
         if self.thinking_live:
-            self.thinking_live.__exit__(None, None, None)
+            try:
+                self.thinking_live.__exit__(None, None, None)
+            except Exception:
+                pass  # Ignore errors if already closed
             self.thinking_live = None
+        else:
+            # Already closed, skip
+            return
 
         if self.thinking_buffer:
             # Final summary
@@ -216,11 +231,20 @@ class TerminalUI:
 
             elif event_type == "message_done":
                 self.console.print()  # New line at end
-                break
+                # DON'T break - let generator finish naturally
 
         # Ensure we close thinking if still open
         if in_thinking:
             self.print_thinking_done()
+
+        # CRITICAL: Force close Live display even if print_thinking_done() was already called
+        # This prevents Live from running in background and interfering with terminal
+        if self.thinking_live:
+            try:
+                self.thinking_live.__exit__(None, None, None)
+            except Exception:
+                pass
+            self.thinking_live = None
 
         self.text_buffer = []
 
@@ -251,8 +275,12 @@ class TerminalUI:
         self.text_buffer = []
         in_thinking = False
         in_tool_use = False
+        message_done = False
 
         for event in events:
+            # Skip any events after message is done
+            if message_done:
+                continue
             event_type = event["type"]
             content = event.get("content", "")
 
@@ -299,17 +327,39 @@ class TerminalUI:
             elif event_type == "tool_round_complete":
                 self.console.print(f"[dim cyan]Tool execution complete: {content}[/dim cyan]\n")
 
-            elif event_type == "message_complete":
+            elif event_type == "message_done":
+                # Message streaming complete
+                message_done = True
+                if in_thinking:
+                    self.print_thinking_done()
+                    in_thinking = False
+                # Ensure console is flushed before newline
+                if self.text_buffer:
+                    pass  # Text already printed
                 self.console.print()  # New line at end
-                break
+                # DON'T break yet! Continue consuming events to allow API client
+                # to check for tool_blocks and execute next round
+                # The loop will end naturally when generator is exhausted
 
             elif event_type == "error":
                 self.print_error(content)
+                if in_thinking:
+                    self.print_thinking_done()
+                    in_thinking = False
                 break
 
-        # Ensure we close thinking if still open
+        # Ensure we close thinking if still open (fallback)
         if in_thinking:
             self.print_thinking_done()
+
+        # CRITICAL: Force close Live display even if print_thinking_done() was already called
+        # This prevents Live from running in background and interfering with terminal
+        if self.thinking_live:
+            try:
+                self.thinking_live.__exit__(None, None, None)
+            except Exception:
+                pass
+            self.thinking_live = None
 
         self.text_buffer = []
 

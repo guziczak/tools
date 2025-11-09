@@ -231,12 +231,13 @@ class ClaudeAIProxyServer:
 
         # Extract parameters
         messages = anthropic_request.get("messages", [])
+        system = anthropic_request.get("system", "")  # CRITICAL: Extract system prompt!
         model = anthropic_request.get("model", "claude-sonnet-4-20250514")
         max_tokens = anthropic_request.get("max_tokens", 4096)
         stream = anthropic_request.get("stream", True)
         tools = anthropic_request.get("tools", None)  # Extract tools if provided
 
-        # Reuse existing conversation or create new one
+        # Create new conversation if needed (first request of this proxy instance)
         if not self.conversation_uuid:
             self._create_conversation()
 
@@ -249,7 +250,18 @@ class ClaudeAIProxyServer:
                 )
 
         # Convert to claude.ai format
-        prompt = self._convert_messages_to_prompt(messages)
+        user_prompt = self._convert_messages_to_prompt(messages)
+
+        # CRITICAL: Prepend system prompt ONLY for first user message
+        # Claude.ai doesn't have separate "system" field, so we add it to first prompt
+        # After that, claude.ai remembers context from conversation
+        user_message_count = sum(1 for m in messages if m.get("role") == "user")
+        is_first_message = user_message_count == 1
+        if system and is_first_message:
+            prompt = f"{system}\n\n---\n\n{user_prompt}"
+            print(f"📋 [Proxy] Including system prompt in first message ({len(system)} chars)")
+        else:
+            prompt = user_prompt
 
         org_id = self._get_organization_id()
 
@@ -444,27 +456,53 @@ class ClaudeAIProxyServer:
 _proxy_instance: Optional[ClaudeAIProxyServer] = None
 
 
-def start_proxy_server(oauth_token: str, port: int = 8765) -> bool:
-    """Start proxy server in background.
+def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
+    """Start proxy server in background with auto port selection.
 
     Args:
         oauth_token: OAuth token for authentication
-        port: Port to run on
+        port: Preferred port to run on (will auto-increment if busy)
 
     Returns:
-        True if started successfully
+        Tuple of (success: bool, actual_port: int)
     """
     global _proxy_instance
 
+    # DON'T reuse existing instance - each CLI session needs its own conversation
+    # Try to find available port if default is busy
     if _proxy_instance:
-        print("✅ Proxy already running")
-        return True
+        print("ℹ️  [Proxy] Previous proxy detected - finding free port for new CLI instance")
+
+    # Try ports 8765, 8766, 8767... until we find one available
+    original_port = port
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        try_port = port + attempt
+
+        # Check if port is available
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(('127.0.0.1', try_port))
+            sock.close()
+            # Port is available!
+            port = try_port
+            if attempt > 0:
+                print(f"   Found available port: {port}")
+            break
+        except OSError:
+            # Port busy, try next
+            sock.close()
+            continue
+    else:
+        print(f"❌ [Proxy] Could not find available port (tried {original_port}-{original_port+max_attempts-1})")
+        return (False, 0)
 
     _proxy_instance = ClaudeAIProxyServer(oauth_token, port)
     started = _proxy_instance.start_server()
 
     if not started:
-        return False
+        return (False, 0)
 
     # Wait for Flask to be ready (health check loop)
     import time
@@ -477,13 +515,13 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> bool:
             response = requests.get(f"http://127.0.0.1:{port}/health", timeout=1)
             if response.status_code == 200:
                 print(f"✅ Proxy health check passed - ready to accept requests")
-                return True
+                return (True, port)
         except:
             pass
         time.sleep(0.1)
 
     print(f"⚠️  Proxy health check timeout - may not be ready")
-    return True  # Continue anyway
+    return (True, port)  # Continue anyway
 
 
 def get_proxy_base_url(port: int = 8765) -> str:

@@ -111,8 +111,13 @@ class ClaudeCodePy:
 
 **Environment:**
 - Working Directory: {cwd}
-- Platform: LOCAL machine (NOT claude.ai web interface!)
+- Platform: Windows LOCAL machine (NOT claude.ai Linux!)
 - YOU HAVE DIRECT ACCESS to bash, files, and git repository
+
+🚨 CRITICAL PATH RULES:
+- NEVER use /home/claude or /mnt paths - those are claude.ai's Linux environment!
+- ALWAYS use relative paths (wierszyk.txt) or Windows paths ({cwd})
+- When searching files, use: bash("dir /s /b *.txt") NOT find command
 
 **Available Tools:**
 - **bash**: Execute ANY shell command (git, ls, cat, etc.)
@@ -126,6 +131,7 @@ When user asks about code, commits, files, or system info:
 1. ✅ IMMEDIATELY use bash/read_file tools
 2. ❌ NEVER say "please run X and paste output"
 3. ❌ NEVER say "you can run X to see Y"
+4. ✅ When user asks "widzisz X?" or "do you see X?" → IMMEDIATELY read_file("X") and show contents
 
 **Few-Shot Examples (FOLLOW THESE EXACTLY):**
 
@@ -162,6 +168,16 @@ You: "Projekt zawiera: ..."
 User: "pokaż src/main.py"
 You: [immediately uses read_file("src/main.py")]
 You: "Plik zawiera: ..."
+
+User: "widzisz wierszyk?"
+You: [immediately uses read_file("wierszyk.txt")]  ← Use relative path!
+You: "Tak! Plik wierszyk.txt zawiera:
+     [pokazuje pełną zawartość pliku]"
+
+IMPORTANT:
+- When user asks "widzisz X?" → use read_file("X") with RELATIVE PATH
+- NEVER search in /home/claude - that's claude.ai's Linux, not your local machine!
+- You are on Windows, use Windows paths or relative paths!
 ```
 
 Example 3 - Follow-up questions:
@@ -418,14 +434,15 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
             try:
                 from proxy import start_proxy_server, get_proxy_base_url
 
-                # Start proxy in background
-                if start_proxy_server(api_key, port=8765):
+                # Start proxy in background (returns tuple: success, port)
+                proxy_started, proxy_port = start_proxy_server(api_key, port=8765)
+                if proxy_started:
                     self.ui.print_info("✅ Proxy server started!")
                     self.ui.print_info("   OAuth → claude.ai translation active")
 
-                    # Use proxy URL as base for API client
+                    # Use proxy URL as base for API client (with actual port used)
                     import os
-                    proxy_url = get_proxy_base_url(8765)
+                    proxy_url = get_proxy_base_url(proxy_port)
                     os.environ["ANTHROPIC_BASE_URL"] = proxy_url
                     self.ui.print_info(f"   Set ANTHROPIC_BASE_URL={proxy_url}")
 

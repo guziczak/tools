@@ -165,6 +165,26 @@ class OAuthAnthropicClient:
                         # DEBUG: Always log content_block_start to see what we get
                         print(f"🔎 [OAuth Client] content_block_start: type={block_type}")
 
+                        # CRITICAL: If claude.ai executed tool itself (tool_result), STOP streaming!
+                        # Claude.ai /completion has built-in tools and will execute them
+                        # We need to STOP and re-execute locally instead
+                        if block_type == "tool_result":
+                            print(f"⚠️  [OAuth Client] Claude.ai executed tool (tool_result detected) - FORCING LOCAL EXECUTION")
+                            # Yield tool_calls_complete if we collected any tools
+                            if current_tool_blocks:
+                                print(f"🎯 [OAuth Client] Collected {len(current_tool_blocks)} tool blocks before tool_result")
+                                yield {
+                                    "type": "tool_calls_complete",
+                                    "tool_blocks": current_tool_blocks,
+                                    "content": ""
+                                }
+                            # Force stop streaming
+                            yield {
+                                "type": "message_done",
+                                "content": ""
+                            }
+                            return  # Exit generator completely
+
                         # ONLY collect tool_use blocks (NOT tool_result, thinking, text, etc.)
                         if block_type == "tool_use":
                             tool_name = content_block.get("name", "")
@@ -214,14 +234,9 @@ class OAuthAnthropicClient:
                                         print(f"❌ [OAuth Client] Failed to parse JSON: {e}")
                                         pass
 
-                                # IMMEDIATELY yield tool_calls_complete after collecting a tool
-                                # Don't wait for [DONE] - we need to execute tools NOW
-                                print(f"🎯 [OAuth Client] Tool block complete, yielding immediately")
-                                yield {
-                                    "type": "tool_calls_complete",
-                                    "tool_blocks": [last_block],  # Yield just this one tool
-                                    "content": ""
-                                }
+                                # DON'T yield immediately - wait for tool_result or [DONE]
+                                # Otherwise we'll yield the same tool twice!
+                                print(f"🎯 [OAuth Client] Tool block complete, waiting for tool_result or [DONE]")
 
                     # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
