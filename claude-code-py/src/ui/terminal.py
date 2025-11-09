@@ -24,6 +24,7 @@ class TerminalUI:
         self.tool_buffer = []
         self.thinking_visible = False  # Start with thinking hidden
         self.thinking_token_count = 0
+        self.thinking_live = None  # Live display for thinking progress
 
     def print_banner(self):
         """Print welcome banner."""
@@ -64,22 +65,28 @@ class TerminalUI:
         return len(text) // 4
 
     def print_thinking(self, content: str, is_start: bool = False):
-        """Print thinking content with collapsible ctrl+o toggle."""
+        """Print thinking content with collapsible /thinking toggle."""
         if is_start:
             self.thinking_buffer = []
             self.thinking_token_count = 0
-            # Show collapsed indicator
-            self.console.print("\n[dim cyan]∴ Thinking... (ctrl+o to show)[/dim cyan]", end="")
+            # Start Live display for progress
+            self.thinking_live = Live(
+                Text("∴ Thinking... (type '/thinking' to show)", style="dim cyan"),
+                console=self.console,
+                refresh_per_second=10
+            )
+            self.thinking_live.__enter__()
 
         if content:
             self.thinking_buffer.append(content)
             self.thinking_token_count += self._estimate_tokens(content)
 
-            # Update progress indicator in place
-            self.console.print(
-                f"\r[dim cyan]∴ Thought for {self.thinking_token_count//250}s · ↓ {self.thinking_token_count} tokens (ctrl+o to show)[/dim cyan]",
-                end=""
-            )
+            # Update Live display with current progress
+            if self.thinking_live:
+                self.thinking_live.update(
+                    Text(f"∴ Thought for {self.thinking_token_count//250}s · ↓ {self.thinking_token_count} tokens (type '/thinking' to show)",
+                         style="dim cyan")
+                )
 
             # If thinking is visible, show actual content
             if self.thinking_visible:
@@ -87,11 +94,16 @@ class TerminalUI:
 
     def print_thinking_done(self):
         """Print when thinking is complete."""
+        # Stop Live display
+        if self.thinking_live:
+            self.thinking_live.__exit__(None, None, None)
+            self.thinking_live = None
+
         if self.thinking_buffer:
             # Final summary
             total_tokens = sum(self._estimate_tokens(chunk) for chunk in self.thinking_buffer)
             self.console.print(
-                f"\r[dim cyan]∴ Thought for {total_tokens//250}s (type '/thinking' to toggle visibility)[/dim cyan]"
+                f"[dim cyan]∴ Thought for {total_tokens//250}s (type '/thinking' to toggle visibility)[/dim cyan]"
             )
 
             if self.thinking_visible:

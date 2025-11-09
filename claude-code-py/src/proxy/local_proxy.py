@@ -294,24 +294,17 @@ class ClaudeAIProxyServer:
             # Use the /completion endpoint that we know works (returns 200)
             endpoint = f"{self.base_url}/api/organizations/{org_id}/chat_conversations/{self.conversation_uuid}/completion"
 
-            print(f"🌐 Using endpoint: {endpoint}")
-
-            # Use CloudScraper with streaming enabled for SSE
-            print("📡 Making request with CloudScraper (stream=True for SSE)...")
-
+            # Make request with streaming
             response = self.session.post(
                 endpoint,
                 json=claude_request,
                 headers={
                     "Accept": "text/event-stream",
-                    "Accept-Encoding": "identity",  # Disable gzip - breaks iter_lines()
+                    "Accept-Encoding": "identity",  # Disable gzip
                 },
-                stream=True,  # Enable streaming for SSE!
+                stream=True,
                 timeout=60
             )
-
-            print(f"📊 Claude.ai response status: {response.status_code}")
-            print(f"📋 Response headers: {dict(response.headers)}")
 
             if response.status_code != 200:
                 # Try to get error details
@@ -328,108 +321,88 @@ class ClaudeAIProxyServer:
                     content_type="application/json"
                 )
 
-            # Read the full response NOW (before generator runs)
-            # CloudScraper doesn't work well with deferred streaming in Flask
-            print("📥 Reading full response from claude.ai...")
-
-            # Try response.content first (forces full read)
-            try:
-                full_response_bytes = response.content
-                print(f"✅ Got {len(full_response_bytes)} bytes via response.content")
-
-                # Show first 500 chars
-                if full_response_bytes:
-                    preview = full_response_bytes[:500].decode('utf-8', errors='replace')
-                    print(f"📄 Preview: {preview}")
-            except Exception as e:
-                print(f"❌ Failed to read response.content: {e}")
-                full_response_bytes = b""
-
-            # Now create generator that streams from memory
+            # Stream response back in Anthropic format (TRUE streaming!)
             def generate():
-                print("🌊 Streaming SSE response from memory...")
-
                 try:
                     text_parts = []
                     event_count = 0
+                    buffer = b""
 
-                    # Process complete lines from the full response
-                    lines = full_response_bytes.split(b'\n')
-
-                    for line_bytes in lines:
-                        if not line_bytes:
+                    # Read from response stream directly for real-time streaming
+                    # chunk_size=64 for responsiveness without killing performance
+                    for chunk in response.iter_content(chunk_size=64, decode_unicode=False):
+                        if not chunk:
                             continue
 
-                        try:
-                            line = line_bytes.decode('utf-8').strip()
-                        except UnicodeDecodeError as e:
-                            print(f"⚠️  Unicode decode error: {e}")
-                            continue
+                        buffer += chunk
 
-                        if not line:
-                            continue
+                        # Process complete lines as they arrive
+                        while b'\n' in buffer:
+                            line_bytes, buffer = buffer.split(b'\n', 1)
 
-                        # SSE format: "data: {json}" or "event: type"
-                        if line.startswith('data: '):
-                            event_count += 1
-                            data_str = line[6:]  # Remove "data: " prefix
-
-                            # Check for SSE end marker
-                            if data_str == '[DONE]':
-                                print("🏁 Received [DONE] marker")
-                                break
-
-                            try:
-                                data = json.loads(data_str)
-
-                                # Claude.ai already sends Anthropic SSE format!
-                                # Just check for text_delta in content_block_delta events
-                                if data.get("type") == "content_block_delta":
-                                    delta = data.get("delta", {})
-                                    if delta.get("type") == "text_delta":
-                                        text = delta.get("text", "")
-                                        text_parts.append(text)
-
-                                # Filter out claude.ai-specific events that SDK doesn't understand
-                                event_type = data.get("type")
-                                if event_type == "message_limit":
-                                    # Skip claude.ai specific event
-                                    continue
-
-                                # Add usage stats to message_delta if missing (for SDK compatibility)
-                                if event_type == "message_delta":
-                                    # usage should be at top level, not in delta!
-                                    if "usage" not in data:
-                                        data["usage"] = {
-                                            "output_tokens": len(text_parts)  # Approximate
-                                        }
-
-                                # Pass through events to client
-                                yield f'data: {json.dumps(data)}\n\n'
-
-                                # Check for message_stop
-                                if event_type == "message_stop":
-                                    break
-
-                            except json.JSONDecodeError as e:
-                                print(f"⚠️  JSON parse error: {e}")
+                            if not line_bytes:
                                 continue
 
-                        elif line.startswith('event: '):
-                            # Pass through event lines too
-                            yield f'{line}\n'
+                            try:
+                                line = line_bytes.decode('utf-8').strip()
+                            except UnicodeDecodeError:
+                                continue
 
-                    print(f"🏁 Processing complete")
-                    print(f"💬 Total events: {event_count}")
-                    print(f"💬 Total text parts: {len(text_parts)}")
-                    if text_parts:
-                        combined = ''.join(text_parts)
-                        print(f"💬 Combined text ({len(combined)} chars): {combined[:200]}...")
+                            if not line:
+                                continue
 
-                    # No need to send completion marker - claude.ai already sent message_stop
+                            # SSE format: "data: {json}" or "event: type"
+                            if line.startswith('data: '):
+                                event_count += 1
+                                data_str = line[6:]  # Remove "data: " prefix
+
+                                # Check for SSE end marker
+                                if data_str == '[DONE]':
+                                    break
+
+                                try:
+                                    data = json.loads(data_str)
+
+                                    # Claude.ai already sends Anthropic SSE format!
+                                    # Just check for text_delta in content_block_delta events
+                                    if data.get("type") == "content_block_delta":
+                                        delta = data.get("delta", {})
+                                        if delta.get("type") == "text_delta":
+                                            text = delta.get("text", "")
+                                            text_parts.append(text)
+
+                                    # Filter out claude.ai-specific events that SDK doesn't understand
+                                    event_type = data.get("type")
+                                    if event_type == "message_limit":
+                                        # Skip claude.ai specific event
+                                        continue
+
+                                    # Add usage stats to message_delta if missing (for SDK compatibility)
+                                    if event_type == "message_delta":
+                                        # usage should be at top level, not in delta!
+                                        if "usage" not in data:
+                                            data["usage"] = {
+                                                "output_tokens": len(text_parts)  # Approximate
+                                            }
+
+                                    # Pass through events to client
+                                    yield f'data: {json.dumps(data)}\n\n'
+
+                                    # Check for message_stop
+                                    if event_type == "message_stop":
+                                        break
+
+                                except json.JSONDecodeError as e:
+                                    # Silently skip bad JSON
+                                    continue
+
+                            elif line.startswith('event: '):
+                                # Pass through event lines too
+                                yield f'{line}\n'
+
+                    # Done streaming
 
                 except Exception as e:
-                    print(f"❌ Streaming error: {e}")
                     import traceback
                     traceback.print_exc()
 
