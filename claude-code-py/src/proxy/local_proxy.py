@@ -195,16 +195,27 @@ class ClaudeAIProxyServer:
                 content = msg.get("content", "")
 
                 if isinstance(content, list):
-                    # Handle structured content
-                    content = " ".join([
-                        block.get("text", "") if isinstance(block, dict) else str(block)
-                        for block in content
-                    ])
+                    # Handle structured content (including tool_result blocks)
+                    text_parts = []
+                    for block in content:
+                        if isinstance(block, dict):
+                            # Extract text from different block types
+                            if block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
+                            elif block.get("type") == "tool_result":
+                                # For tool results, use the content
+                                tool_content = block.get("content", "")
+                                if tool_content:
+                                    text_parts.append(f"Tool result: {tool_content}")
+                        else:
+                            text_parts.append(str(block))
 
-                return content
+                    content = " ".join(text_parts) if text_parts else "Continue"
 
-        # Fallback: return empty string if no user message found
-        return ""
+                return content if content else "Continue"
+
+        # Fallback: if no user message, return "Continue" to keep conversation going
+        return "Continue"
 
     def proxy_messages_endpoint(self, anthropic_request: dict):
         """Proxy /v1/messages request to claude.ai.

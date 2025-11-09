@@ -321,9 +321,12 @@ class ClaudeAPIClient:
                     tool_id = tool_block.get("id", "")
                     tool_input = tool_block.get("input", {})
 
-                    # Execute tool locally
+                    print(f"🔧 [API Client] Executing tool: {tool_name} with input keys: {list(tool_input.keys())}")
+
+                    # Execute tool locally (registry handles alias mapping)
                     if self.tool_registry:
                         result = self.tool_registry.execute_tool(tool_name, **tool_input)
+                        print(f"   Result: status={result.status.value}, output_len={len(result.output) if result.output else 0}")
 
                         # Yield execution event
                         yield {
