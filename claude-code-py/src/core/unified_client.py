@@ -72,7 +72,10 @@ class UnifiedClaudeClient:
         Yields:
             Event dicts with streaming response
         """
+        print(f"🔀 [UnifiedClient] chat_streaming() called. backend_type={self.backend_type}, backend={type(self.backend).__name__}")
+
         if self.backend_type == "oauth":
+            print(f"✅ [UnifiedClient] Using OAuth backend")
             # Use OAuth backend (Bearer auth with tools support)
             yield from self.backend.chat_streaming(
                 messages=messages,

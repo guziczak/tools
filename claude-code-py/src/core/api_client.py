@@ -116,6 +116,7 @@ class ClaudeAPIClient:
         # Use appropriate backend
         if self.backend_type == "oauth":
             # Use unified client (OAuth backend)
+            print(f"🔧 [API Client] OAuth path! self.client type: {type(self.client).__name__}")
             assistant_message = []
 
             for event in self.client.chat_streaming(
