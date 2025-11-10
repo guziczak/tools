@@ -480,7 +480,7 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
 
     # Try ports 8765, 8766, 8767... until we find one available
     original_port = port
-    max_attempts = 10
+    max_attempts = 20  # Increased from 10 to handle multiple CLI instances
     for attempt in range(max_attempts):
         try_port = port + attempt
 
