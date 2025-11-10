@@ -8,13 +8,13 @@ from anthropic.types import MessageStreamEvent
 
 try:
     # Try relative import first (preferred)
-    from ..logging.logger import get_logger
+    from .logging.logger import get_logger
 except ImportError:
     # Fallback for direct script execution
     import sys  # noqa: E402
     from pathlib import Path  # noqa: E402
 
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+    sys.path.insert(0, str(Path(__file__).parent))
     from logging.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
