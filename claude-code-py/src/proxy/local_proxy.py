@@ -396,6 +396,8 @@ class ClaudeAIProxyServer:
 
                                     # Check for message_stop
                                     if event_type == "message_stop":
+                                        # Send [DONE] marker so oauth_anthropic_client knows stream ended
+                                        yield "data: [DONE]\n\n"
                                         break
 
                                 except json.JSONDecodeError as e:
