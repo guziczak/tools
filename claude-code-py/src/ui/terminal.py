@@ -331,6 +331,10 @@ class TerminalUI:
 
             elif event_type == "tool_round_complete":
                 self.console.print(f"[dim cyan]Tool execution complete: {content}[/dim cyan]\n")
+                # CRITICAL: Reset message_done for next round!
+                # After tool execution, Claude will send new response
+                # We need to process those events, not skip them
+                message_done = False
 
             elif event_type == "message_done":
                 # Message streaming complete
