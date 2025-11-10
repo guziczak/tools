@@ -182,27 +182,16 @@ class OAuthAnthropicClient:
                         # DEBUG: Always log content_block_start to see what we get
                         logger.debug("content_block_start: type=%s", block_type)
 
-                        # CRITICAL: If claude.ai executed tool itself (tool_result), STOP streaming!
-                        # Claude.ai /completion has built-in tools and will execute them
-                        # We need to STOP and re-execute locally instead
+                        # Claude.ai has built-in tools and may return tool_result
+                        # IGNORE tool_result completely - we execute tools locally
+                        # Only collect tool_use blocks (requests for us to execute)
                         if block_type == "tool_result":
-                            logger.warning(
-                                "Claude.ai executed tool (tool_result detected) - FORCING LOCAL EXECUTION"
+                            logger.debug(
+                                "Claude.ai tool_result detected - ignoring (tools execute locally)"
                             )
-                            # Yield tool_calls_complete if we collected any tools
-                            if current_tool_blocks:
-                                logger.debug(
-                                    "Collected %d tool blocks before tool_result",
-                                    len(current_tool_blocks),
-                                )
-                                yield {
-                                    "type": "tool_calls_complete",
-                                    "tool_blocks": current_tool_blocks,
-                                    "content": "",
-                                }
-                            # Force stop streaming
-                            yield {"type": "message_done", "content": ""}
-                            return  # Exit generator completely
+                            # Don't stop streaming - continue to get text response
+                            # Just skip this block type (don't collect it)
+                            continue
 
                         # ONLY collect tool_use blocks (NOT tool_result, thinking, text, etc.)
                         if block_type == "tool_use":
