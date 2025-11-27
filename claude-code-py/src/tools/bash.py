@@ -92,6 +92,11 @@ class BashTool(BaseTool):
                     )
 
             # Build command based on platform
+            # On Windows, prepend chcp 65001 to force UTF-8 encoding
+            if sys.platform == "win32":
+                # Wrap command to set UTF-8 codepage
+                command = f"chcp 65001 > nul && {command}"
+
             full_command = self.shell + [command]
 
             # Execute command
@@ -176,6 +181,10 @@ class BashInteractiveTool(BaseTool):
             ToolResult with command output
         """
         try:
+            # On Windows, prepend chcp 65001 to force UTF-8 encoding
+            if sys.platform == "win32":
+                command = f"chcp 65001 > nul && {command}"
+
             full_command = self.bash_tool.shell + [command]
 
             # Execute with input

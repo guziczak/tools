@@ -321,9 +321,14 @@ class ClaudeAIProxyServer:
             # Stream response back in Anthropic format (TRUE streaming!)
             def generate():
                 try:
+                    import codecs
+
                     text_parts = []
                     event_count = 0
                     buffer = b""
+
+                    # Use incremental decoder to handle UTF-8 sequences split across chunks
+                    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
 
                     # Read from response stream directly for real-time streaming
                     # chunk_size=64 for responsiveness without killing performance
@@ -340,9 +345,14 @@ class ClaudeAIProxyServer:
                             if not line_bytes:
                                 continue
 
+                            # Use incremental decoder - handles incomplete UTF-8 sequences
+                            # This prevents UnicodeDecodeError when Polish chars (ą,ę,ć)
+                            # are split across chunk boundaries
                             try:
-                                line = line_bytes.decode("utf-8").strip()
-                            except UnicodeDecodeError:
+                                line = decoder.decode(line_bytes, final=False).strip()
+                            except Exception as e:
+                                # Should never happen with 'replace' errors, but just in case
+                                logger.error(f"Failed to decode line: {e}")
                                 continue
 
                             if not line:
@@ -408,7 +418,15 @@ class ClaudeAIProxyServer:
                                 # Pass through event lines too
                                 yield f"{line}\n"
 
-                    # Done streaming
+                    # Finalize decoder - process any remaining bytes
+                    if buffer:
+                        try:
+                            remaining = decoder.decode(buffer, final=True).strip()
+                            if remaining and remaining.startswith("data: "):
+                                # Process final line if it's valid SSE
+                                yield f"{remaining}\n\n"
+                        except Exception as e:
+                            logger.debug(f"Skipping final buffer: {e}")
 
                 except Exception as e:
                     import traceback

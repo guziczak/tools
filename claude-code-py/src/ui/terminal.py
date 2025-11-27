@@ -25,6 +25,7 @@ class TerminalUI:
         self.thinking_visible = False  # Start with thinking hidden
         self.thinking_token_count = 0
         self.thinking_live = None  # Live display for thinking progress
+        self.thinking_done_flag = False  # Prevent duplicate print_thinking_done() calls
 
     def print_banner(self):
         """Print welcome banner."""
@@ -48,14 +49,23 @@ class TerminalUI:
         """Get input from user with rich prompt."""
         # CRITICAL: Ensure Live display is closed before asking for input
         # Otherwise Rich's Live will interfere with Prompt
+        # DEFENSIVE: Try multiple times to ensure Live is truly closed
         if self.thinking_live:
             try:
+                # First attempt: normal close
                 self.thinking_live.__exit__(None, None, None)
             except Exception:
-                pass
-            self.thinking_live = None
+                pass  # Ignore if already closed
+            finally:
+                self.thinking_live = None
 
-        self.console.print()  # Blank line
+        # DEFENSIVE: Force flush console to ensure all output is displayed
+        try:
+            self.console.file.flush()
+        except Exception:
+            pass  # Ignore if flush fails
+
+        self.console.print()  # Blank line before prompt
         try:
             user_input = Prompt.ask("[bold green]You[/bold green]", console=self.console)
             return user_input.strip()
@@ -73,8 +83,10 @@ class TerminalUI:
     def print_thinking(self, content: str, is_start: bool = False):
         """Print thinking content with collapsible /thinking toggle."""
         if is_start:
+            print(f"🐛 [DEBUG print_thinking] is_start=True, creating new Live")
             self.thinking_buffer = []
             self.thinking_token_count = 0
+            self.thinking_done_flag = False  # Reset flag for new thinking session
             # Start Live display for progress
             self.thinking_live = Live(
                 Text("∴ Thinking... (type '/thinking' to show)", style="dim cyan"),
@@ -91,6 +103,7 @@ class TerminalUI:
             if self.thinking_live:
                 # More realistic time estimate: ~50 tokens/sec for thinking
                 seconds = max(1, self.thinking_token_count // 50)
+                print(f"🐛 [DEBUG print_thinking] Updating Live: {seconds}s · {self.thinking_token_count} tokens")
                 self.thinking_live.update(
                     Text(
                         f"∴ Thinking... {seconds}s · {self.thinking_token_count} tokens (type '/thinking' to show)",
@@ -103,7 +116,16 @@ class TerminalUI:
                 self.console.print(content, end="", style="dim italic cyan")
 
     def print_thinking_done(self):
-        """Print when thinking is complete."""
+        """Print when thinking is complete.
+
+        Uses thinking_done_flag to prevent duplicate calls (defensive programming).
+        """
+        # DEFENSIVE: Prevent duplicate calls
+        if self.thinking_done_flag:
+            return  # Already called, skip silently
+
+        self.thinking_done_flag = True  # Mark as done
+
         # Stop Live display (only if it's active)
         if self.thinking_live:
             try:
@@ -111,9 +133,6 @@ class TerminalUI:
             except Exception:
                 pass  # Ignore errors if already closed
             self.thinking_live = None
-        else:
-            # Already closed, skip
-            return
 
         if self.thinking_buffer:
             # Final summary
@@ -196,10 +215,12 @@ class TerminalUI:
             content = event["content"]
 
             if event_type == "thinking_start":
+                print(f"🐛 [DEBUG] thinking_start received! in_thinking={in_thinking}")
                 in_thinking = True
                 self.print_thinking("", is_start=True)
 
             elif event_type == "thinking" and in_thinking:
+                print(f"🐛 [DEBUG] thinking delta! len={len(content) if content else 0}")
                 self.print_thinking(content)
 
             elif event_type == "text_start":
@@ -209,7 +230,9 @@ class TerminalUI:
 
             elif event_type == "text":
                 self.text_buffer.append(content)
-                self.console.print(content, end="")
+                # FIX: Use file.write + flush to prevent broken fragments (stream_response)
+                self.console.file.write(content)
+                self.console.file.flush()
 
             elif event_type == "tool_use_start":
                 in_tool_use = True
@@ -286,10 +309,12 @@ class TerminalUI:
             content = event.get("content", "")
 
             if event_type == "thinking_start":
+                print(f"🐛 [DEBUG] thinking_start received! in_thinking={in_thinking}")
                 in_thinking = True
                 self.print_thinking("", is_start=True)
 
             elif event_type == "thinking" and in_thinking:
+                print(f"🐛 [DEBUG] thinking delta! len={len(content) if content else 0}")
                 self.print_thinking(content)
 
             elif event_type == "text_start":
@@ -299,7 +324,9 @@ class TerminalUI:
 
             elif event_type == "text":
                 self.text_buffer.append(content)
-                self.console.print(content, end="")
+                # FIX: Use file.write + flush to prevent broken fragments (stream_response_with_tools)
+                self.console.file.write(content)
+                self.console.file.flush()
 
             elif event_type == "tool_use_detected":
                 # Tool use was detected in streaming
@@ -331,10 +358,14 @@ class TerminalUI:
 
             elif event_type == "tool_round_complete":
                 self.console.print(f"[dim cyan]Tool execution complete: {content}[/dim cyan]\n")
-                # CRITICAL: Reset message_done for next round!
+                # CRITICAL: Reset state for next round!
                 # After tool execution, Claude will send new response
                 # We need to process those events, not skip them
                 message_done = False
+                # Reset thinking state to prevent duplicates in next round
+                # But DON'T clear thinking_buffer (user needs it for /thinking command!)
+                in_thinking = False
+                self.thinking_done_flag = False  # Allow new thinking in next round
 
             elif event_type == "message_done":
                 # Message streaming complete

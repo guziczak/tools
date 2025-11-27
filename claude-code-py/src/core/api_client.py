@@ -797,7 +797,26 @@ class ClaudeAPIClient:
 
                 # Check if Claude requested tools
                 if not tool_blocks:
-                    # No tools requested, done
+                    # DEBUG: Show assistant_text content
+                    print(f"🔍 [DEBUG] assistant_text length: {len(assistant_text)}, content: {assistant_text[:100] if assistant_text else 'EMPTY'}")
+
+                    # No tools requested, check if Claude actually responded with text
+                    if not assistant_text and tool_round > 0:
+                        # Claude only sent thinking, no text response!
+                        # This is a claude.ai bug - force a text response
+                        print(f"⚠️  [API Client] No text response in round {tool_round}, forcing text response")
+
+                        # Send a VERY explicit follow-up to force text
+                        self.add_message("user", "Please provide your complete answer in TEXT (not just thinking). Answer my question now.")
+
+                        # Continue loop to get text response
+                        tool_round += 1
+                        if tool_round >= max_tool_rounds:
+                            print(f"❌ [API Client] Max rounds reached, giving up")
+                            break
+                        continue
+
+                    # No tools and we have text, done
                     print(f"✅ [API Client] No tools in round {tool_round}, exiting loop")
                     break
 
@@ -869,7 +888,22 @@ class ClaudeAPIClient:
                 self.messages.append({"role": "assistant", "content": assistant_message_content})
 
                 # Add tool results as user message
-                self.messages.append({"role": "user", "content": tool_results})
+                # IMPORTANT: Include tool_results AND a STRONG prompt to ensure Claude responds
+                # Sometimes Claude doesn't respond after tools if it thinks it already answered
+                # We FORCE a response by being very explicit
+                tool_results_with_prompt = tool_results + [
+                    {
+                        "type": "text",
+                        "text": (
+                            "\n\n[IMPORTANT] Now that you have the tool results, you MUST:\n"
+                            "1. Analyze the results I provided above\n"
+                            "2. Answer my original question completely\n"
+                            "3. Provide your analysis in normal text (not just thinking)\n\n"
+                            "Please respond now with your complete answer."
+                        )
+                    }
+                ]
+                self.messages.append({"role": "user", "content": tool_results_with_prompt})
 
                 yield {
                     "type": "tool_round_complete",

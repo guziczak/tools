@@ -660,8 +660,20 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
 
 def main():
     """Main entry point."""
-    app = ClaudeCodePy()
-    app.run()
+    # Check if CLI mode (arguments provided)
+    if len(sys.argv) > 1:
+        # CLI mode - execute command
+        from cli_mode import run_cli_mode
+
+        command = sys.argv[1]
+        args = sys.argv[2:]
+
+        exit_code = run_cli_mode(command, args)
+        sys.exit(exit_code)
+    else:
+        # REPL mode - interactive session
+        app = ClaudeCodePy()
+        app.run()
 
 
 if __name__ == "__main__":

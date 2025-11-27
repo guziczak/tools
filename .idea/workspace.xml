@@ -4,7 +4,15 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c1b1f202-ffc4-4650-bb28-743b8e96d582" name="Changes" comment="" />
+    <list default="true" id="c1b1f202-ffc4-4650-bb28-743b8e96d582" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/claude-code-py/wierszyk.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-py/src/core/api_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/core/api_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-py/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-py/src/proxy/local_proxy.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/proxy/local_proxy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-py/src/tools/bash.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/tools/bash.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude-code-py/src/ui/terminal.py" beforeDir="false" afterPath="$PROJECT_DIR$/claude-code-py/src/ui/terminal.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -31,10 +39,15 @@
     &quot;git-widget-placeholder&quot;: &quot;cc4sonnet4.5&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/User/Documents/GitHub/tools&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/User/Documents/GitHub/tools/claude-code-py&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;terminal&quot;
   }
 }</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\User\Documents\GitHub\tools\claude-code-py" />
+    </key>
+  </component>
   <component name="RunManager">
     <configuration default="true" type="JetRunConfigurationType">
       <module name="tools2" />
