@@ -170,10 +170,41 @@ class DockerManager:
         for _ in range(10):
             if cls.container_status() == ContainerStatus.RUNNING:
                 logger.info("Container is ready")
+                # Ensure gemini symlink exists
+                cls._ensure_gemini_symlink()
                 return True
             time.sleep(1)
 
         return False
+
+    @classmethod
+    def _ensure_gemini_symlink(cls) -> None:
+        """Ensure gemini symlink exists in container (handles Gemini CLI updates)."""
+        try:
+            # Check if gemini command works
+            result = cls._run_command(
+                ["docker", "exec", cls.CONTAINER_NAME, "which", "gemini"],
+                timeout=10,
+                check=False
+            )
+            if result.returncode == 0:
+                return  # Symlink exists and works
+
+            # Try to create symlink for new path (dist/index.js)
+            logger.info("Creating gemini symlink...")
+            cls._run_command(
+                ["docker", "exec", cls.CONTAINER_NAME, "bash", "-c",
+                 "if [ -f /usr/local/lib/node_modules/@google/gemini-cli/dist/index.js ]; then "
+                 "ln -sf /usr/local/lib/node_modules/@google/gemini-cli/dist/index.js /usr/local/bin/gemini && "
+                 "chmod +x /usr/local/bin/gemini; "
+                 "elif [ -f /usr/local/lib/node_modules/@google/gemini-cli/build/cli.js ]; then "
+                 "ln -sf /usr/local/lib/node_modules/@google/gemini-cli/build/cli.js /usr/local/bin/gemini && "
+                 "chmod +x /usr/local/bin/gemini; fi"],
+                timeout=10,
+                check=False
+            )
+        except Exception as e:
+            logger.debug(f"Failed to ensure gemini symlink: {e}")
 
     @classmethod
     def _convert_path_for_docker(cls, path: str) -> str:
