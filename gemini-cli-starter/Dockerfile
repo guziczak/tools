@@ -6,6 +6,30 @@ RUN npm install -g typescript eslint prettier && \
     npm install -g @google/gemini-cli && \
     npm cache clean --force
 
+# Build stage for Python 3.12.4
+FROM ubuntu:24.04 AS python-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential wget \
+    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    libncursesw5-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and compile Python 3.12.4
+RUN wget -q https://www.python.org/ftp/python/3.12.4/Python-3.12.4.tgz && \
+    tar xzf Python-3.12.4.tgz && \
+    cd Python-3.12.4 && \
+    ./configure --enable-optimizations --prefix=/opt/python3.12 && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf Python-3.12.4 Python-3.12.4.tgz
+
+# Install pip 24.0
+RUN /opt/python3.12/bin/python3 -m pip install --upgrade pip==24.0
+
 # Main image
 FROM ubuntu:24.04
 
@@ -19,6 +43,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Copy Node.js and packages from build stage
 COPY --from=node-builder /usr/local/bin/node /usr/local/bin/
 COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+# Copy Python 3.12.4 from build stage
+COPY --from=python-builder /opt/python3.12 /opt/python3.12
 
 # Create symlinks and install base packages
 RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
@@ -49,19 +76,16 @@ RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python 3.12.4 from deadsnakes PPA
-RUN add-apt-repository ppa:deadsnakes/ppa -y && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    python3.12 python3.12-venv python3.12-dev python3.12-distutils && \
-    # Set python3.12 as default python3 and python
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
-    # Install pip 24.0
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 && \
-    python3.12 -m pip install --upgrade pip==24.0 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Set up Python 3.12.4 symlinks and install runtime dependencies
+RUN ln -sf /opt/python3.12/bin/python3 /usr/local/bin/python3 && \
+    ln -sf /opt/python3.12/bin/python3 /usr/local/bin/python && \
+    ln -sf /opt/python3.12/bin/pip3 /usr/local/bin/pip3 && \
+    ln -sf /opt/python3.12/bin/pip3 /usr/local/bin/pip && \
+    # Install runtime dependencies for compiled Python
+    apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 zlib1g libbz2-1.0 libreadline8 libsqlite3-0 \
+    libncursesw6 libxml2 libxmlsec1 libffi8 liblzma5 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Eclipse Temurin JDK 17 from Adoptium repository
 RUN apt-get update && apt-get install -y --no-install-recommends wget apt-transport-https gnupg && \
@@ -125,7 +149,7 @@ RUN apt-get update && apt-get install -y \
 # Install Composer for PHP
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Python packages
+# Python packages (using compiled Python 3.12.4)
 RUN python3 -m pip install --no-cache-dir \
     requests beautifulsoup4 \
     pytest black flake8 \
