@@ -50,14 +50,18 @@ COPY --from=python-builder /opt/python3.12 /opt/python3.12
 # Create symlinks and install base packages
 RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    # Create symlink for gemini
-    if [ -f "/usr/local/lib/node_modules/@google/gemini-cli/build/cli.js" ]; then \
+    # Create symlink for gemini (handles both old build/cli.js and new dist/index.js paths)
+    if [ -f "/usr/local/lib/node_modules/@google/gemini-cli/dist/index.js" ]; then \
+        ln -sf /usr/local/lib/node_modules/@google/gemini-cli/dist/index.js /usr/local/bin/gemini && \
+        chmod +x /usr/local/bin/gemini && \
+        echo "Gemini symlink created (dist/index.js)"; \
+    elif [ -f "/usr/local/lib/node_modules/@google/gemini-cli/build/cli.js" ]; then \
         ln -sf /usr/local/lib/node_modules/@google/gemini-cli/build/cli.js /usr/local/bin/gemini && \
         chmod +x /usr/local/bin/gemini && \
-        echo "Gemini symlink created successfully"; \
+        echo "Gemini symlink created (build/cli.js)"; \
     else \
-        echo "Gemini CLI cli.js not found, trying alternative path"; \
-        find /usr/local/lib/node_modules -name "cli.js" -path "*gemini*" 2>/dev/null || true; \
+        echo "ERROR: Gemini CLI entry point not found!"; \
+        ls -la /usr/local/lib/node_modules/@google/gemini-cli/ 2>/dev/null || true; \
     fi && \
     # Symlinks for other tools
     ln -s /usr/local/lib/node_modules/typescript/bin/tsc /usr/local/bin/tsc 2>/dev/null || true && \
