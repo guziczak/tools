@@ -3,12 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        BUILD_VERSION: ${DOCKER_TARGET:-full}
-      cache_from:
-        - gemini-cli-container:${DOCKER_TARGET:-full}
-        - gemini-cli-container:latest
-    image: gemini-cli-container:${DOCKER_TARGET:-full}
+    image: gemini-cli-container:latest
     container_name: gemini-persistent
     hostname: gemini-container
     stdin_open: true
@@ -65,10 +60,12 @@ services:
         source: gemini-usr-local
         target: /usr/local
 
-      # Node modules persistence
-      - type: volume
-        source: gemini-node-modules
-        target: /usr/lib/node_modules
+      # Session tracking volume for PID files
+      - type: bind
+        source: /tmp/gemini-sessions
+        target: /var/run/gemini-sessions
+        bind:
+          create_host_path: true
 
     # Working directory
     working_dir: /home/gemini
@@ -76,16 +73,21 @@ services:
     # Restart policy
     restart: unless-stopped
 
-    # Keep container running
-    command: ["sleep", "infinity"]
+    # Add init for proper signal handling
+    init: true
+
+    # Add tmpfs for temporary files
+    tmpfs:
+      - /tmp:size=1G,mode=1777
+
+    # Remove command - supervisord will be started by Dockerfile CMD
 
     # Environment variables
     environment:
       - DOCKER_BUILDKIT=1
       - COMPOSE_DOCKER_CLI_BUILD=1
-      - GEMINI_CONTAINER_VERSION=${DOCKER_TARGET:-full}
       - TZ=${TZ:-UTC}
-      - NODE_ENV=production
+      - GEMINI_MODEL=gemini-3.0-pro
 
     # Resource limits
     deploy:
@@ -97,9 +99,9 @@ services:
           cpus: '${GEMINI_CPU_RESERVATION:-1}'
           memory: ${GEMINI_MEMORY_RESERVATION:-2G}
 
-    # Health check
+    # Enhanced health check - verify supervisord and cleanup daemon are functioning
     healthcheck:
-      test: ["CMD", "which", "gemini"]
+      test: ["CMD-SHELL", "supervisorctl status gemini-cleanup | grep -q RUNNING && [ -f /var/run/gemini-cleanup.health ] && [ $(($(date +%s) - $(cat /var/run/gemini-cleanup.health))) -lt 120 ]"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -123,5 +125,3 @@ volumes:
     name: gemini-apt-lib
   gemini-usr-local:
     name: gemini-usr-local
-  gemini-node-modules:
-    name: gemini-node-modules

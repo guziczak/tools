@@ -8,8 +8,12 @@ import sys
 import time
 import logging
 import hashlib
+import tempfile
+import json
+import uuid
+import secrets
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -87,20 +91,17 @@ class DockerManager:
 
     @classmethod
     def get_available_image(cls) -> str:
-        """Find available image tag (full or slim)."""
-        base_name = "gemini-cli-container"
+        """Find available image."""
+        image_name = "gemini-cli-container:latest"
 
-        # Check in preferred order
-        for tag in ["full", "slim"]:
-            image_name = f"{base_name}:{tag}"
-            if cls.check_image_exists(image_name):
-                logger.debug(f"Found image: {image_name}")
-                return image_name
+        if cls.check_image_exists(image_name):
+            logger.debug(f"Found image: {image_name}")
+            return image_name
 
-        # If no tagged version found, raise error
+        # If image not found, raise error
         raise DockerContainerError(
             "No Gemini CLI image found!\n"
-            "Expected: gemini-cli-container:full or gemini-cli-container:slim\n"
+            "Expected: gemini-cli-container:latest\n"
             "Run: python setup.py"
         )
 
@@ -220,14 +221,16 @@ class PathValidator:
 
     @classmethod
     def generate_session_id(cls, project_path: Path) -> str:
-        """Generate unique session ID for project + timestamp."""
-        # Use SHA256 hash of absolute path + timestamp
-        path_str = str(project_path.resolve())
-        timestamp = str(time.time())
-        combined = f"{path_str}:{timestamp}"
-        hash_obj = hashlib.sha256(combined.encode('utf-8'))
-        # Take first 8 characters of hex digest
-        return hash_obj.hexdigest()[:8]
+        """Generate cryptographically secure session ID."""
+        # Combine multiple sources of entropy
+        timestamp = str(time.time_ns())
+        random_bytes = secrets.token_hex(16)
+        uuid_part = str(uuid.uuid4())
+        project_hash = hashlib.sha256(str(project_path).encode()).hexdigest()[:8]
+
+        # Create final session ID
+        components = [project_hash, timestamp[-6:], random_bytes[:8], uuid_part[:8]]
+        return "-".join(components)
 
 
 class GeminiLauncher:
@@ -238,6 +241,8 @@ class GeminiLauncher:
         self.path_validator = PathValidator()
         self.image_name = None  # Will be set dynamically
         self.debug = debug
+        self.session_dir = Path("/var/run/gemini-sessions")
+        self.host_session_dir = Path("/tmp/gemini-sessions")
 
     def ensure_prerequisites(self) -> None:
         """Ensure Docker is running and image exists."""
@@ -274,7 +279,7 @@ class GeminiLauncher:
     def _check_api_key_setup(self) -> None:
         """Check if GEMINI_API_KEY is configured."""
         env_file = Path(__file__).parent / ".env"
-        
+
         # Check if .env exists and contains GEMINI_API_KEY
         api_key_exists = False
         if env_file.exists():
@@ -282,14 +287,14 @@ class GeminiLauncher:
                 content = f.read()
                 if 'GEMINI_API_KEY=' in content and not content.strip().endswith('GEMINI_API_KEY='):
                     api_key_exists = True
-        
+
         if not api_key_exists:
-            logger.warning("\n⚠️  GEMINI_API_KEY not found in .env file!")
+            logger.warning("\nGEMINI_API_KEY not found in .env file!")
             logger.info("\nTo use Gemini CLI with API Key authentication:")
             logger.info("1. Go to: https://aistudio.google.com/apikey")
             logger.info("2. Click 'Create API Key'")
             logger.info("3. Copy the generated key")
-            
+
             response = input("\nDo you want to set up API key now? (y/n): ")
             if response.lower() == 'y':
                 api_key = input("Paste your Gemini API key: ").strip()
@@ -303,16 +308,16 @@ class GeminiLauncher:
                             lines = env_content.split('\n')
                             lines = [line for line in lines if not line.startswith('GEMINI_API_KEY=')]
                             env_content = '\n'.join(lines).strip()
-                    
+
                     # Add new API key
                     if env_content and not env_content.endswith('\n'):
                         env_content += '\n'
                     env_content += f"GEMINI_API_KEY={api_key}\n"
-                    
+
                     with open(env_file, 'w') as f:
                         f.write(env_content)
-                    
-                    logger.info("✅ API key saved to .env file!")
+
+                    logger.info("API key saved to .env file!")
                     logger.info("You can now use Gemini CLI without browser authentication.")
                 else:
                     logger.warning("No API key provided. You'll need to authenticate via browser.")
@@ -325,9 +330,59 @@ class GeminiLauncher:
         setup_path = Path(__file__).parent / "setup.py"
         subprocess.run([sys.executable, str(setup_path)])
 
+    def _create_session_pid_file(self, session_id: str, project_path: Path) -> Optional[Path]:
+        """Create PID file for session tracking using volume mount."""
+        try:
+            # Ensure host session directory exists
+            self.host_session_dir.mkdir(parents=True, exist_ok=True)
+
+            pid_file = self.host_session_dir / f"{session_id}.pid"
+
+            # Create PID data in JSON format
+            pid_data = {
+                "host_pid": os.getpid(),
+                "timestamp": time.time(),
+                "project_path": str(project_path),
+                "session_id": session_id,
+                "user": os.getenv("USER", "unknown"),
+                "gemini_version": os.getenv("GEMINI_VERSION", "unknown")
+            }
+
+            # Atomic write using temporary file
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=self.host_session_dir,
+                delete=False,
+                prefix='.tmp_',
+                suffix='.pid'
+            ) as tmp_file:
+                json.dump(pid_data, tmp_file, indent=2)
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+
+            # Atomic rename
+            os.rename(tmp_file.name, pid_file)
+            os.chmod(pid_file, 0o644)
+
+            logger.debug(f"Created PID file: {pid_file}")
+            return pid_file
+
+        except Exception as e:
+            logger.error(f"Failed to create PID file: {e}")
+            return None
+
+    def _remove_session_pid_file(self, pid_file: Path) -> None:
+        """Remove PID file for session."""
+        try:
+            if pid_file and pid_file.exists():
+                pid_file.unlink()
+                logger.debug(f"Removed PID file: {pid_file}")
+        except Exception as e:
+            logger.warning(f"Failed to remove PID file: {e}")
+
     def launch_gemini(self, args: List[str]) -> None:
         """Launch Gemini CLI in isolated container using docker exec."""
-        # Validate current directory
+        # Validate current working directory (where user runs the command)
         try:
             project_path = self.path_validator.validate_project_path(os.getcwd())
         except DockerContainerError as e:
@@ -336,6 +391,9 @@ class GeminiLauncher:
 
         # Generate unique session ID
         session_id = self.path_validator.generate_session_id(project_path)
+
+        # Create PID file for session tracking
+        pid_file = self._create_session_pid_file(session_id, project_path)
 
         # Convert project path for Docker - this will be used inside container
         docker_project_path = self.docker_manager._convert_path_for_docker(str(project_path))
@@ -351,9 +409,10 @@ class GeminiLauncher:
             "-it",
             "-e", f"PROJECT_PATH={docker_project_path}",
             "-e", f"SESSION_ID={session_id}",
-            "-e", f"HOST_PROJECT_PATH={str(project_path)}"
+            "-e", f"HOST_PROJECT_PATH={str(project_path)}",
+            "-e", "GEMINI_MODEL=gemini-3.0-pro",
         ]
-        
+
         # Pass GEMINI_API_KEY from .env file if exists
         env_file = Path(__file__).parent / ".env"
         if env_file.exists():
@@ -364,22 +423,15 @@ class GeminiLauncher:
                         if api_key:
                             docker_cmd.extend(["-e", f"GEMINI_API_KEY={api_key}"])
                         break
-        
+
         docker_cmd.extend([
             self.docker_manager.CONTAINER_NAME,
             "/usr/local/bin/gemini-namespace-launcher"
-        ])
+        ] + args)
 
-        # Add gemini command if no args provided
-        if not args:
-            docker_cmd.append("gemini")
-        else:
-            docker_cmd.extend(args)
-
-        logger.info(f"Starting Gemini session in: {project_path}")
-        logger.info(f"Session ID: {session_id}")
-        
+        logger.info(f"Starting Gemini 3 Pro session in: {project_path}")
         if self.debug:
+            logger.debug(f"Session ID: {session_id}")
             logger.debug(f"Docker project path: {docker_project_path}")
             logger.debug(f"Docker command: {' '.join(docker_cmd)}")
 
@@ -396,6 +448,10 @@ class GeminiLauncher:
         except Exception as e:
             logger.error(f"Error: {e}")
             sys.exit(1)
+        finally:
+            # Clean up PID file when done
+            if pid_file:
+                self._remove_session_pid_file(pid_file)
 
     def _handle_gemini_not_found(self) -> None:
         """Handle case when Gemini is not found."""
@@ -406,15 +462,6 @@ class GeminiLauncher:
         logger.info(f"  docker run -it {self.image_name} npm list -g @google/gemini-cli")
 
 
-def display_welcome() -> None:
-    """Display welcome message with Gemini branding."""
-    print("\n" + "="*50)
-    print("🚀 Gemini CLI Docker Launcher")
-    print("="*50)
-    print("AI-powered coding assistant in your terminal")
-    print("Powered by Gemini 2.5 Pro\n")
-
-
 def main() -> None:
     """Main entry point."""
     # Check for debug flag
@@ -423,9 +470,6 @@ def main() -> None:
         # Remove debug flag from args
         sys.argv = [arg for arg in sys.argv if arg not in ["--debug", "-v", "--verbose"]]
         logging.getLogger().setLevel(logging.DEBUG)
-
-    # Display welcome
-    display_welcome()
 
     launcher = GeminiLauncher(debug=debug)
 
