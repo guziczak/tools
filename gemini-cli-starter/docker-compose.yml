@@ -56,13 +56,10 @@ services:
         source: gemini-apt-lib
         target: /var/lib/apt
 
-      - type: volume
-        source: gemini-usr-local
-        target: /usr/local
-
-      # Session tracking volume for PID files
+      # Session tracking volume for session files
+      # On Windows, Docker Desktop handles the path translation
       - type: bind
-        source: /tmp/gemini-sessions
+        source: ${TEMP:-/tmp}/gemini-sessions
         target: /var/run/gemini-sessions
         bind:
           create_host_path: true
@@ -87,7 +84,6 @@ services:
       - DOCKER_BUILDKIT=1
       - COMPOSE_DOCKER_CLI_BUILD=1
       - TZ=${TZ:-UTC}
-      - GEMINI_MODEL=gemini-3.0-pro
 
     # Resource limits
     deploy:
@@ -123,5 +119,3 @@ volumes:
     name: gemini-apt-cache
   gemini-apt-lib:
     name: gemini-apt-lib
-  gemini-usr-local:
-    name: gemini-usr-local

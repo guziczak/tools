@@ -14,7 +14,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONIOENCODING=utf-8 \
     LC_ALL=C.UTF-8 \
     LANG=C.UTF-8 \
-    GEMINI_MODEL=gemini-3.0-pro \
     PATH="/usr/local/lib/node_modules/.bin:${PATH}"
 
 # Copy Node.js and packages from build stage
@@ -144,18 +143,23 @@ RUN python3 -m pip install --no-cache-dir \
     echo "Warning: PyTorch installation failed, continuing without it"
 
 # Chrome environment variables
-RUN echo 'export CHROME_BIN=/usr/bin/chromium-browser' >> /etc/bash.bashrc && \
-    echo 'export CHROME_DRIVER=/usr/bin/chromedriver' >> /etc/bash.bashrc
+RUN cat >> /etc/bash.bashrc << 'EOF'
+export CHROME_BIN=/usr/bin/chromium-browser
+export CHROME_DRIVER=/usr/bin/chromedriver
+EOF
 
-# Helper script for Gemini CLI installation + fix permissions for auto-update
-RUN echo '#!/bin/bash' > /usr/local/bin/check-gemini && \
-    echo 'if ! which gemini >/dev/null 2>&1; then' >> /usr/local/bin/check-gemini && \
-    echo '    echo "Gemini CLI not found. Attempting to install..."' >> /usr/local/bin/check-gemini && \
-    echo '    npm install -g @google/gemini-cli && \' >> /usr/local/bin/check-gemini && \
-    echo '    echo "Gemini CLI installed successfully!" || \' >> /usr/local/bin/check-gemini && \
-    echo '    echo "Failed to install Gemini CLI"' >> /usr/local/bin/check-gemini && \
-    echo 'fi' >> /usr/local/bin/check-gemini && \
-    chmod +x /usr/local/bin/check-gemini && \
+# Helper script for Gemini CLI installation
+RUN cat > /usr/local/bin/check-gemini << 'EOF'
+#!/bin/bash
+if ! which gemini >/dev/null 2>&1; then
+    echo "Gemini CLI not found. Attempting to install..."
+    npm install -g @google/gemini-cli && \
+        echo "Gemini CLI installed successfully!" || \
+        echo "Failed to install Gemini CLI"
+fi
+EOF
+
+RUN chmod +x /usr/local/bin/check-gemini && \
     # Fix npm permissions for gemini user to allow auto-updates
     chown -R gemini:gemini /usr/local/lib/node_modules/@google 2>/dev/null || true && \
     chmod -R 755 /usr/local/lib/node_modules/@google 2>/dev/null || true && \
@@ -172,287 +176,208 @@ RUN mkdir -p /opt/gemini-shared/{bin,lib,share} \
     chmod -R g+w /opt/gemini-shared && \
     chgrp -R root /opt/gemini-shared
 
-# Create namespace launcher script
-RUN echo '#!/bin/bash' > /usr/local/bin/gemini-namespace-launcher && \
-    echo '# Gemini namespace launcher - creates isolated mount namespace per session' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '# Get project path from environment' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'PROJECT_PATH="${PROJECT_PATH}"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'SESSION_ID="${SESSION_ID}"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '# Check if project path provided' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'if [ -z "$PROJECT_PATH" ]; then' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    echo "Error: No project path provided"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    exit 1' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'fi' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '# Cleanup function for unmounting' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'cleanup() {' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Unmount project directory' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    umount /project 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Unmount hidden directories' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    umount /host 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    umount /host_c 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    umount /host_d 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Clean temporary directories' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    rm -rf /tmp/empty 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '}' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '# Create new mount namespace and run Gemini' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'exec unshare --mount bash -c '"'"'' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Inside new namespace' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Set up trap for cleanup' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    trap cleanup EXIT INT TERM' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Check which host mount to use' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    if [ -d "/host${PROJECT_PATH}" ]; then' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        # Linux style mount' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        PROJECT_SOURCE="/host${PROJECT_PATH}"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    elif [ -d "/host_c${PROJECT_PATH#/c}" ] && [[ "$PROJECT_PATH" == /c/* ]]; then' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        # Windows C: drive' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        PROJECT_SOURCE="/host_c${PROJECT_PATH#/c}"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    elif [ -d "/host_d${PROJECT_PATH#/d}" ] && [[ "$PROJECT_PATH" == /d/* ]]; then' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        # Windows D: drive' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        PROJECT_SOURCE="/host_d${PROJECT_PATH#/d}"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    else' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        echo "Error: Cannot find project at any expected mount point"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        echo "Looking for: $PROJECT_PATH"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        echo "Tried: /host${PROJECT_PATH}, /host_c${PROJECT_PATH#/c}, /host_d${PROJECT_PATH#/d}"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        exit 1' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    fi' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Create project mount point' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mkdir -p /project' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Bind mount the project' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mount --bind "$PROJECT_SOURCE" /project' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mount -o remount,rw /project' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Hide host mounts from the user' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Create empty directories to hide the mounts' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mkdir -p /tmp/empty' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mount --bind /tmp/empty /host 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mount --bind /tmp/empty /host_c 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    mount --bind /tmp/empty /host_d 2>/dev/null || true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Switch to gemini user and run gemini' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    cd /project' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Set default Gemini configuration for Gemini 3 Pro' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    if [ ! -f "/home/gemini/.gemini/settings.json" ]; then' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        mkdir -p /home/gemini/.gemini' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        cat > /home/gemini/.gemini/settings.json << GEMINI_CONFIG' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '{' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '  "theme": "Default",' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '  "selectedAuthType": "oauth-personal",' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '  "previewEnabled": true' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '}' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo 'GEMINI_CONFIG' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '        chown -R gemini:gemini /home/gemini/.gemini' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    fi' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    ' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    # Run gemini with Gemini 3 Pro model' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo '    exec sudo -u gemini -E HOME=/home/gemini bash -c "cd /project && gemini -m pro \$@"' >> /usr/local/bin/gemini-namespace-launcher && \
-    echo ''"'"' "$@"' >> /usr/local/bin/gemini-namespace-launcher && \
-    chmod +x /usr/local/bin/gemini-namespace-launcher
+# Create namespace launcher script using heredoc for clarity
+RUN cat > /usr/local/bin/gemini-namespace-launcher << 'LAUNCHER_EOF'
+#!/bin/bash
+# Gemini namespace launcher - creates isolated mount namespace per session
 
-# Create enhanced session cleanup daemon with security measures
+# Get project path from environment
+PROJECT_PATH="${PROJECT_PATH}"
+SESSION_ID="${SESSION_ID}"
+
+# Check if project path provided
+if [ -z "$PROJECT_PATH" ]; then
+    echo "Error: No project path provided"
+    exit 1
+fi
+
+# Store original arguments
+GEMINI_ARGS=("$@")
+
+# Cleanup function for unmounting
+cleanup() {
+    umount /project 2>/dev/null || true
+    umount /host 2>/dev/null || true
+    umount /host_c 2>/dev/null || true
+    umount /host_d 2>/dev/null || true
+    rm -rf /tmp/empty 2>/dev/null || true
+}
+
+# Export for use in subshell
+export PROJECT_PATH SESSION_ID
+export -f cleanup
+
+# Create new mount namespace and run Gemini
+exec unshare --mount bash << NAMESPACE_EOF
+    # Set up trap for cleanup
+    trap cleanup EXIT INT TERM
+
+    # Check which host mount to use
+    if [ -d "/host\${PROJECT_PATH}" ]; then
+        PROJECT_SOURCE="/host\${PROJECT_PATH}"
+    elif [ -d "/host_c\${PROJECT_PATH#/c}" ] && [[ "\$PROJECT_PATH" == /c/* ]]; then
+        PROJECT_SOURCE="/host_c\${PROJECT_PATH#/c}"
+    elif [ -d "/host_d\${PROJECT_PATH#/d}" ] && [[ "\$PROJECT_PATH" == /d/* ]]; then
+        PROJECT_SOURCE="/host_d\${PROJECT_PATH#/d}"
+    else
+        echo "Error: Cannot find project at any expected mount point"
+        echo "Looking for: \$PROJECT_PATH"
+        exit 1
+    fi
+
+    # Create and mount project directory
+    mkdir -p /project
+    mount --bind "\$PROJECT_SOURCE" /project
+    mount -o remount,rw /project
+
+    # Hide host mounts from the user
+    mkdir -p /tmp/empty
+    mount --bind /tmp/empty /host 2>/dev/null || true
+    mount --bind /tmp/empty /host_c 2>/dev/null || true
+    mount --bind /tmp/empty /host_d 2>/dev/null || true
+
+    cd /project
+
+    # Set default Gemini configuration
+    if [ ! -f "/home/gemini/.gemini/settings.json" ]; then
+        mkdir -p /home/gemini/.gemini
+        cat > /home/gemini/.gemini/settings.json << 'GEMINI_CONFIG'
+{
+  "theme": "Default",
+  "selectedAuthType": "oauth-personal",
+  "previewEnabled": true
+}
+GEMINI_CONFIG
+        chown -R gemini:gemini /home/gemini/.gemini
+    fi
+
+    # Run gemini as gemini user with Gemini 3 Pro model
+    exec sudo -u gemini -E HOME=/home/gemini gemini -m pro
+NAMESPACE_EOF
+LAUNCHER_EOF
+
+RUN chmod +x /usr/local/bin/gemini-namespace-launcher
+
+# Create session cleanup daemon - cleans up stale session files based on file age
 RUN cat > /usr/local/bin/gemini-cleanup-daemon << 'EOF'
 #!/bin/bash
 set -euo pipefail
 
 # Configuration
 readonly SESSION_DIR="/var/run/gemini-sessions"
-readonly STALE_TIMEOUT=120
-readonly CHECK_INTERVAL=30
+readonly STALE_TIMEOUT=300  # 5 minutes - session file not updated means session ended
+readonly CHECK_INTERVAL=60
 readonly LOCK_FILE="/var/lock/gemini-cleanup.lock"
 readonly LOG_FILE="/var/log/gemini-cleanup.log"
 readonly MAX_LOG_SIZE=$((10 * 1024 * 1024))  # 10MB
 
-# Ensure session directory exists with proper permissions
-mkdir -p "$SESSION_DIR"
-chown gemini-cleanup:gemini-cleanup "$SESSION_DIR"
-chmod 755 "$SESSION_DIR"
-
 # Log rotation
 rotate_log() {
-    if [[ -f "$LOG_FILE" ]] && [[ $(stat -c%s "$LOG_FILE") -gt $MAX_LOG_SIZE ]]; then
+    if [[ -f "$LOG_FILE" ]] && [[ $(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt $MAX_LOG_SIZE ]]; then
         mv "$LOG_FILE" "${LOG_FILE}.old"
         touch "$LOG_FILE"
-        chown gemini-cleanup:gemini-cleanup "$LOG_FILE"
     fi
 }
 
-# Enhanced logging with levels
+# Logging function
 log() {
     local level="${1:-INFO}"
     local message="${2:-}"
     rotate_log
-    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [${level}] ${message}" | tee -a "$LOG_FILE"
+    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [${level}] ${message}" >> "$LOG_FILE" 2>/dev/null || true
 }
 
-# Validate PID file content
-validate_pid_file() {
-    local pidfile="$1"
-    local content
-
-    # Read file with timeout
-    if ! content=$(timeout 1s cat "$pidfile" 2>/dev/null); then
-        return 1
-    fi
-
-    # Try to parse as JSON first (new format)
-    if command -v jq >/dev/null && jq -e . >/dev/null 2>&1 <<< "$content"; then
-        local pid=$(jq -r '.host_pid // empty' <<< "$content")
-        if [[ "$pid" =~ ^[0-9]+$ ]]; then
-            echo "$pid"
-            return 0
-        fi
-    fi
-
-    # Fallback to old format (first line is PID)
-    local pid=$(echo "$content" | head -1)
-    if [[ "$pid" =~ ^[0-9]+$ ]]; then
-        echo "$pid"
-        return 0
-    fi
-
-    return 1
-}
-
-# Check if process belongs to Gemini session
-is_gemini_process() {
-    local pid="$1"
-
-    # Check if process exists and belongs to gemini session
-    if [[ -r "/proc/$pid/environ" ]]; then
-        # Check for Gemini session markers
-        if grep -q "GEMINI_SESSION\|SESSION_ID" "/proc/$pid/environ" 2>/dev/null; then
-            return 0
-        fi
-    fi
-
-    return 1
-}
-
-# Cleanup function with enhanced safety
+# Cleanup stale session files based on modification time
 cleanup_sessions() {
     local cleanup_count=0
-    local error_count=0
+
+    # Ensure session directory exists
+    if [[ ! -d "$SESSION_DIR" ]]; then
+        return 0
+    fi
 
     # Acquire exclusive lock with timeout
     exec 200>"$LOCK_FILE"
     if ! flock -w 5 -x 200; then
-        log "WARN" "Failed to acquire lock within 5 seconds"
-        return
+        log "WARN" "Failed to acquire lock"
+        return 1
     fi
 
-    log "DEBUG" "Starting cleanup cycle"
-
-    # Process each PID file
-    find "$SESSION_DIR" -name "*.pid" -type f -print0 | while IFS= read -r -d '' pidfile; do
-        local basename=$(basename "$pidfile")
+    # Find and remove stale session files
+    # Session files are removed by the host when session ends normally
+    # This daemon only cleans up orphaned files (e.g., after crash)
+    while IFS= read -r -d '' session_file; do
+        local basename
+        basename=$(basename "$session_file")
 
         # Skip temporary files
         if [[ "$basename" =~ ^\.tmp_ ]]; then
             continue
         fi
 
-        # Validate and extract PID
-        local pid
-        if ! pid=$(validate_pid_file "$pidfile"); then
-            log "WARN" "Invalid PID file format: $pidfile"
-            rm -f "$pidfile"
-            ((error_count++))
-            continue
-        fi
+        # Check file age based on modification time
+        local file_mtime file_age
+        file_mtime=$(stat -c %Y "$session_file" 2>/dev/null || echo 0)
+        file_age=$(( $(date +%s) - file_mtime ))
 
-        # Check if process exists
-        if ! kill -0 "$pid" 2>/dev/null; then
-            log "INFO" "Removing PID file for dead process: $basename (PID: $pid)"
-            rm -f "$pidfile"
-            ((cleanup_count++))
-            continue
-        fi
-
-        # Verify it's actually a Gemini process
-        if ! is_gemini_process "$pid"; then
-            log "WARN" "PID $pid is not a Gemini process, removing stale PID file"
-            rm -f "$pidfile"
-            ((error_count++))
-            continue
-        fi
-
-        # Check if terminal is attached (active session)
-        if find /proc/$pid/fd -type l -exec readlink {} \; 2>/dev/null | grep -q "pts/"; then
-            log "DEBUG" "Skipping active session: $basename (PID: $pid)"
-            continue
-        fi
-
-        # Check session age
-        local file_age=$(( $(date +%s) - $(stat -c %Y "$pidfile" 2>/dev/null || echo 0) ))
         if [[ $file_age -gt $STALE_TIMEOUT ]]; then
-            log "INFO" "Terminating stale session: $basename (PID: $pid, age: ${file_age}s)"
-
-            # Send SIGTERM first, then SIGKILL if needed
-            if kill -TERM "$pid" 2>/dev/null; then
-                sleep 2
-                if kill -0 "$pid" 2>/dev/null; then
-                    log "WARN" "Process $pid didn't terminate, sending SIGKILL"
-                    kill -KILL "$pid" 2>/dev/null || true
-                fi
-            fi
-
-            rm -f "$pidfile"
-            ((cleanup_count++))
+            log "INFO" "Removing stale session file: $basename (age: ${file_age}s)"
+            rm -f "$session_file"
+            ((cleanup_count++)) || true
         fi
-    done
+    done < <(find "$SESSION_DIR" -name "*.session" -type f -print0 2>/dev/null)
 
     # Release lock
     flock -u 200
 
-    if [[ $cleanup_count -gt 0 ]] || [[ $error_count -gt 0 ]]; then
-        log "INFO" "Cleanup cycle completed: $cleanup_count sessions cleaned, $error_count errors"
+    if [[ $cleanup_count -gt 0 ]]; then
+        log "INFO" "Cleanup completed: $cleanup_count stale sessions removed"
     fi
+
+    return 0
 }
 
-# Health monitoring file
+# Health monitoring
 update_health() {
-    echo "$(date +%s)" > /var/run/gemini-cleanup.health
+    echo "$(date +%s)" > /var/run/gemini-cleanup.health 2>/dev/null || true
 }
 
 # Signal handlers
-trap 'log "INFO" "Received SIGTERM, shutting down..."; exit 0' TERM
-trap 'log "INFO" "Received SIGINT, shutting down..."; exit 0' INT
+trap 'log "INFO" "Shutting down..."; exit 0' TERM INT
 
-# Main loop with health monitoring
+# Main loop
 log "INFO" "Gemini cleanup daemon started (PID: $$)"
 
 while true; do
     update_health
-
-    # Run cleanup
-    if ! cleanup_sessions; then
-        log "ERROR" "Cleanup cycle failed"
-    fi
-
+    cleanup_sessions || log "WARN" "Cleanup cycle had issues"
     sleep "$CHECK_INTERVAL"
 done
 EOF
 
 RUN chmod +x /usr/local/bin/gemini-cleanup-daemon && \
-    chown root:root /usr/local/bin/gemini-cleanup-daemon && \
-    # Simple session starter script
-    printf '#!/bin/bash\ncd "${1:-/project}"\nshift\nexec gemini "$@"\n' > /usr/local/bin/gemini-session && \
-    chmod +x /usr/local/bin/gemini-session && \
-    # Configuration for shared tools
-    echo 'export PATH="/opt/gemini-shared/bin:$PATH"' >> /etc/bash.bashrc && \
-    echo 'export PYTHONPATH="/opt/gemini-shared/lib/python3/site-packages:$PYTHONPATH"' >> /etc/bash.bashrc && \
-    echo 'export NODE_PATH="/opt/gemini-shared/lib/node_modules:$NODE_PATH"' >> /etc/bash.bashrc && \
-    echo 'export PIP_TARGET="/opt/gemini-shared/lib/python3/site-packages"' >> /etc/bash.bashrc && \
-    echo 'export NPM_CONFIG_PREFIX="/opt/gemini-shared"' >> /etc/bash.bashrc && \
-    echo 'export GEMINI_MODEL="gemini-3.0-pro"' >> /etc/bash.bashrc
+    chown root:root /usr/local/bin/gemini-cleanup-daemon
+
+# Simple session starter script
+RUN cat > /usr/local/bin/gemini-session << 'EOF'
+#!/bin/bash
+cd "${1:-/project}"
+shift
+exec gemini "$@"
+EOF
+
+RUN chmod +x /usr/local/bin/gemini-session
+
+# Configuration for shared tools - append to bash.bashrc
+RUN cat >> /etc/bash.bashrc << 'EOF'
+
+# Gemini shared tools configuration
+export PATH="/opt/gemini-shared/bin:$PATH"
+export PYTHONPATH="/opt/gemini-shared/lib/python3/site-packages:$PYTHONPATH"
+export NODE_PATH="/opt/gemini-shared/lib/node_modules:$NODE_PATH"
+export PIP_TARGET="/opt/gemini-shared/lib/python3/site-packages"
+export NPM_CONFIG_PREFIX="/opt/gemini-shared"
+EOF
 
 # Configure supervisord with enhanced settings
 RUN mkdir -p /var/log/supervisor && \

@@ -241,8 +241,12 @@ class GeminiLauncher:
         self.path_validator = PathValidator()
         self.image_name = None  # Will be set dynamically
         self.debug = debug
-        self.session_dir = Path("/var/run/gemini-sessions")
-        self.host_session_dir = Path("/tmp/gemini-sessions")
+        # Session tracking - use platform-appropriate temp directory
+        if sys.platform == "win32":
+            self.host_session_dir = Path(os.environ.get("TEMP", "C:/Temp")) / "gemini-sessions"
+        else:
+            self.host_session_dir = Path("/tmp/gemini-sessions")
+        self.container_session_dir = Path("/var/run/gemini-sessions")
 
     def ensure_prerequisites(self) -> None:
         """Ensure Docker is running and image exists."""
@@ -330,22 +334,21 @@ class GeminiLauncher:
         setup_path = Path(__file__).parent / "setup.py"
         subprocess.run([sys.executable, str(setup_path)])
 
-    def _create_session_pid_file(self, session_id: str, project_path: Path) -> Optional[Path]:
-        """Create PID file for session tracking using volume mount."""
+    def _create_session_file(self, session_id: str, project_path: Path) -> Optional[Path]:
+        """Create session file for tracking. Updated periodically to show activity."""
         try:
             # Ensure host session directory exists
             self.host_session_dir.mkdir(parents=True, exist_ok=True)
 
-            pid_file = self.host_session_dir / f"{session_id}.pid"
+            session_file = self.host_session_dir / f"{session_id}.session"
 
-            # Create PID data in JSON format
-            pid_data = {
-                "host_pid": os.getpid(),
-                "timestamp": time.time(),
-                "project_path": str(project_path),
+            # Create session data in JSON format
+            session_data = {
                 "session_id": session_id,
-                "user": os.getenv("USER", "unknown"),
-                "gemini_version": os.getenv("GEMINI_VERSION", "unknown")
+                "project_path": str(project_path),
+                "started_at": time.time(),
+                "last_active": time.time(),
+                "user": os.getenv("USERNAME", os.getenv("USER", "unknown")),
             }
 
             # Atomic write using temporary file
@@ -354,31 +357,30 @@ class GeminiLauncher:
                 dir=self.host_session_dir,
                 delete=False,
                 prefix='.tmp_',
-                suffix='.pid'
+                suffix='.session'
             ) as tmp_file:
-                json.dump(pid_data, tmp_file, indent=2)
+                json.dump(session_data, tmp_file, indent=2)
                 tmp_file.flush()
                 os.fsync(tmp_file.fileno())
 
             # Atomic rename
-            os.rename(tmp_file.name, pid_file)
-            os.chmod(pid_file, 0o644)
+            os.rename(tmp_file.name, session_file)
 
-            logger.debug(f"Created PID file: {pid_file}")
-            return pid_file
+            logger.debug(f"Created session file: {session_file}")
+            return session_file
 
         except Exception as e:
-            logger.error(f"Failed to create PID file: {e}")
+            logger.error(f"Failed to create session file: {e}")
             return None
 
-    def _remove_session_pid_file(self, pid_file: Path) -> None:
-        """Remove PID file for session."""
+    def _remove_session_file(self, session_file: Path) -> None:
+        """Remove session file."""
         try:
-            if pid_file and pid_file.exists():
-                pid_file.unlink()
-                logger.debug(f"Removed PID file: {pid_file}")
+            if session_file and session_file.exists():
+                session_file.unlink()
+                logger.debug(f"Removed session file: {session_file}")
         except Exception as e:
-            logger.warning(f"Failed to remove PID file: {e}")
+            logger.warning(f"Failed to remove session file: {e}")
 
     def launch_gemini(self, args: List[str]) -> None:
         """Launch Gemini CLI in isolated container using docker exec."""
@@ -392,8 +394,8 @@ class GeminiLauncher:
         # Generate unique session ID
         session_id = self.path_validator.generate_session_id(project_path)
 
-        # Create PID file for session tracking
-        pid_file = self._create_session_pid_file(session_id, project_path)
+        # Create session file for tracking
+        session_file = self._create_session_file(session_id, project_path)
 
         # Convert project path for Docker - this will be used inside container
         docker_project_path = self.docker_manager._convert_path_for_docker(str(project_path))
@@ -410,7 +412,6 @@ class GeminiLauncher:
             "-e", f"PROJECT_PATH={docker_project_path}",
             "-e", f"SESSION_ID={session_id}",
             "-e", f"HOST_PROJECT_PATH={str(project_path)}",
-            "-e", "GEMINI_MODEL=gemini-3.0-pro",
         ]
 
         # Pass GEMINI_API_KEY from .env file if exists
@@ -449,9 +450,9 @@ class GeminiLauncher:
             logger.error(f"Error: {e}")
             sys.exit(1)
         finally:
-            # Clean up PID file when done
-            if pid_file:
-                self._remove_session_pid_file(pid_file)
+            # Clean up session file when done
+            if session_file:
+                self._remove_session_file(session_file)
 
     def _handle_gemini_not_found(self) -> None:
         """Handle case when Gemini is not found."""
