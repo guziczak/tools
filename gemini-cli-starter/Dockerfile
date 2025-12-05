@@ -183,7 +183,9 @@ if ! which gemini >/dev/null 2>&1; then
 fi
 EOF
 
-RUN chmod +x /usr/local/bin/check-gemini && \
+# Fix line endings for check-gemini script
+RUN sed -i 's/\r$//' /usr/local/bin/check-gemini && \
+    chmod +x /usr/local/bin/check-gemini && \
     # Fix npm permissions for gemini user to allow auto-updates
     chown -R gemini:gemini /usr/local/lib/node_modules/@google 2>/dev/null || true && \
     chmod -R 755 /usr/local/lib/node_modules/@google 2>/dev/null || true && \
@@ -280,7 +282,9 @@ GEMINI_CONFIG
 NAMESPACE_EOF
 LAUNCHER_EOF
 
-RUN chmod +x /usr/local/bin/gemini-namespace-launcher
+# Fix line endings and set executable
+RUN sed -i 's/\r$//' /usr/local/bin/gemini-namespace-launcher && \
+    chmod +x /usr/local/bin/gemini-namespace-launcher
 
 # Create session cleanup daemon - cleans up stale session files based on file age
 RUN cat > /usr/local/bin/gemini-cleanup-daemon << 'EOF'
@@ -379,7 +383,9 @@ while true; do
 done
 EOF
 
-RUN chmod +x /usr/local/bin/gemini-cleanup-daemon && \
+# Fix line endings and set executable
+RUN sed -i 's/\r$//' /usr/local/bin/gemini-cleanup-daemon && \
+    chmod +x /usr/local/bin/gemini-cleanup-daemon && \
     chown root:root /usr/local/bin/gemini-cleanup-daemon
 
 # Simple session starter script
@@ -390,7 +396,9 @@ shift
 exec gemini "$@"
 EOF
 
-RUN chmod +x /usr/local/bin/gemini-session
+# Fix line endings and set executable
+RUN sed -i 's/\r$//' /usr/local/bin/gemini-session && \
+    chmod +x /usr/local/bin/gemini-session
 
 # Configuration for shared tools - append to bash.bashrc
 RUN cat >> /etc/bash.bashrc << 'EOF'
