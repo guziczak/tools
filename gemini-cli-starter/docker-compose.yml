@@ -24,15 +24,15 @@ services:
     # Volume configuration
     volumes:
       # Host filesystem mounts - adjust based on OS
-      # For Windows, mount specific drives
+      # For Windows with WSL 2 backend, use /mnt/c format
       - type: bind
-        source: C:/
+        source: /mnt/c
         target: /host_c
         read_only: true
 
-      # Uncomment if you have D: drive
+      # Uncomment if you have D: drive (use /mnt/d format)
       # - type: bind
-      #   source: D:/
+      #   source: /mnt/d
       #   target: /host_d
       #   read_only: true
 

@@ -188,15 +188,25 @@ class DockerManager:
                         capture_output=True,
                         text=True
                     )
-                    if result.returncode != 0:
-                        error_msg = result.stderr or result.stdout or "Unknown error"
-                        # Check for retryable errors
-                        if "Hyper-V socket" in error_msg or "timed out" in error_msg.lower():
-                            if attempt < cls.MAX_RETRIES - 1:
-                                wait_time = cls.RETRY_DELAY * (attempt + 1)
-                                logger.warning(f"Container creation failed (connection issue), retrying in {wait_time}s... ({attempt + 1}/{cls.MAX_RETRIES})")
-                                time.sleep(wait_time)
-                                continue
+
+                    # Check both returncode and stderr for errors
+                    # docker-compose sometimes returns 0 but has errors in stderr
+                    error_msg = result.stderr or ""
+                    has_error = result.returncode != 0 or "Error" in error_msg or "error" in error_msg
+
+                    if has_error:
+                        error_msg = error_msg or result.stdout or "Unknown error"
+                        # Check for retryable errors (volume issues, connection issues)
+                        retryable = (
+                            "Hyper-V socket" in error_msg or
+                            "timed out" in error_msg.lower() or
+                            "invalid volume specification" in error_msg.lower()
+                        )
+                        if retryable and attempt < cls.MAX_RETRIES - 1:
+                            wait_time = cls.RETRY_DELAY * (attempt + 1)
+                            logger.warning(f"Container creation failed, retrying in {wait_time}s... ({attempt + 1}/{cls.MAX_RETRIES})")
+                            time.sleep(wait_time)
+                            continue
                         logger.error(f"Failed to create container: {error_msg}")
                         return False
 
