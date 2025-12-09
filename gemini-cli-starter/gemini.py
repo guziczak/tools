@@ -55,6 +55,8 @@ class DockerManager:
 
     CONTAINER_NAME = "gemini-persistent"
     DEFAULT_TIMEOUT = 5
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2  # seconds
 
     @staticmethod
     def _run_command(
@@ -90,13 +92,29 @@ class DockerManager:
             return False
 
     @classmethod
-    def get_available_image(cls) -> str:
-        """Find available image."""
+    def get_available_image(cls, extended_retry: bool = False) -> str:
+        """Find available image.
+
+        Args:
+            extended_retry: If True, use extended retries (for post-build scenarios)
+        """
         image_name = "gemini-cli-container:latest"
 
+        # Quick check first - if image exists, return immediately
         if cls.check_image_exists(image_name):
-            logger.debug(f"Found image: {image_name}")
             return image_name
+
+        # If extended retry requested (after build), wait longer
+        if extended_retry:
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                if cls.check_image_exists(image_name):
+                    logger.debug(f"Found image: {image_name}")
+                    return image_name
+                if attempt < max_attempts - 1:
+                    wait_time = min(2 * (attempt + 1), 10)
+                    logger.info(f"Waiting for image to be available... ({attempt + 1}/{max_attempts})")
+                    time.sleep(wait_time)
 
         # If image not found, raise error
         raise DockerContainerError(
@@ -106,17 +124,31 @@ class DockerManager:
         )
 
     @classmethod
-    def check_docker_running(cls) -> bool:
-        """Check if Docker daemon is running."""
-        try:
-            result = cls._run_command(
-                ["docker", "version"],
-                timeout=2,
-                check=False
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
+    def check_docker_running(cls, retries: int = 3) -> bool:
+        """Check if Docker daemon is running with retries."""
+        for attempt in range(retries):
+            try:
+                result = cls._run_command(
+                    ["docker", "version"],
+                    timeout=5,
+                    check=False
+                )
+                if result.returncode == 0:
+                    return True
+                # Check for Hyper-V socket error - worth retrying
+                if "Hyper-V socket" in result.stderr or "timed out" in result.stderr.lower():
+                    if attempt < retries - 1:
+                        logger.warning(f"Docker connection issue, retrying... ({attempt + 1}/{retries})")
+                        time.sleep(cls.RETRY_DELAY * (attempt + 1))
+                        continue
+            except subprocess.TimeoutExpired:
+                if attempt < retries - 1:
+                    logger.warning(f"Docker timeout, retrying... ({attempt + 1}/{retries})")
+                    time.sleep(cls.RETRY_DELAY * (attempt + 1))
+                    continue
+            except Exception:
+                pass
+        return False
 
     @classmethod
     def container_status(cls) -> ContainerStatus:
@@ -136,44 +168,80 @@ class DockerManager:
 
     @classmethod
     def start_container(cls, debug: bool = False) -> bool:
-        """Start the persistent container."""
-        status = cls.container_status()
+        """Start the persistent container with retries."""
+        for attempt in range(cls.MAX_RETRIES):
+            try:
+                status = cls.container_status()
 
-        if status == ContainerStatus.RUNNING:
-            logger.info("Container already running")
-            return True
+                if status == ContainerStatus.RUNNING:
+                    logger.info("Container already running")
+                    return True
 
-        if status == ContainerStatus.NOT_EXISTS:
-            logger.info("Creating persistent container...")
-            logger.info("First container creation may take 2-3 minutes...")
-            setup_dir = Path(__file__).parent
-            result = subprocess.run(
-                ["docker-compose", "-f", str(setup_dir / "docker-compose.yml"), "up", "-d"],
-                check=False,
-                capture_output=False
-            )
-            if result.returncode != 0:
-                logger.error("Failed to create container")
-                return False
+                if status == ContainerStatus.NOT_EXISTS:
+                    logger.info("Creating persistent container...")
+                    if attempt == 0:
+                        logger.info("First container creation may take 2-3 minutes...")
+                    setup_dir = Path(__file__).parent
+                    result = subprocess.run(
+                        ["docker-compose", "-f", str(setup_dir / "docker-compose.yml"), "up", "-d"],
+                        check=False,
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        error_msg = result.stderr or result.stdout or "Unknown error"
+                        # Check for retryable errors
+                        if "Hyper-V socket" in error_msg or "timed out" in error_msg.lower():
+                            if attempt < cls.MAX_RETRIES - 1:
+                                wait_time = cls.RETRY_DELAY * (attempt + 1)
+                                logger.warning(f"Container creation failed (connection issue), retrying in {wait_time}s... ({attempt + 1}/{cls.MAX_RETRIES})")
+                                time.sleep(wait_time)
+                                continue
+                        logger.error(f"Failed to create container: {error_msg}")
+                        return False
 
-        elif status == ContainerStatus.STOPPED:
-            logger.info("Starting existing container...")
-            result = cls._run_command(
-                ["docker", "start", cls.CONTAINER_NAME],
-                check=False
-            )
-            if result.returncode != 0:
-                logger.error("Failed to start container")
-                return False
+                elif status == ContainerStatus.STOPPED:
+                    logger.info("Starting existing container...")
+                    result = cls._run_command(
+                        ["docker", "start", cls.CONTAINER_NAME],
+                        timeout=30,
+                        check=False
+                    )
+                    if result.returncode != 0:
+                        if attempt < cls.MAX_RETRIES - 1:
+                            wait_time = cls.RETRY_DELAY * (attempt + 1)
+                            logger.warning(f"Container start failed, retrying in {wait_time}s... ({attempt + 1}/{cls.MAX_RETRIES})")
+                            time.sleep(wait_time)
+                            continue
+                        logger.error("Failed to start container")
+                        return False
 
-        # Wait for container to be ready
-        for _ in range(10):
-            if cls.container_status() == ContainerStatus.RUNNING:
-                logger.info("Container is ready")
-                # Ensure gemini symlink exists
-                cls._ensure_gemini_symlink()
-                return True
-            time.sleep(1)
+                # Wait for container to be ready
+                for wait_attempt in range(15):
+                    if cls.container_status() == ContainerStatus.RUNNING:
+                        logger.info("Container is ready")
+                        # Ensure gemini symlink exists with retries
+                        cls._ensure_gemini_symlink()
+                        return True
+                    time.sleep(1)
+
+                # Container didn't become ready
+                if attempt < cls.MAX_RETRIES - 1:
+                    logger.warning(f"Container not ready, retrying... ({attempt + 1}/{cls.MAX_RETRIES})")
+                    time.sleep(cls.RETRY_DELAY)
+                    continue
+
+            except subprocess.TimeoutExpired:
+                if attempt < cls.MAX_RETRIES - 1:
+                    logger.warning(f"Operation timed out, retrying... ({attempt + 1}/{cls.MAX_RETRIES})")
+                    time.sleep(cls.RETRY_DELAY * (attempt + 1))
+                    continue
+            except Exception as e:
+                if attempt < cls.MAX_RETRIES - 1:
+                    logger.warning(f"Error: {e}, retrying... ({attempt + 1}/{cls.MAX_RETRIES})")
+                    time.sleep(cls.RETRY_DELAY * (attempt + 1))
+                    continue
+                logger.error(f"Failed to start container: {e}")
 
         return False
 
@@ -284,12 +352,16 @@ class GeminiLauncher:
         if not self.docker_manager.check_docker_running():
             raise DockerContainerError(
                 "Docker is not running!\n"
-                "Please start Docker Desktop and try again."
+                "Please start Docker Desktop or Rancher Desktop and try again."
             )
 
+        # Check Docker backend on Windows
+        if sys.platform == "win32":
+            self._check_docker_backend()
+
         try:
-            # Try to find available image
-            self.image_name = self.docker_manager.get_available_image()
+            # Try to find available image (quick check)
+            self.image_name = self.docker_manager.get_available_image(extended_retry=False)
             logger.info(f"Using image: {self.image_name}")
         except DockerContainerError:
             logger.error("Docker image not found!")
@@ -299,9 +371,9 @@ class GeminiLauncher:
             if response.lower() == 'y':
                 self._run_setup()
 
-                # Check again after setup
+                # Check again after setup with extended retries (image may take time to register)
                 try:
-                    self.image_name = self.docker_manager.get_available_image()
+                    self.image_name = self.docker_manager.get_available_image(extended_retry=True)
                     logger.info(f"Using image: {self.image_name}")
                 except DockerContainerError:
                     raise DockerContainerError("Image still not found after setup")
@@ -310,6 +382,32 @@ class GeminiLauncher:
 
         # Check for API key configuration
         self._check_api_key_setup()
+
+    def _check_docker_backend(self) -> None:
+        """Check if Docker is using WSL 2 instead of Hyper-V (Windows only)."""
+        try:
+            result = subprocess.run(
+                ["docker", "info"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            docker_info = result.stdout + result.stderr
+
+            # Check for Hyper-V socket errors or indicators
+            if "Hyper-V socket" in docker_info or "hyperv" in docker_info.lower():
+                if "WSL" not in docker_info and "rancher" not in docker_info.lower():
+                    logger.warning("")
+                    logger.warning("⚠️  Docker appears to be using Hyper-V instead of WSL 2!")
+                    logger.warning("   This may cause connection errors.")
+                    logger.warning("")
+                    logger.info("   To fix, switch to WSL 2 backend:")
+                    logger.info("   - Docker Desktop: Settings → General → Use WSL 2 based engine")
+                    logger.info("   - Rancher Desktop: Settings → Virtual Machine → Type: WSL")
+                    logger.warning("")
+
+        except Exception as e:
+            logger.debug(f"Could not check Docker backend: {e}")
 
     def _check_api_key_setup(self) -> None:
         """Check if GEMINI_API_KEY is configured."""
@@ -456,24 +554,87 @@ class GeminiLauncher:
                             docker_cmd.extend(["-e", f"GEMINI_API_KEY={api_key}"])
                         break
 
+        # Use gemini-namespace-launcher for proper project isolation
         docker_cmd.extend([
             self.docker_manager.CONTAINER_NAME,
             "/usr/local/bin/gemini-namespace-launcher"
-        ] + args)
+        ])
 
-        logger.info(f"Starting Gemini 3 Pro session in: {project_path}")
+        # Check if this is first run (no auth yet) and no API key configured
+        env_file = Path(__file__).parent / ".env"
+        has_api_key = self._has_api_key(env_file)
+        first_run = self._check_first_run()
+
+        if first_run and not has_api_key:
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("  FIRST RUN - Authentication Required")
+            logger.info("=" * 60)
+            if not self._perform_oauth_authorization():
+                # OAuth failed - offer API key as alternative
+                logger.warning("")
+                logger.warning("OAuth authorization failed or unavailable.")
+                logger.info("")
+                logger.info("You can use API key authentication instead:")
+                logger.info("1. Go to: https://aistudio.google.com/apikey")
+                logger.info("2. Click 'Create API Key'")
+                logger.info("3. Copy the generated key")
+                logger.info("")
+
+                response = input("Set up API key now? (y/n): ").strip().lower()
+                if response == 'y':
+                    api_key = input("Paste your Gemini API key: ").strip()
+                    if api_key:
+                        self._save_api_key(env_file, api_key)
+                        logger.info("API key saved! Continuing...")
+                        # Update docker_cmd to include the API key
+                        docker_cmd.insert(-2, "-e")
+                        docker_cmd.insert(-2, f"GEMINI_API_KEY={api_key}")
+                    else:
+                        logger.error("No API key provided. Cannot continue without authentication.")
+                        sys.exit(1)
+                else:
+                    logger.error("Authentication required. Please try again later.")
+                    sys.exit(1)
+            logger.info("=" * 60)
+            logger.info("")
+
+        logger.info(f"Starting Gemini session in: {project_path}")
         if self.debug:
             logger.debug(f"Session ID: {session_id}")
             logger.debug(f"Docker project path: {docker_project_path}")
             logger.debug(f"Docker command: {' '.join(docker_cmd)}")
 
         try:
-            # Run Gemini in isolated environment
-            result = subprocess.run(docker_cmd, check=False)
+            # Run Gemini in isolated environment using winpty on Windows
+            if sys.platform == "win32":
+                # Use winpty if available, otherwise fallback
+                import shutil
+                winpty_path = shutil.which("winpty")
 
-            # Handle command not found
-            if result.returncode in (126, 127):
-                self._handle_gemini_not_found()
+                if winpty_path:
+                    # winpty provides proper PTY emulation on Windows
+                    cmd_str = f'winpty {" ".join(docker_cmd)}'
+                    exit_code = os.system(cmd_str)
+                else:
+                    # Fallback: run directly and hope for the best
+                    # For interactive sessions, subprocess with inherited handles works better
+                    import subprocess
+                    process = subprocess.Popen(
+                        docker_cmd,
+                        stdin=sys.stdin,
+                        stdout=sys.stdout,
+                        stderr=sys.stderr,
+                        shell=False
+                    )
+                    exit_code = process.wait()
+
+                if exit_code in (126, 127):
+                    self._handle_gemini_not_found()
+            else:
+                result = subprocess.run(docker_cmd, check=False)
+                if result.returncode in (126, 127):
+                    self._handle_gemini_not_found()
 
         except KeyboardInterrupt:
             logger.info("\nGoodbye!")
@@ -484,6 +645,232 @@ class GeminiLauncher:
             # Clean up session file when done
             if session_file:
                 self._remove_session_file(session_file)
+
+    def _has_api_key(self, env_file: Path) -> bool:
+        """Check if API key is configured in .env file."""
+        if not env_file.exists():
+            return False
+        try:
+            with open(env_file, 'r') as f:
+                content = f.read()
+                for line in content.split('\n'):
+                    if line.startswith('GEMINI_API_KEY='):
+                        key = line.split('=', 1)[1].strip()
+                        return bool(key)
+        except Exception:
+            pass
+        return False
+
+    def _save_api_key(self, env_file: Path, api_key: str) -> None:
+        """Save API key to .env file."""
+        env_content = ""
+        if env_file.exists():
+            with open(env_file, 'r') as f:
+                env_content = f.read()
+                # Remove existing GEMINI_API_KEY if present
+                lines = env_content.split('\n')
+                lines = [line for line in lines if not line.startswith('GEMINI_API_KEY=')]
+                env_content = '\n'.join(lines).strip()
+
+        # Add new API key
+        if env_content and not env_content.endswith('\n'):
+            env_content += '\n'
+        env_content += f"GEMINI_API_KEY={api_key}\n"
+
+        with open(env_file, 'w') as f:
+            f.write(env_content)
+
+    def _perform_oauth_authorization(self) -> bool:
+        """Perform OAuth authorization interactively with retries."""
+        logger.info("")
+        logger.info("Starting authorization process...")
+        logger.info("")
+
+        for attempt in range(self.docker_manager.MAX_RETRIES):
+            try:
+                # Run gemini auth command and capture output to get URL
+                # We need to run it in a way that we can see the URL and provide input
+
+                auth_cmd = [
+                    "docker", "exec", "-i",
+                    self.docker_manager.CONTAINER_NAME,
+                    "sudo", "-u", "gemini", "-E",
+                    "HOME=/home/gemini",
+                    "gemini", "--version"  # First just check if gemini works
+                ]
+
+                # Check if gemini is accessible with retry
+                result = subprocess.run(auth_cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode != 0:
+                    if attempt < self.docker_manager.MAX_RETRIES - 1:
+                        wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
+                        logger.warning(f"Gemini CLI not accessible, retrying in {wait_time}s... ({attempt + 1}/{self.docker_manager.MAX_RETRIES})")
+                        time.sleep(wait_time)
+                        continue
+                    logger.error("Gemini CLI not accessible in container")
+                    return False
+
+                # Success - break out of retry loop
+                break
+
+            except subprocess.TimeoutExpired:
+                if attempt < self.docker_manager.MAX_RETRIES - 1:
+                    wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
+                    logger.warning(f"Timeout checking Gemini CLI, retrying in {wait_time}s... ({attempt + 1}/{self.docker_manager.MAX_RETRIES})")
+                    time.sleep(wait_time)
+                    continue
+                logger.error("Timeout accessing Gemini CLI")
+                return False
+            except Exception as e:
+                if attempt < self.docker_manager.MAX_RETRIES - 1:
+                    wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
+                    logger.warning(f"Error: {e}, retrying in {wait_time}s... ({attempt + 1}/{self.docker_manager.MAX_RETRIES})")
+                    time.sleep(wait_time)
+                    continue
+                logger.error(f"Failed to access Gemini CLI: {e}")
+                return False
+
+        logger.info(f"Gemini CLI version: {result.stdout.strip()}")
+        logger.info("")
+
+        try:
+            # Now run the actual auth - this is tricky because we need interactive input
+            # We'll use a workaround: run gemini, capture the URL, then provide the code
+
+            auth_cmd = [
+                "docker", "exec", "-i",
+                self.docker_manager.CONTAINER_NAME,
+                "sudo", "-u", "gemini", "-E",
+                "HOME=/home/gemini",
+                "gemini"
+            ]
+
+            # Start the process
+            process = subprocess.Popen(
+                auth_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+
+            url_found = False
+            auth_url = ""
+
+            # Read output until we see the URL
+            import threading
+            import queue
+
+            output_queue = queue.Queue()
+
+            def read_output(proc, q):
+                try:
+                    for line in iter(proc.stdout.readline, ''):
+                        if line:
+                            q.put(line)
+                        if proc.poll() is not None:
+                            break
+                except:
+                    pass
+
+            reader_thread = threading.Thread(target=read_output, args=(process, output_queue))
+            reader_thread.daemon = True
+            reader_thread.start()
+
+            # Wait for URL with timeout
+            start_time = time.time()
+            collected_output = []
+
+            while time.time() - start_time < 60:  # 60 second timeout
+                try:
+                    line = output_queue.get(timeout=1)
+                    collected_output.append(line)
+                    print(line, end='', flush=True)
+
+                    if "accounts.google.com" in line:
+                        auth_url = line.strip()
+                        url_found = True
+
+                    if "Enter the authorization code" in line or "authorization code:" in line.lower():
+                        break
+
+                except queue.Empty:
+                    if process.poll() is not None:
+                        break
+                    continue
+
+            if not url_found:
+                # Maybe already authorized?
+                process.terminate()
+                logger.info("No authorization URL found - may already be authorized.")
+                return True
+
+            # Now get the code from user
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("Open the URL above in your browser, log in, and copy the code.")
+            logger.info("=" * 60)
+
+            auth_code = input("\nPaste authorization code here: ").strip()
+
+            if not auth_code:
+                logger.error("No authorization code provided")
+                process.terminate()
+                return False
+
+            # Send the code to the process
+            try:
+                process.stdin.write(auth_code + "\n")
+                process.stdin.flush()
+            except:
+                pass
+
+            # Wait for process to complete
+            try:
+                # Read remaining output
+                remaining_start = time.time()
+                while time.time() - remaining_start < 30:
+                    try:
+                        line = output_queue.get(timeout=1)
+                        print(line, end='', flush=True)
+                        if "successfully" in line.lower() or "authenticated" in line.lower():
+                            break
+                    except queue.Empty:
+                        if process.poll() is not None:
+                            break
+
+                process.terminate()
+            except:
+                pass
+
+            # Verify auth was successful
+            time.sleep(2)
+            if not self._check_first_run():
+                logger.info("")
+                logger.info("Authorization successful!")
+                return True
+            else:
+                logger.warning("Authorization may not have completed. Will retry on next run.")
+                return True  # Let it continue anyway
+
+        except Exception as e:
+            logger.error(f"Authorization error: {e}")
+            return False
+
+    def _check_first_run(self) -> bool:
+        """Check if this is first run (no Gemini auth yet in container)."""
+        try:
+            result = subprocess.run(
+                ["docker", "exec", self.docker_manager.CONTAINER_NAME,
+                 "test", "-f", "/home/gemini/.gemini/oauth_creds.json"],
+                capture_output=True,
+                timeout=5
+            )
+            # If file exists, not first run
+            return result.returncode != 0
+        except Exception:
+            return True  # Assume first run if we can't check
 
     def _handle_gemini_not_found(self) -> None:
         """Handle case when Gemini is not found."""

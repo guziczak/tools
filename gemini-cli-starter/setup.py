@@ -166,11 +166,64 @@ class ImageSetup:
 
         if not self.docker_checker.is_docker_running():
             logger.error("Docker is not installed or not running!")
-            logger.error("Please ensure Docker Desktop is running.")
+            logger.error("Please ensure Docker Desktop or Rancher Desktop is running.")
             return False
 
         logger.info("Docker is running")
+
+        # Check Docker backend (WSL vs Hyper-V) on Windows
+        if sys.platform == "win32":
+            if not self._check_docker_backend():
+                return False
+
         return True
+
+    def _check_docker_backend(self) -> bool:
+        """Check if Docker is using WSL 2 instead of Hyper-V (Windows only)."""
+        try:
+            result = subprocess.run(
+                ["docker", "info"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            docker_info = result.stdout + result.stderr
+
+            # Check for Hyper-V indicators
+            is_hyperv = any(indicator in docker_info for indicator in [
+                "Operating System: Docker Desktop",
+                "Hyper-V",
+                "hyperv"
+            ])
+
+            # Check for WSL indicators
+            is_wsl = any(indicator in docker_info for indicator in [
+                "WSL",
+                "rancher-desktop",
+                "Rancher Desktop"
+            ])
+
+            if is_hyperv and not is_wsl:
+                logger.warning("\n⚠️  Docker is using Hyper-V instead of WSL 2!")
+                logger.warning("   This may cause performance issues and connection errors.\n")
+                logger.info("   To fix, switch to WSL 2 backend:")
+                logger.info("   - Docker Desktop: Settings → General → Use WSL 2 based engine")
+                logger.info("   - Rancher Desktop: Settings → Virtual Machine → Type: WSL")
+                logger.info("")
+
+                response = input("Continue anyway? (y/n) [n]: ").strip().lower()
+                if response != 'y':
+                    logger.info("Setup cancelled. Please switch to WSL 2 and try again.")
+                    return False
+
+            elif is_wsl:
+                logger.info("Docker backend: WSL 2 ✓")
+
+            return True
+
+        except Exception as e:
+            logger.warning(f"Could not determine Docker backend: {e}")
+            return True  # Continue anyway
 
     def _setup_image(self) -> bool:
         """Build or verify Docker image."""
@@ -207,10 +260,64 @@ class ImageSetup:
         if success:
             build_time = time.time() - start_time
             logger.info(f"\nBuild completed in {build_time:.0f} seconds ({build_time/60:.1f} minutes)")
+
+            # Verify image was actually created
+            logger.info("\nVerifying image...")
+            if not self._verify_image_exists():
+                return False
         else:
             logger.error("Build failed!")
 
         return success
+
+    def _verify_image_exists(self) -> bool:
+        """Verify that the image was created successfully."""
+        image_name = f"{self.config.image_name}:latest"
+
+        # Try multiple times with delay (Docker may need time to register)
+        for attempt in range(5):
+            if self.docker_checker.image_exists(image_name):
+                logger.info(f"✓ Image verified: {image_name}")
+
+                # Show image details
+                result = subprocess.run(
+                    ["docker", "images", image_name, "--format", "ID: {{.ID}} | Size: {{.Size}} | Created: {{.CreatedSince}}"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.stdout.strip():
+                    logger.info(f"  {result.stdout.strip()}")
+                return True
+
+            if attempt < 4:
+                logger.info(f"  Waiting for image registration... (attempt {attempt + 1}/5)")
+                time.sleep(2)
+
+        # Image not found - show diagnostic info
+        logger.error(f"\n✗ Image '{image_name}' not found after build!")
+        logger.info("\nDiagnostic information:")
+
+        # List all images
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+            capture_output=True,
+            text=True
+        )
+        if result.stdout.strip():
+            logger.info("Available images:")
+            for img in result.stdout.strip().split('\n')[:10]:
+                logger.info(f"  - {img}")
+
+        # Check docker info
+        result = subprocess.run(
+            ["docker", "info", "--format", "{{.Driver}}"],
+            capture_output=True,
+            text=True
+        )
+        if result.stdout.strip():
+            logger.info(f"Docker storage driver: {result.stdout.strip()}")
+
+        return False
 
     def _ensure_container(self) -> None:
         """Ensure persistent container exists."""

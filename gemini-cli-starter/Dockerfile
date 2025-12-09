@@ -91,14 +91,22 @@ RUN ln -sf /opt/python3.12/bin/python3 /usr/local/bin/python3 && \
     libncursesw6 libxml2 libxmlsec1 libffi8 liblzma5 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Eclipse Temurin JDK 17 from Adoptium repository
-RUN apt-get update && apt-get install -y --no-install-recommends wget apt-transport-https gnupg && \
-    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null && \
-    echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends temurin-17-jdk && \
+# Install Eclipse Temurin JDK 17 from direct download (more reliable than apt repository)
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
+    mkdir -p /opt/java && \
+    wget -q --timeout=60 --tries=3 -O /tmp/temurin17.tar.gz \
+        "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jdk_x64_linux_hotspot_17.0.13_11.tar.gz" && \
+    tar -xzf /tmp/temurin17.tar.gz -C /opt/java --strip-components=1 && \
+    rm /tmp/temurin17.tar.gz && \
+    ln -s /opt/java/bin/java /usr/local/bin/java && \
+    ln -s /opt/java/bin/javac /usr/local/bin/javac && \
+    ln -s /opt/java/bin/jar /usr/local/bin/jar && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Set JAVA_HOME environment variable
+ENV JAVA_HOME=/opt/java
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Create gemini user with sudo and appropriate permissions
 RUN useradd -m -s /bin/bash gemini && \
@@ -116,7 +124,11 @@ RUN useradd -m -s /bin/bash gemini && \
     useradd -r -s /bin/false -d /nonexistent -c "Gemini Cleanup Daemon" gemini-cleanup && \
     mkdir -p /var/log /var/run/gemini-sessions && \
     chown gemini-cleanup:gemini-cleanup /var/run/gemini-sessions && \
-    chmod 755 /var/run/gemini-sessions
+    chmod 755 /var/run/gemini-sessions && \
+    # Create default Gemini settings with preview features and Gemini 3 Pro model (new format)
+    mkdir -p /home/gemini/.gemini && \
+    echo '{"model":{"name":"gemini-3-pro-preview"},"security":{"auth":{"selectedType":"oauth-personal"}},"ui":{"theme":"Default"},"general":{"previewFeatures":true}}' > /home/gemini/.gemini/settings.json && \
+    chown -R gemini:gemini /home/gemini/.gemini
 
 # Install additional packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -206,61 +218,53 @@ RUN mkdir -p /opt/gemini-shared/{bin,lib,share} \
     chmod -R g+w /opt/gemini-shared && \
     chgrp -R root /opt/gemini-shared
 
-# Create namespace launcher script using heredoc for clarity
+# Create namespace launcher script - uses bash -c to avoid heredoc stdin issues
 RUN cat > /usr/local/bin/gemini-namespace-launcher << 'LAUNCHER_EOF'
 #!/bin/bash
 # Gemini namespace launcher - creates isolated mount namespace per session
+# This script preserves stdin for interactive Gemini CLI usage
 
-# Get project path from environment
-PROJECT_PATH="${PROJECT_PATH}"
-SESSION_ID="${SESSION_ID}"
+set -e
 
 # Check if project path provided
 if [ -z "$PROJECT_PATH" ]; then
-    echo "Error: No project path provided"
+    echo "Error: No project path provided via PROJECT_PATH environment variable"
     exit 1
 fi
 
-# Store original arguments
-GEMINI_ARGS=("$@")
+# Determine project source based on mount point
+if [ -d "/host${PROJECT_PATH}" ]; then
+    PROJECT_SOURCE="/host${PROJECT_PATH}"
+elif [ -d "/host_c${PROJECT_PATH#/c}" ] && [[ "$PROJECT_PATH" == /c/* ]]; then
+    PROJECT_SOURCE="/host_c${PROJECT_PATH#/c}"
+elif [ -d "/host_d${PROJECT_PATH#/d}" ] && [[ "$PROJECT_PATH" == /d/* ]]; then
+    PROJECT_SOURCE="/host_d${PROJECT_PATH#/d}"
+else
+    echo "Error: Cannot find project at any expected mount point"
+    echo "Looking for: $PROJECT_PATH"
+    echo "Tried: /host${PROJECT_PATH}, /host_c${PROJECT_PATH#/c}, /host_d${PROJECT_PATH#/d}"
+    exit 1
+fi
 
-# Cleanup function for unmounting
-cleanup() {
-    umount /project 2>/dev/null || true
-    umount /host 2>/dev/null || true
-    umount /host_c 2>/dev/null || true
-    umount /host_d 2>/dev/null || true
-    rm -rf /tmp/empty 2>/dev/null || true
-}
-
-# Export for use in subshell
-export PROJECT_PATH SESSION_ID
-export -f cleanup
-
-# Create new mount namespace and run Gemini
-exec unshare --mount bash << NAMESPACE_EOF
-    # Set up trap for cleanup
+# Create mount namespace and set up isolated environment
+# Using unshare with bash -c preserves stdin for interactive use
+exec unshare --mount bash -c '
+    # Cleanup function
+    cleanup() {
+        umount /project 2>/dev/null || true
+        umount /host 2>/dev/null || true
+        umount /host_c 2>/dev/null || true
+        umount /host_d 2>/dev/null || true
+        rm -rf /tmp/empty 2>/dev/null || true
+    }
     trap cleanup EXIT INT TERM
-
-    # Check which host mount to use
-    if [ -d "/host\${PROJECT_PATH}" ]; then
-        PROJECT_SOURCE="/host\${PROJECT_PATH}"
-    elif [ -d "/host_c\${PROJECT_PATH#/c}" ] && [[ "\$PROJECT_PATH" == /c/* ]]; then
-        PROJECT_SOURCE="/host_c\${PROJECT_PATH#/c}"
-    elif [ -d "/host_d\${PROJECT_PATH#/d}" ] && [[ "\$PROJECT_PATH" == /d/* ]]; then
-        PROJECT_SOURCE="/host_d\${PROJECT_PATH#/d}"
-    else
-        echo "Error: Cannot find project at any expected mount point"
-        echo "Looking for: \$PROJECT_PATH"
-        exit 1
-    fi
 
     # Create and mount project directory
     mkdir -p /project
-    mount --bind "\$PROJECT_SOURCE" /project
+    mount --bind "'"$PROJECT_SOURCE"'" /project
     mount -o remount,rw /project
 
-    # Hide host mounts from the user
+    # Hide host mounts from the user for security
     mkdir -p /tmp/empty
     mount --bind /tmp/empty /host 2>/dev/null || true
     mount --bind /tmp/empty /host_c 2>/dev/null || true
@@ -268,22 +272,10 @@ exec unshare --mount bash << NAMESPACE_EOF
 
     cd /project
 
-    # Set default Gemini configuration
-    if [ ! -f "/home/gemini/.gemini/settings.json" ]; then
-        mkdir -p /home/gemini/.gemini
-        cat > /home/gemini/.gemini/settings.json << 'GEMINI_CONFIG'
-{
-  "theme": "Default",
-  "selectedAuthType": "oauth-personal",
-  "previewEnabled": true
-}
-GEMINI_CONFIG
-        chown -R gemini:gemini /home/gemini/.gemini
-    fi
-
-    # Run gemini as gemini user with Gemini 3 Pro model
-    exec sudo -u gemini -E HOME=/home/gemini gemini -m pro
-NAMESPACE_EOF
+    # Run gemini as gemini user - Auto mode will use Gemini 3 Pro when available
+    # Using exec to replace shell, preserving stdin/stdout/stderr
+    exec sudo -u gemini -E HOME=/home/gemini gemini
+'
 LAUNCHER_EOF
 
 # Fix line endings and set executable
