@@ -13,13 +13,17 @@ services:
     user: root
 
     # Security capabilities for namespace operations
+    # SYS_ADMIN: Required for mount namespace (unshare --mount)
+    # SETUID/SETGID: Required for sudo to gemini user
     cap_add:
       - SYS_ADMIN
       - SETUID
       - SETGID
+    # Note: apparmor:unconfined is needed for mount operations in namespace
+    # seccomp:unconfined can be removed if mount syscalls are allowed
     security_opt:
       - apparmor:unconfined
-      - seccomp:unconfined
+      # - seccomp:unconfined  # Commented out - try without first
 
     # Volume configuration
     volumes:

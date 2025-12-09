@@ -38,7 +38,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONIOENCODING=utf-8 \
     LC_ALL=C.UTF-8 \
     LANG=C.UTF-8 \
-    PATH="/usr/local/lib/node_modules/.bin:${PATH}"
+    PATH="/usr/local/lib/node_modules/.bin:${PATH}" \
+    # Python paths - change these when upgrading Python version
+    PYTHON_HOME=/opt/python3.12 \
+    PYTHON_BIN=/opt/python3.12/bin/python3
 
 # Copy Node.js and packages from build stage
 COPY --from=node-builder /usr/local/bin/node /usr/local/bin/
@@ -230,13 +233,37 @@ RUN cat > /usr/local/bin/gemini-namespace-launcher << 'LAUNCHER_EOF'
 
 set -e
 
-# Generate unique session ID
-SESSION_ID="${SESSION_ID:-$(cat /proc/sys/kernel/random/uuid 2>/dev/null || date +%s%N)}"
+# Generate unique session ID (validate UUID format)
+generate_session_id() {
+    local uuid
+    uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || date +%s%N)
+    # Validate UUID-like format or numeric timestamp
+    if [[ "$uuid" =~ ^[a-f0-9-]+$ ]] || [[ "$uuid" =~ ^[0-9]+$ ]]; then
+        echo "$uuid"
+    else
+        date +%s%N
+    fi
+}
+
+SESSION_ID="${SESSION_ID:-$(generate_session_id)}"
+
+# Validate session ID format (alphanumeric, hyphens only)
+if [[ ! "$SESSION_ID" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    echo "Error: Invalid SESSION_ID format"
+    exit 1
+fi
+
 export SESSION_ID
 
 # Check if project path provided
 if [ -z "$PROJECT_PATH" ]; then
     echo "Error: No project path provided via PROJECT_PATH environment variable"
+    exit 1
+fi
+
+# Validate PROJECT_PATH - no null bytes, shell metacharacters
+if [[ "$PROJECT_PATH" =~ [\'\"\`\$\;\&\|\<\>] ]]; then
+    echo "Error: PROJECT_PATH contains invalid characters"
     exit 1
 fi
 
@@ -254,65 +281,72 @@ else
     exit 1
 fi
 
-# Create mount namespace and set up isolated environment
-# Using unshare with bash -c preserves stdin for interactive use
-exec unshare --mount bash -c '
-    SESSION_ID="'"$SESSION_ID"'"
-    PROJECT_PATH="'"$PROJECT_PATH"'"
-    PROJECT_SOURCE="'"$PROJECT_SOURCE"'"
+# Export variables for child process (safer than string interpolation)
+export PROJECT_SOURCE
 
-    # Heartbeat function - runs in background
-    heartbeat_loop() {
-        while true; do
-            /opt/python3.12/bin/python3 /usr/local/bin/session_manager.py heartbeat "$SESSION_ID" 2>/dev/null || true
-            sleep 30
-        done
-    }
+# Create mount namespace with private propagation
+# --propagation private prevents mount changes from leaking to parent namespace
+exec unshare --mount --propagation private /bin/bash << 'NAMESPACE_SCRIPT'
+#!/bin/bash
+set -e
 
-    # Cleanup function - unregister session and stop heartbeat
-    cleanup() {
-        # Kill heartbeat process
-        if [ -n "$HEARTBEAT_PID" ]; then
-            kill $HEARTBEAT_PID 2>/dev/null || true
-            wait $HEARTBEAT_PID 2>/dev/null || true
-        fi
+# Variables are inherited from parent via export
 
-        # Unregister session
-        /opt/python3.12/bin/python3 /usr/local/bin/session_manager.py unregister "$SESSION_ID" 2>/dev/null || true
+# Use PYTHON_BIN from environment (set in Dockerfile ENV)
+PYTHON="${PYTHON_BIN:-/opt/python3.12/bin/python3}"
 
-        # Unmount
-        umount /project 2>/dev/null || true
-        umount /host 2>/dev/null || true
-        umount /host_c 2>/dev/null || true
-        umount /host_d 2>/dev/null || true
-        rm -rf /tmp/empty 2>/dev/null || true
-    }
-    trap cleanup EXIT INT TERM
+# Heartbeat function - runs in background
+heartbeat_loop() {
+    while true; do
+        "$PYTHON" /usr/local/bin/session_manager.py heartbeat "$SESSION_ID" 2>/dev/null || true
+        sleep 30
+    done
+}
 
-    # Create and mount project directory
-    mkdir -p /project
-    mount --bind "$PROJECT_SOURCE" /project
-    mount -o remount,rw /project
+# Cleanup function - unregister session and stop heartbeat
+cleanup() {
+    # Kill heartbeat process
+    if [ -n "$HEARTBEAT_PID" ]; then
+        kill $HEARTBEAT_PID 2>/dev/null || true
+        wait $HEARTBEAT_PID 2>/dev/null || true
+    fi
 
-    # Hide host mounts from the user for security
-    mkdir -p /tmp/empty
-    mount --bind /tmp/empty /host 2>/dev/null || true
-    mount --bind /tmp/empty /host_c 2>/dev/null || true
-    mount --bind /tmp/empty /host_d 2>/dev/null || true
+    # Unregister session
+    "$PYTHON" /usr/local/bin/session_manager.py unregister "$SESSION_ID" 2>/dev/null || true
 
-    cd /project
+    # Unmount
+    umount /project 2>/dev/null || true
+    umount /host 2>/dev/null || true
+    umount /host_c 2>/dev/null || true
+    umount /host_d 2>/dev/null || true
+    rm -rf /tmp/empty 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
-    # Register session with session manager
-    /opt/python3.12/bin/python3 /usr/local/bin/session_manager.py register "$SESSION_ID" $$ "$PROJECT_PATH" 2>/dev/null || true
+# Create and mount project directory
+mkdir -p /project
+mount --bind "$PROJECT_SOURCE" /project
+mount -o remount,rw /project
 
-    # Start heartbeat in background
-    heartbeat_loop &
-    HEARTBEAT_PID=$!
+# Hide host mounts from the user for security
+mkdir -p /tmp/empty
+mount --bind /tmp/empty /host 2>/dev/null || true
+mount --bind /tmp/empty /host_c 2>/dev/null || true
+mount --bind /tmp/empty /host_d 2>/dev/null || true
 
-    # Run gemini as gemini user
-    # Using exec to replace shell, preserving stdin/stdout/stderr
-    exec sudo -u gemini -E HOME=/home/gemini gemini
-'
+cd /project
+
+# Register session with session manager
+"$PYTHON" /usr/local/bin/session_manager.py register "$SESSION_ID" $$ "$PROJECT_PATH" 2>/dev/null || true
+
+# Start heartbeat in background
+heartbeat_loop &
+HEARTBEAT_PID=$!
+
+# Run gemini as gemini user
+# Using exec to replace shell, preserving stdin/stdout/stderr
+exec sudo -u gemini -E HOME=/home/gemini gemini
+NAMESPACE_SCRIPT
 LAUNCHER_EOF
 
 # Fix line endings and set executable
@@ -357,17 +391,21 @@ GRACEFUL_KILL_TIMEOUT = 5  # Seconds to wait after SIGTERM before SIGKILL
 LOG_FILE = Path("/var/log/gemini-session-manager.log")
 HEALTH_FILE = Path("/var/run/gemini-cleanup.health")
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%SZ',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+# Setup logging - only to file, supervisor captures stdout separately
+def setup_logging():
+    """Configure logging based on run mode."""
+    log_dir = LOG_FILE.parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(asctime)s] [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%SZ',
+        handlers=[logging.FileHandler(LOG_FILE)]
+    )
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
 
 
 class SessionDatabase:
@@ -646,20 +684,27 @@ class SessionManager:
                 f"(PID: {pid}, last heartbeat: {last_hb})"
             )
 
-            if pid and self.killer.is_process_alive(pid):
-                if not self.killer.is_gemini_process(pid):
-                    logger.warning(
-                        f"PID {pid} doesn't appear to be a Gemini process, "
-                        f"marking as ended without killing"
-                    )
-                    self.db.mark_session_killed(session_id)
-                    continue
+            # Check if process is still alive
+            if not pid or not self.killer.is_process_alive(pid):
+                logger.info(f"Session {session_id} process already dead, cleaning up record")
+                self.db.mark_session_killed(session_id)
+                continue
 
+            # Verify it's actually a Gemini process before killing
+            if not self.killer.is_gemini_process(pid):
+                logger.warning(
+                    f"PID {pid} doesn't appear to be a Gemini process, "
+                    f"marking as ended without killing"
+                )
+                self.db.mark_session_killed(session_id)
+                continue
+
+            # Kill the process - try process group first, then individual PID
             killed = False
             if pgid:
                 killed = self.killer.kill_process_group(pgid, GRACEFUL_KILL_TIMEOUT)
 
-            if not killed and pid:
+            if not killed:
                 killed = self.killer.kill_process(pid, GRACEFUL_KILL_TIMEOUT)
 
             self.db.mark_session_killed(session_id)
@@ -667,7 +712,7 @@ class SessionManager:
             if killed:
                 logger.info(f"Successfully terminated stale session {session_id}")
             else:
-                logger.warning(f"Session {session_id} process already dead")
+                logger.error(f"Failed to terminate session {session_id}")
 
     def run(self):
         """Main daemon loop."""
@@ -786,6 +831,70 @@ export PIP_TARGET="/opt/gemini-shared/lib/python3/site-packages"
 export NPM_CONFIG_PREFIX="/opt/gemini-shared"
 EOF
 
+# Create entrypoint script to handle volume-mounted /usr/local
+# This ensures symlinks are recreated after volume mount overwrites them
+RUN cat > /entrypoint.sh << 'ENTRYPOINT_EOF'
+#!/bin/bash
+set -e
+
+# Restore essential symlinks if they're missing (volume mount may overwrite them)
+# This runs once at container start
+
+# Node.js symlinks
+[ ! -f /usr/local/bin/node ] && [ -f /usr/local/bin/nodejs ] || {
+    # If node binary exists in node_modules, create symlink
+    if [ -f "/usr/local/lib/node_modules/.bin/node" ]; then
+        ln -sf /usr/local/lib/node_modules/.bin/node /usr/local/bin/node 2>/dev/null || true
+    fi
+}
+
+[ ! -L /usr/local/bin/nodejs ] && [ -f /usr/local/bin/node ] && \
+    ln -sf /usr/local/bin/node /usr/local/bin/nodejs 2>/dev/null || true
+
+# npm symlink
+[ ! -L /usr/local/bin/npm ] && [ -f /usr/local/lib/node_modules/npm/bin/npm-cli.js ] && \
+    ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm 2>/dev/null || true
+
+# Gemini CLI symlink - check both possible paths
+if [ ! -L /usr/local/bin/gemini ] || [ ! -e /usr/local/bin/gemini ]; then
+    if [ -f "/usr/local/lib/node_modules/@google/gemini-cli/dist/index.js" ]; then
+        ln -sf /usr/local/lib/node_modules/@google/gemini-cli/dist/index.js /usr/local/bin/gemini
+        chmod +x /usr/local/bin/gemini
+    elif [ -f "/usr/local/lib/node_modules/@google/gemini-cli/build/cli.js" ]; then
+        ln -sf /usr/local/lib/node_modules/@google/gemini-cli/build/cli.js /usr/local/bin/gemini
+        chmod +x /usr/local/bin/gemini
+    fi
+fi
+
+# Python symlinks
+[ ! -L /usr/local/bin/python3 ] && [ -f /opt/python3.12/bin/python3 ] && \
+    ln -sf /opt/python3.12/bin/python3 /usr/local/bin/python3 2>/dev/null || true
+[ ! -L /usr/local/bin/python ] && [ -f /opt/python3.12/bin/python3 ] && \
+    ln -sf /opt/python3.12/bin/python3 /usr/local/bin/python 2>/dev/null || true
+[ ! -L /usr/local/bin/pip3 ] && [ -f /opt/python3.12/bin/pip3 ] && \
+    ln -sf /opt/python3.12/bin/pip3 /usr/local/bin/pip3 2>/dev/null || true
+[ ! -L /usr/local/bin/pip ] && [ -f /opt/python3.12/bin/pip3 ] && \
+    ln -sf /opt/python3.12/bin/pip3 /usr/local/bin/pip 2>/dev/null || true
+
+# TypeScript/ESLint/Prettier symlinks
+[ ! -L /usr/local/bin/tsc ] && [ -f /usr/local/lib/node_modules/typescript/bin/tsc ] && \
+    ln -sf /usr/local/lib/node_modules/typescript/bin/tsc /usr/local/bin/tsc 2>/dev/null || true
+[ ! -L /usr/local/bin/eslint ] && [ -f /usr/local/lib/node_modules/eslint/bin/eslint.js ] && \
+    ln -sf /usr/local/lib/node_modules/eslint/bin/eslint.js /usr/local/bin/eslint 2>/dev/null || true
+[ ! -L /usr/local/bin/prettier ] && [ -f /usr/local/lib/node_modules/prettier/bin/prettier.cjs ] && \
+    ln -sf /usr/local/lib/node_modules/prettier/bin/prettier.cjs /usr/local/bin/prettier 2>/dev/null || true
+
+# Ensure session manager script is executable
+chmod +x /usr/local/bin/session_manager.py 2>/dev/null || true
+chmod +x /usr/local/bin/gemini-namespace-launcher 2>/dev/null || true
+
+# Execute the main command (supervisord)
+exec "$@"
+ENTRYPOINT_EOF
+
+RUN chmod +x /entrypoint.sh && \
+    sed -i 's/\r$//' /entrypoint.sh
+
 # Configure supervisord with enhanced settings
 RUN mkdir -p /var/log/supervisor && \
     chmod 755 /var/log/supervisor && \
@@ -808,7 +917,7 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 serverurl=unix:///var/run/supervisor.sock
 
 [program:gemini-session-manager]
-command=/opt/python3.12/bin/python3 /usr/local/bin/session_manager.py
+command=%(ENV_PYTHON_BIN)s /usr/local/bin/session_manager.py
 autostart=true
 autorestart=unexpected
 startsecs=10
@@ -825,18 +934,15 @@ stderr_logfile_maxbytes=10MB
 stderr_logfile_backups=3
 user=root
 priority=100
-environment=PATH="/opt/python3.12/bin:/usr/local/bin:/usr/bin:/bin"
+environment=PATH="%(ENV_PYTHON_HOME)s/bin:/usr/local/bin:/usr/bin:/bin",PYTHON_BIN="%(ENV_PYTHON_BIN)s"
 EOF
 
 # Switch back to root for supervisord
 USER root
 WORKDIR /
 
-# Enhanced healthcheck - verify both supervisord and session manager are functioning
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD bash -c 'supervisorctl status gemini-session-manager | grep -q RUNNING && \
-               [ -f /var/run/gemini-cleanup.health ] && \
-               [ $(($(date +%s) - $(cat /var/run/gemini-cleanup.health))) -lt 120 ]'
+# Entrypoint handles symlink restoration after volume mounts
+ENTRYPOINT ["/entrypoint.sh"]
 
-# Start supervisord
+# Start supervisord (healthcheck defined in docker-compose.yml only to avoid duplication)
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
