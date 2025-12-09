@@ -56,6 +56,11 @@ services:
         source: gemini-apt-lib
         target: /var/lib/apt
 
+      # Persistent /usr/local for global npm/pip installations
+      - type: volume
+        source: gemini-usr-local
+        target: /usr/local
+
       # Session tracking volume for session files
       # On Windows, Docker Desktop handles the path translation
       - type: bind
@@ -95,9 +100,9 @@ services:
           cpus: '${GEMINI_CPU_RESERVATION:-1}'
           memory: ${GEMINI_MEMORY_RESERVATION:-2G}
 
-    # Enhanced health check - verify supervisord and cleanup daemon are functioning
+    # Enhanced health check - verify supervisord and session manager are functioning
     healthcheck:
-      test: ["CMD-SHELL", "supervisorctl status gemini-cleanup | grep -q RUNNING && [ -f /var/run/gemini-cleanup.health ] && [ $(($(date +%s) - $(cat /var/run/gemini-cleanup.health))) -lt 120 ]"]
+      test: ["CMD-SHELL", "supervisorctl status gemini-session-manager | grep -q RUNNING && [ -f /var/run/gemini-cleanup.health ] && [ $(($(date +%s) - $(cat /var/run/gemini-cleanup.health))) -lt 120 ]"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -119,3 +124,5 @@ volumes:
     name: gemini-apt-cache
   gemini-apt-lib:
     name: gemini-apt-lib
+  gemini-usr-local:
+    name: gemini-usr-local

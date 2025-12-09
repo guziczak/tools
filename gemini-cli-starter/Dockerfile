@@ -218,13 +218,21 @@ RUN mkdir -p /opt/gemini-shared/{bin,lib,share} \
     chmod -R g+w /opt/gemini-shared && \
     chgrp -R root /opt/gemini-shared
 
-# Create namespace launcher script - uses bash -c to avoid heredoc stdin issues
+# Create namespace launcher script with session management and heartbeat
 RUN cat > /usr/local/bin/gemini-namespace-launcher << 'LAUNCHER_EOF'
 #!/bin/bash
 # Gemini namespace launcher - creates isolated mount namespace per session
-# This script preserves stdin for interactive Gemini CLI usage
+# Features:
+# - Session registration with SQLite-based session manager
+# - Background heartbeat process for liveness detection
+# - Clean session unregistration on exit
+# - Preserves stdin for interactive Gemini CLI usage
 
 set -e
+
+# Generate unique session ID
+SESSION_ID="${SESSION_ID:-$(cat /proc/sys/kernel/random/uuid 2>/dev/null || date +%s%N)}"
+export SESSION_ID
 
 # Check if project path provided
 if [ -z "$PROJECT_PATH" ]; then
@@ -249,8 +257,30 @@ fi
 # Create mount namespace and set up isolated environment
 # Using unshare with bash -c preserves stdin for interactive use
 exec unshare --mount bash -c '
-    # Cleanup function
+    SESSION_ID="'"$SESSION_ID"'"
+    PROJECT_PATH="'"$PROJECT_PATH"'"
+    PROJECT_SOURCE="'"$PROJECT_SOURCE"'"
+
+    # Heartbeat function - runs in background
+    heartbeat_loop() {
+        while true; do
+            /opt/python3.12/bin/python3 /usr/local/bin/session_manager.py heartbeat "$SESSION_ID" 2>/dev/null || true
+            sleep 30
+        done
+    }
+
+    # Cleanup function - unregister session and stop heartbeat
     cleanup() {
+        # Kill heartbeat process
+        if [ -n "$HEARTBEAT_PID" ]; then
+            kill $HEARTBEAT_PID 2>/dev/null || true
+            wait $HEARTBEAT_PID 2>/dev/null || true
+        fi
+
+        # Unregister session
+        /opt/python3.12/bin/python3 /usr/local/bin/session_manager.py unregister "$SESSION_ID" 2>/dev/null || true
+
+        # Unmount
         umount /project 2>/dev/null || true
         umount /host 2>/dev/null || true
         umount /host_c 2>/dev/null || true
@@ -261,7 +291,7 @@ exec unshare --mount bash -c '
 
     # Create and mount project directory
     mkdir -p /project
-    mount --bind "'"$PROJECT_SOURCE"'" /project
+    mount --bind "$PROJECT_SOURCE" /project
     mount -o remount,rw /project
 
     # Hide host mounts from the user for security
@@ -272,7 +302,14 @@ exec unshare --mount bash -c '
 
     cd /project
 
-    # Run gemini as gemini user - Auto mode will use Gemini 3 Pro when available
+    # Register session with session manager
+    /opt/python3.12/bin/python3 /usr/local/bin/session_manager.py register "$SESSION_ID" $$ "$PROJECT_PATH" 2>/dev/null || true
+
+    # Start heartbeat in background
+    heartbeat_loop &
+    HEARTBEAT_PID=$!
+
+    # Run gemini as gemini user
     # Using exec to replace shell, preserving stdin/stdout/stderr
     exec sudo -u gemini -E HOME=/home/gemini gemini
 '
@@ -282,107 +319,449 @@ LAUNCHER_EOF
 RUN sed -i 's/\r$//' /usr/local/bin/gemini-namespace-launcher && \
     chmod +x /usr/local/bin/gemini-namespace-launcher
 
-# Create session cleanup daemon - cleans up stale session files based on file age
-RUN cat > /usr/local/bin/gemini-cleanup-daemon << 'EOF'
-#!/bin/bash
-set -euo pipefail
+# Python session manager daemon (replaces old bash daemon)
+# Uses SQLite + heartbeat for reliable session tracking
+RUN cat > /usr/local/bin/session_manager.py << 'SESSIONMGR_EOF'
+#!/usr/bin/env python3
+"""
+Gemini Session Manager - Advanced session cleanup daemon with heartbeat and SQLite.
+
+This daemon manages Gemini CLI sessions using:
+- SQLite database for atomic session tracking
+- Heartbeat mechanism for accurate liveness detection
+- Process group killing for clean termination
+- Graceful shutdown with SIGTERM -> SIGKILL escalation
+
+Better than bash-based solutions because:
+- Atomic database operations (no race conditions)
+- Proper error handling and logging
+- Easy to test and maintain
+- Cross-platform process management
+"""
+
+import os
+import sys
+import time
+import signal
+import sqlite3
+import logging
+from pathlib import Path
+from contextlib import contextmanager
+from typing import Optional
 
 # Configuration
-readonly SESSION_DIR="/var/run/gemini-sessions"
-readonly STALE_TIMEOUT=300  # 5 minutes - session file not updated means session ended
-readonly CHECK_INTERVAL=60
-readonly LOCK_FILE="/var/lock/gemini-cleanup.lock"
-readonly LOG_FILE="/var/log/gemini-cleanup.log"
-readonly MAX_LOG_SIZE=$((10 * 1024 * 1024))  # 10MB
+DB_PATH = Path("/var/run/gemini-sessions/sessions.db")
+HEARTBEAT_TIMEOUT = 300  # 5 minutes - session considered dead if no heartbeat
+CHECK_INTERVAL = 60  # Check every minute
+GRACEFUL_KILL_TIMEOUT = 5  # Seconds to wait after SIGTERM before SIGKILL
+LOG_FILE = Path("/var/log/gemini-session-manager.log")
+HEALTH_FILE = Path("/var/run/gemini-cleanup.health")
 
-# Log rotation
-rotate_log() {
-    if [[ -f "$LOG_FILE" ]] && [[ $(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt $MAX_LOG_SIZE ]]; then
-        mv "$LOG_FILE" "${LOG_FILE}.old"
-        touch "$LOG_FILE"
-    fi
-}
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
-# Logging function
-log() {
-    local level="${1:-INFO}"
-    local message="${2:-}"
-    rotate_log
-    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [${level}] ${message}" >> "$LOG_FILE" 2>/dev/null || true
-}
 
-# Cleanup stale session files based on modification time
-cleanup_sessions() {
-    local cleanup_count=0
+class SessionDatabase:
+    """SQLite-based session tracking with atomic operations."""
 
-    # Ensure session directory exists
-    if [[ ! -d "$SESSION_DIR" ]]; then
-        return 0
-    fi
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._ensure_db_dir()
+        self._init_db()
 
-    # Acquire exclusive lock with timeout
-    exec 200>"$LOCK_FILE"
-    if ! flock -w 5 -x 200; then
-        log "WARN" "Failed to acquire lock"
-        return 1
-    fi
+    def _ensure_db_dir(self):
+        """Ensure database directory exists."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Find and remove stale session files
-    # Session files are removed by the host when session ends normally
-    # This daemon only cleans up orphaned files (e.g., after crash)
-    while IFS= read -r -d '' session_file; do
-        local basename
-        basename=$(basename "$session_file")
+    @contextmanager
+    def _connection(self):
+        """Context manager for database connections with proper locking."""
+        conn = sqlite3.connect(
+            str(self.db_path),
+            timeout=30.0,
+            isolation_level='EXCLUSIVE'
+        )
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-        # Skip temporary files
-        if [[ "$basename" =~ ^\.tmp_ ]]; then
-            continue
-        fi
+    def _init_db(self):
+        """Initialize database schema."""
+        with self._connection() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS sessions (
+                    session_id TEXT PRIMARY KEY,
+                    pid INTEGER NOT NULL,
+                    pgid INTEGER,
+                    project_path TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'active'
+                )
+            ''')
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_last_heartbeat
+                ON sessions(last_heartbeat)
+            ''')
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_status
+                ON sessions(status)
+            ''')
 
-        # Check file age based on modification time
-        local file_mtime file_age
-        file_mtime=$(stat -c %Y "$session_file" 2>/dev/null || echo 0)
-        file_age=$(( $(date +%s) - file_mtime ))
+    def register_session(self, session_id: str, pid: int, pgid: Optional[int],
+                         project_path: str) -> bool:
+        """Register a new session. Returns True if successful."""
+        try:
+            with self._connection() as conn:
+                conn.execute('''
+                    INSERT OR REPLACE INTO sessions
+                    (session_id, pid, pgid, project_path, created_at, last_heartbeat, status)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'active')
+                ''', (session_id, pid, pgid, project_path))
+            logger.info(f"Registered session {session_id} (PID: {pid}, PGID: {pgid})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to register session {session_id}: {e}")
+            return False
 
-        if [[ $file_age -gt $STALE_TIMEOUT ]]; then
-            log "INFO" "Removing stale session file: $basename (age: ${file_age}s)"
-            rm -f "$session_file"
-            ((cleanup_count++)) || true
-        fi
-    done < <(find "$SESSION_DIR" -name "*.session" -type f -print0 2>/dev/null)
+    def heartbeat(self, session_id: str) -> bool:
+        """Update heartbeat for a session. Returns True if session exists."""
+        try:
+            with self._connection() as conn:
+                cursor = conn.execute('''
+                    UPDATE sessions
+                    SET last_heartbeat = CURRENT_TIMESTAMP
+                    WHERE session_id = ? AND status = 'active'
+                ''', (session_id,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to update heartbeat for {session_id}: {e}")
+            return False
 
-    # Release lock
-    flock -u 200
+    def unregister_session(self, session_id: str) -> bool:
+        """Mark session as ended. Returns True if successful."""
+        try:
+            with self._connection() as conn:
+                conn.execute('''
+                    UPDATE sessions SET status = 'ended'
+                    WHERE session_id = ?
+                ''', (session_id,))
+            logger.info(f"Unregistered session {session_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to unregister session {session_id}: {e}")
+            return False
 
-    if [[ $cleanup_count -gt 0 ]]; then
-        log "INFO" "Cleanup completed: $cleanup_count stale sessions removed"
-    fi
+    def get_stale_sessions(self, timeout_seconds: int) -> list:
+        """Get sessions that haven't sent heartbeat within timeout."""
+        try:
+            with self._connection() as conn:
+                cursor = conn.execute('''
+                    SELECT session_id, pid, pgid, project_path, last_heartbeat
+                    FROM sessions
+                    WHERE status = 'active'
+                    AND datetime(last_heartbeat, '+' || ? || ' seconds') < datetime('now')
+                ''', (timeout_seconds,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get stale sessions: {e}")
+            return []
 
-    return 0
-}
+    def mark_session_killed(self, session_id: str):
+        """Mark session as killed by daemon."""
+        try:
+            with self._connection() as conn:
+                conn.execute('''
+                    UPDATE sessions SET status = 'killed'
+                    WHERE session_id = ?
+                ''', (session_id,))
+        except Exception as e:
+            logger.error(f"Failed to mark session {session_id} as killed: {e}")
 
-# Health monitoring
-update_health() {
-    echo "$(date +%s)" > /var/run/gemini-cleanup.health 2>/dev/null || true
-}
+    def cleanup_old_records(self, days: int = 7):
+        """Remove records older than specified days."""
+        try:
+            with self._connection() as conn:
+                cursor = conn.execute('''
+                    DELETE FROM sessions
+                    WHERE datetime(last_heartbeat, '+' || ? || ' days') < datetime('now')
+                    AND status != 'active'
+                ''', (days,))
+                if cursor.rowcount > 0:
+                    logger.info(f"Cleaned up {cursor.rowcount} old session records")
+        except Exception as e:
+            logger.error(f"Failed to cleanup old records: {e}")
 
-# Signal handlers
-trap 'log "INFO" "Shutting down..."; exit 0' TERM INT
+    def get_active_session_count(self) -> int:
+        """Get count of active sessions."""
+        try:
+            with self._connection() as conn:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM sessions WHERE status = 'active'"
+                )
+                return cursor.fetchone()[0]
+        except Exception:
+            return 0
 
-# Main loop
-log "INFO" "Gemini cleanup daemon started (PID: $$)"
 
-while true; do
-    update_health
-    cleanup_sessions || log "WARN" "Cleanup cycle had issues"
-    sleep "$CHECK_INTERVAL"
-done
-EOF
+class ProcessKiller:
+    """Safe process termination with escalation."""
 
-# Fix line endings and set executable
-RUN sed -i 's/\r$//' /usr/local/bin/gemini-cleanup-daemon && \
-    chmod +x /usr/local/bin/gemini-cleanup-daemon && \
-    chown root:root /usr/local/bin/gemini-cleanup-daemon
+    @staticmethod
+    def is_process_alive(pid: int) -> bool:
+        """Check if process exists."""
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def is_gemini_process(pid: int) -> bool:
+        """Verify this is actually a Gemini-related process."""
+        try:
+            cmdline_path = Path(f"/proc/{pid}/cmdline")
+            if cmdline_path.exists():
+                cmdline = cmdline_path.read_text()
+                gemini_indicators = ['gemini', 'node', 'npm']
+                return any(ind in cmdline.lower() for ind in gemini_indicators)
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def kill_process_group(pgid: int, graceful_timeout: int = 5) -> bool:
+        """Kill entire process group with SIGTERM then SIGKILL."""
+        if pgid is None or pgid <= 0:
+            return False
+
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+            logger.info(f"Sent SIGTERM to process group {pgid}")
+
+            for _ in range(graceful_timeout * 10):
+                time.sleep(0.1)
+                try:
+                    os.killpg(pgid, 0)
+                except OSError:
+                    logger.info(f"Process group {pgid} terminated gracefully")
+                    return True
+
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+                logger.warning(f"Sent SIGKILL to process group {pgid}")
+                return True
+            except OSError:
+                return True
+
+        except OSError as e:
+            if e.errno == 3:  # No such process
+                return True
+            logger.error(f"Failed to kill process group {pgid}: {e}")
+            return False
+
+    @staticmethod
+    def kill_process(pid: int, graceful_timeout: int = 5) -> bool:
+        """Kill single process with SIGTERM then SIGKILL."""
+        if pid is None or pid <= 0:
+            return False
+
+        try:
+            os.kill(pid, signal.SIGTERM)
+            logger.info(f"Sent SIGTERM to PID {pid}")
+
+            for _ in range(graceful_timeout * 10):
+                time.sleep(0.1)
+                if not ProcessKiller.is_process_alive(pid):
+                    logger.info(f"Process {pid} terminated gracefully")
+                    return True
+
+            try:
+                os.kill(pid, signal.SIGKILL)
+                logger.warning(f"Sent SIGKILL to PID {pid}")
+                return True
+            except OSError:
+                return True
+
+        except OSError as e:
+            if e.errno == 3:  # No such process
+                return True
+            logger.error(f"Failed to kill process {pid}: {e}")
+            return False
+
+
+class SessionManager:
+    """Main session manager daemon."""
+
+    def __init__(self):
+        self.db = SessionDatabase(DB_PATH)
+        self.killer = ProcessKiller()
+        self.running = True
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self):
+        """Setup graceful shutdown handlers."""
+        signal.signal(signal.SIGTERM, self._shutdown_handler)
+        signal.signal(signal.SIGINT, self._shutdown_handler)
+
+    def _shutdown_handler(self, signum, frame):
+        """Handle shutdown signals."""
+        logger.info(f"Received signal {signum}, shutting down...")
+        self.running = False
+
+    def _update_health(self):
+        """Update health file for Docker healthcheck."""
+        try:
+            HEALTH_FILE.write_text(str(int(time.time())))
+        except Exception as e:
+            logger.error(f"Failed to update health file: {e}")
+
+    def cleanup_stale_sessions(self):
+        """Find and kill stale sessions."""
+        stale_sessions = self.db.get_stale_sessions(HEARTBEAT_TIMEOUT)
+
+        for session in stale_sessions:
+            session_id = session['session_id']
+            pid = session['pid']
+            pgid = session['pgid']
+            last_hb = session['last_heartbeat']
+
+            logger.info(
+                f"Stale session detected: {session_id} "
+                f"(PID: {pid}, last heartbeat: {last_hb})"
+            )
+
+            if pid and self.killer.is_process_alive(pid):
+                if not self.killer.is_gemini_process(pid):
+                    logger.warning(
+                        f"PID {pid} doesn't appear to be a Gemini process, "
+                        f"marking as ended without killing"
+                    )
+                    self.db.mark_session_killed(session_id)
+                    continue
+
+            killed = False
+            if pgid:
+                killed = self.killer.kill_process_group(pgid, GRACEFUL_KILL_TIMEOUT)
+
+            if not killed and pid:
+                killed = self.killer.kill_process(pid, GRACEFUL_KILL_TIMEOUT)
+
+            self.db.mark_session_killed(session_id)
+
+            if killed:
+                logger.info(f"Successfully terminated stale session {session_id}")
+            else:
+                logger.warning(f"Session {session_id} process already dead")
+
+    def run(self):
+        """Main daemon loop."""
+        logger.info(f"Gemini Session Manager started (PID: {os.getpid()})")
+        logger.info(f"Heartbeat timeout: {HEARTBEAT_TIMEOUT}s, Check interval: {CHECK_INTERVAL}s")
+
+        cleanup_counter = 0
+
+        while self.running:
+            try:
+                self._update_health()
+                self.cleanup_stale_sessions()
+
+                cleanup_counter += 1
+                if cleanup_counter >= 60:
+                    self.db.cleanup_old_records(days=7)
+                    cleanup_counter = 0
+
+                active = self.db.get_active_session_count()
+                if active > 0:
+                    logger.debug(f"Active sessions: {active}")
+
+            except Exception as e:
+                logger.error(f"Error in cleanup cycle: {e}")
+
+            for _ in range(CHECK_INTERVAL):
+                if not self.running:
+                    break
+                time.sleep(1)
+
+        logger.info("Gemini Session Manager stopped")
+
+
+# Client functions for use by session launcher
+def register_session(session_id: str, pid: int, project_path: str):
+    """Register a new session (called by launcher)."""
+    try:
+        pgid = os.getpgid(pid)
+    except OSError:
+        pgid = None
+    db = SessionDatabase(DB_PATH)
+    return db.register_session(session_id, pid, pgid, project_path)
+
+
+def send_heartbeat(session_id: str):
+    """Send heartbeat for session (called periodically by launcher)."""
+    db = SessionDatabase(DB_PATH)
+    return db.heartbeat(session_id)
+
+
+def unregister_session(session_id: str):
+    """Unregister session on clean exit (called by launcher)."""
+    db = SessionDatabase(DB_PATH)
+    return db.unregister_session(session_id)
+
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+
+        if cmd == 'register' and len(sys.argv) >= 5:
+            session_id, pid, project_path = sys.argv[2], int(sys.argv[3]), sys.argv[4]
+            success = register_session(session_id, pid, project_path)
+            sys.exit(0 if success else 1)
+
+        elif cmd == 'heartbeat' and len(sys.argv) >= 3:
+            session_id = sys.argv[2]
+            success = send_heartbeat(session_id)
+            sys.exit(0 if success else 1)
+
+        elif cmd == 'unregister' and len(sys.argv) >= 3:
+            session_id = sys.argv[2]
+            success = unregister_session(session_id)
+            sys.exit(0 if success else 1)
+
+        else:
+            print("Usage:")
+            print("  session_manager.py                    # Run daemon")
+            print("  session_manager.py register ID PID PATH")
+            print("  session_manager.py heartbeat ID")
+            print("  session_manager.py unregister ID")
+            sys.exit(1)
+    else:
+        manager = SessionManager()
+        manager.run()
+SESSIONMGR_EOF
+
+RUN sed -i 's/\r$//' /usr/local/bin/session_manager.py && \
+    chmod +x /usr/local/bin/session_manager.py && \
+    chown root:root /usr/local/bin/session_manager.py && \
+    # Ensure sessions directory exists with correct permissions
+    mkdir -p /var/run/gemini-sessions && \
+    chown gemini-cleanup:gemini-cleanup /var/run/gemini-sessions && \
+    chmod 755 /var/run/gemini-sessions
 
 # Simple session starter script
 RUN cat > /usr/local/bin/gemini-session << 'EOF'
@@ -428,8 +807,8 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 [supervisorctl]
 serverurl=unix:///var/run/supervisor.sock
 
-[program:gemini-cleanup]
-command=/usr/local/bin/gemini-cleanup-daemon
+[program:gemini-session-manager]
+command=/opt/python3.12/bin/python3 /usr/local/bin/session_manager.py
 autostart=true
 autorestart=unexpected
 startsecs=10
@@ -438,24 +817,24 @@ stopasgroup=true
 killasgroup=true
 stopsignal=TERM
 stopwaitsecs=10
-stdout_logfile=/var/log/gemini-cleanup.log
+stdout_logfile=/var/log/gemini-session-manager.log
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=3
-stderr_logfile=/var/log/gemini-cleanup.err
+stderr_logfile=/var/log/gemini-session-manager.err
 stderr_logfile_maxbytes=10MB
 stderr_logfile_backups=3
-user=gemini-cleanup
+user=root
 priority=100
-environment=PATH="/usr/local/bin:/usr/bin:/bin"
+environment=PATH="/opt/python3.12/bin:/usr/local/bin:/usr/bin:/bin"
 EOF
 
 # Switch back to root for supervisord
 USER root
 WORKDIR /
 
-# Enhanced healthcheck - verify both supervisord and cleanup daemon are functioning
+# Enhanced healthcheck - verify both supervisord and session manager are functioning
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD bash -c 'supervisorctl status gemini-cleanup | grep -q RUNNING && \
+  CMD bash -c 'supervisorctl status gemini-session-manager | grep -q RUNNING && \
                [ -f /var/run/gemini-cleanup.health ] && \
                [ $(($(date +%s) - $(cat /var/run/gemini-cleanup.health))) -lt 120 ]'
 
