@@ -221,31 +221,16 @@ RUN mkdir -p /opt/gemini-shared/{bin,lib,share} \
     chmod -R g+w /opt/gemini-shared && \
     chgrp -R root /opt/gemini-shared
 
-# Create namespace launcher script with session management and heartbeat
+# Create namespace launcher script - wrapper that sets up env and calls unshare
 RUN cat > /usr/local/bin/gemini-namespace-launcher << 'LAUNCHER_EOF'
 #!/bin/bash
 # Gemini namespace launcher - creates isolated mount namespace per session
-# Features:
-# - Session registration with SQLite-based session manager
-# - Background heartbeat process for liveness detection
-# - Clean session unregistration on exit
-# - Preserves stdin for interactive Gemini CLI usage
-
 set -e
 
-# Generate unique session ID (validate UUID format)
-generate_session_id() {
-    local uuid
-    uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || date +%s%N)
-    # Validate UUID-like format or numeric timestamp
-    if [[ "$uuid" =~ ^[a-f0-9-]+$ ]] || [[ "$uuid" =~ ^[0-9]+$ ]]; then
-        echo "$uuid"
-    else
-        date +%s%N
-    fi
-}
-
-SESSION_ID="${SESSION_ID:-$(generate_session_id)}"
+# Generate unique session ID if not provided
+if [ -z "$SESSION_ID" ]; then
+    SESSION_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || date +%s%N)
+fi
 
 # Validate session ID format (alphanumeric, hyphens only)
 if [[ ! "$SESSION_ID" =~ ^[a-zA-Z0-9-]+$ ]]; then
@@ -261,7 +246,7 @@ if [ -z "$PROJECT_PATH" ]; then
     exit 1
 fi
 
-# Validate PROJECT_PATH - no null bytes, shell metacharacters
+# Validate PROJECT_PATH - no shell metacharacters
 if [[ "$PROJECT_PATH" =~ [\'\"\`\$\;\&\|\<\>] ]]; then
     echo "Error: PROJECT_PATH contains invalid characters"
     exit 1
@@ -269,31 +254,30 @@ fi
 
 # Determine project source based on mount point
 if [ -d "/host${PROJECT_PATH}" ]; then
-    PROJECT_SOURCE="/host${PROJECT_PATH}"
+    export PROJECT_SOURCE="/host${PROJECT_PATH}"
 elif [ -d "/host_c${PROJECT_PATH#/c}" ] && [[ "$PROJECT_PATH" == /c/* ]]; then
-    PROJECT_SOURCE="/host_c${PROJECT_PATH#/c}"
+    export PROJECT_SOURCE="/host_c${PROJECT_PATH#/c}"
 elif [ -d "/host_d${PROJECT_PATH#/d}" ] && [[ "$PROJECT_PATH" == /d/* ]]; then
-    PROJECT_SOURCE="/host_d${PROJECT_PATH#/d}"
+    export PROJECT_SOURCE="/host_d${PROJECT_PATH#/d}"
 else
     echo "Error: Cannot find project at any expected mount point"
     echo "Looking for: $PROJECT_PATH"
-    echo "Tried: /host${PROJECT_PATH}, /host_c${PROJECT_PATH#/c}, /host_d${PROJECT_PATH#/d}"
     exit 1
 fi
 
-# Export variables for child process (safer than string interpolation)
-export PROJECT_SOURCE
+# Export API key for child process
 export GEMINI_API_KEY
 
-# Create mount namespace with private propagation
-# --propagation private prevents mount changes from leaking to parent namespace
-exec unshare --mount --propagation private /bin/bash << 'NAMESPACE_SCRIPT'
+# Create mount namespace and exec the inner script (preserves TTY)
+exec unshare --mount --propagation private /usr/local/bin/gemini-namespace-inner
+LAUNCHER_EOF
+
+# Create the inner script that runs inside the namespace
+RUN cat > /usr/local/bin/gemini-namespace-inner << 'INNER_EOF'
 #!/bin/bash
+# Inner script - runs inside mount namespace with full TTY access
 set -e
 
-# Variables are inherited from parent via export
-
-# Use PYTHON_BIN from environment (set in Dockerfile ENV)
 PYTHON="${PYTHON_BIN:-/opt/python3.12/bin/python3}"
 
 # Heartbeat function - runs in background
@@ -304,18 +288,13 @@ heartbeat_loop() {
     done
 }
 
-# Cleanup function - unregister session and stop heartbeat
+# Cleanup function
 cleanup() {
-    # Kill heartbeat process
     if [ -n "$HEARTBEAT_PID" ]; then
         kill $HEARTBEAT_PID 2>/dev/null || true
         wait $HEARTBEAT_PID 2>/dev/null || true
     fi
-
-    # Unregister session
     "$PYTHON" /usr/local/bin/session_manager.py unregister "$SESSION_ID" 2>/dev/null || true
-
-    # Unmount
     umount /project 2>/dev/null || true
     umount /host 2>/dev/null || true
     umount /host_c 2>/dev/null || true
@@ -329,7 +308,7 @@ mkdir -p /project
 mount --bind "$PROJECT_SOURCE" /project
 mount -o remount,rw /project
 
-# Hide host mounts from the user for security
+# Hide host mounts for security
 mkdir -p /tmp/empty
 mount --bind /tmp/empty /host 2>/dev/null || true
 mount --bind /tmp/empty /host_c 2>/dev/null || true
@@ -337,23 +316,22 @@ mount --bind /tmp/empty /host_d 2>/dev/null || true
 
 cd /project
 
-# Register session with session manager
+# Register session
 "$PYTHON" /usr/local/bin/session_manager.py register "$SESSION_ID" $$ "$PROJECT_PATH" 2>/dev/null || true
 
 # Start heartbeat in background
 heartbeat_loop &
 HEARTBEAT_PID=$!
 
-# Run gemini as gemini user
-# Using exec to replace shell, preserving stdin/stdout/stderr
-# Pass GEMINI_API_KEY explicitly as sudo -E may not preserve all env vars
+# Run gemini as gemini user with full TTY
 exec sudo -u gemini -E HOME=/home/gemini GEMINI_API_KEY="$GEMINI_API_KEY" gemini
-NAMESPACE_SCRIPT
-LAUNCHER_EOF
+INNER_EOF
 
-# Fix line endings and set executable
+# Fix line endings and set executable for both scripts
 RUN sed -i 's/\r$//' /usr/local/bin/gemini-namespace-launcher && \
-    chmod +x /usr/local/bin/gemini-namespace-launcher
+    sed -i 's/\r$//' /usr/local/bin/gemini-namespace-inner && \
+    chmod +x /usr/local/bin/gemini-namespace-launcher && \
+    chmod +x /usr/local/bin/gemini-namespace-inner
 
 # Python session manager daemon (replaces old bash daemon)
 # Uses SQLite + heartbeat for reliable session tracking
