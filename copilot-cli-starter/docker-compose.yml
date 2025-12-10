@@ -1,0 +1,132 @@
+services:
+  copilot-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: copilot-cli-container:latest
+    container_name: copilot-persistent
+    hostname: copilot-container
+    stdin_open: true
+    tty: true
+
+    # Root user for mount namespace capabilities
+    user: root
+
+    # Security capabilities for namespace operations
+    # SYS_ADMIN: Required for mount namespace (unshare --mount)
+    # SETUID/SETGID: Required for sudo to copilot user
+    cap_add:
+      - SYS_ADMIN
+      - SETUID
+      - SETGID
+    # Note: apparmor:unconfined is needed for mount operations in namespace
+    # seccomp:unconfined can be removed if mount syscalls are allowed
+    security_opt:
+      - apparmor:unconfined
+      # - seccomp:unconfined  # Commented out - try without first
+
+    # Volume configuration
+    volumes:
+      # Host filesystem mounts - adjust based on OS
+      # For Windows with WSL 2 backend, use /mnt/c format
+      - type: bind
+        source: /mnt/c
+        target: /host_c
+        read_only: true
+
+      # Uncomment if you have D: drive (use /mnt/d format)
+      # - type: bind
+      #   source: /mnt/d
+      #   target: /host_d
+      #   read_only: true
+
+      # For Linux/Mac, use this instead:
+      # - type: bind
+      #   source: /
+      #   target: /host
+      #   read_only: true
+
+      # Shared volume for tools installed across sessions
+      - type: volume
+        source: copilot-shared-tools
+        target: /opt/copilot-shared
+
+      # Shared system directories for apt packages
+      - type: volume
+        source: copilot-apt-cache
+        target: /var/cache/apt
+
+      - type: volume
+        source: copilot-apt-lib
+        target: /var/lib/apt
+
+      # Persistent /usr/local for global npm/pip installations
+      - type: volume
+        source: copilot-usr-local
+        target: /usr/local
+
+      # Session tracking volume for session files
+      # On Windows, Docker Desktop handles the path translation
+      - type: bind
+        source: ${TEMP:-/tmp}/copilot-sessions
+        target: /var/run/copilot-sessions
+        bind:
+          create_host_path: true
+
+    # Working directory
+    working_dir: /home/copilot
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Add init for proper signal handling
+    init: true
+
+    # Add tmpfs for temporary files
+    tmpfs:
+      - /tmp:size=1G,mode=1777
+
+    # Remove command - supervisord will be started by Dockerfile CMD
+
+    # Environment variables
+    environment:
+      - DOCKER_BUILDKIT=1
+      - COMPOSE_DOCKER_CLI_BUILD=1
+      - TZ=${TZ:-UTC}
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '${COPILOT_CPU_LIMIT:-4}'
+          memory: ${COPILOT_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: '${COPILOT_CPU_RESERVATION:-1}'
+          memory: ${COPILOT_MEMORY_RESERVATION:-2G}
+
+    # Enhanced health check - verify supervisord and session manager are functioning
+    healthcheck:
+      test: ["CMD-SHELL", "supervisorctl status copilot-session-manager | grep -q RUNNING && [ -f /var/run/copilot-cleanup.health ] && [ $(($(date +%s) - $(cat /var/run/copilot-cleanup.health))) -lt 120 ]"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=copilot-cli"
+
+# Volume definitions
+volumes:
+  copilot-shared-tools:
+    name: copilot-shared-tools
+  copilot-apt-cache:
+    name: copilot-apt-cache
+  copilot-apt-lib:
+    name: copilot-apt-lib
+  copilot-usr-local:
+    name: copilot-usr-local
