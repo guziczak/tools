@@ -128,9 +128,9 @@ RUN useradd -m -s /bin/bash gemini && \
     mkdir -p /var/log /var/run/gemini-sessions && \
     chown gemini-cleanup:gemini-cleanup /var/run/gemini-sessions && \
     chmod 755 /var/run/gemini-sessions && \
-    # Create default Gemini settings with preview features and Gemini 3 Pro model (new format)
+    # Create default Gemini settings with preview features, Gemini 3 Pro model, and HIGH thinking
     mkdir -p /home/gemini/.gemini && \
-    echo '{"model":{"name":"gemini-3-pro-preview"},"security":{"auth":{"selectedType":"oauth-personal"}},"ui":{"theme":"Default"},"general":{"previewFeatures":true}}' > /home/gemini/.gemini/settings.json && \
+    echo '{"model":{"name":"gemini-3-pro-preview"},"security":{"auth":{"selectedType":"oauth-personal"}},"ui":{"theme":"Default"},"general":{"previewFeatures":true},"thinkingConfig":{"includeThoughts":true,"thinkingLevel":"HIGH"}}' > /home/gemini/.gemini/settings.json && \
     chown -R gemini:gemini /home/gemini/.gemini
 
 # Install additional packages
