@@ -270,16 +270,12 @@ class DockerManager:
             if result.returncode == 0:
                 return  # Symlink exists and works
 
-            # Try to create symlink for possible paths
+            # Create symlink - entry point is index.js in package root
             logger.info("Creating copilot symlink...")
             cls._run_command(
                 ["docker", "exec", cls.CONTAINER_NAME, "bash", "-c",
-                 "if [ -f /usr/local/lib/node_modules/@github/copilot/bin/copilot.js ]; then "
-                 "ln -sf /usr/local/lib/node_modules/@github/copilot/bin/copilot.js /usr/local/bin/copilot && "
-                 "chmod +x /usr/local/bin/copilot; "
-                 "elif [ -f /usr/local/lib/node_modules/@github/copilot/dist/index.js ]; then "
-                 "ln -sf /usr/local/lib/node_modules/@github/copilot/dist/index.js /usr/local/bin/copilot && "
-                 "chmod +x /usr/local/bin/copilot; fi"],
+                 "ln -sf /usr/local/lib/node_modules/@github/copilot/index.js /usr/local/bin/copilot && "
+                 "chmod +x /usr/local/bin/copilot"],
                 timeout=10,
                 check=False
             )

@@ -53,15 +53,11 @@ COPY --from=python-builder /opt/python3.12 /opt/python3.12
 # Create symlinks and install base packages
 RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
     ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    # Create symlink for copilot
-    if [ -f "/usr/local/lib/node_modules/@github/copilot/bin/copilot.js" ]; then \
-        ln -sf /usr/local/lib/node_modules/@github/copilot/bin/copilot.js /usr/local/bin/copilot && \
+    # Create symlink for copilot (entry point is index.js in package root)
+    if [ -f "/usr/local/lib/node_modules/@github/copilot/index.js" ]; then \
+        ln -sf /usr/local/lib/node_modules/@github/copilot/index.js /usr/local/bin/copilot && \
         chmod +x /usr/local/bin/copilot && \
-        echo "Copilot symlink created (bin/copilot.js)"; \
-    elif [ -f "/usr/local/lib/node_modules/@github/copilot/dist/index.js" ]; then \
-        ln -sf /usr/local/lib/node_modules/@github/copilot/dist/index.js /usr/local/bin/copilot && \
-        chmod +x /usr/local/bin/copilot && \
-        echo "Copilot symlink created (dist/index.js)"; \
+        echo "Copilot symlink created (index.js)"; \
     else \
         echo "ERROR: Copilot CLI entry point not found!"; \
         ls -la /usr/local/lib/node_modules/@github/copilot/ 2>/dev/null || true; \
@@ -833,13 +829,10 @@ set -e
 [ ! -L /usr/local/bin/npm ] && [ -f /usr/local/lib/node_modules/npm/bin/npm-cli.js ] && \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm 2>/dev/null || true
 
-# Copilot CLI symlink - check possible paths
+# Copilot CLI symlink (entry point is index.js in package root)
 if [ ! -L /usr/local/bin/copilot ] || [ ! -e /usr/local/bin/copilot ]; then
-    if [ -f "/usr/local/lib/node_modules/@github/copilot/bin/copilot.js" ]; then
-        ln -sf /usr/local/lib/node_modules/@github/copilot/bin/copilot.js /usr/local/bin/copilot
-        chmod +x /usr/local/bin/copilot
-    elif [ -f "/usr/local/lib/node_modules/@github/copilot/dist/index.js" ]; then
-        ln -sf /usr/local/lib/node_modules/@github/copilot/dist/index.js /usr/local/bin/copilot
+    if [ -f "/usr/local/lib/node_modules/@github/copilot/index.js" ]; then
+        ln -sf /usr/local/lib/node_modules/@github/copilot/index.js /usr/local/bin/copilot
         chmod +x /usr/local/bin/copilot
     fi
 fi
