@@ -12,6 +12,8 @@ import tempfile
 import json
 import uuid
 import secrets
+import threading
+import queue
 from pathlib import Path
 from typing import List, Optional
 from dataclasses import dataclass
@@ -570,12 +572,12 @@ class GeminiLauncher:
             "/usr/local/bin/gemini-namespace-launcher"
         ])
 
-        # Check if this is first run (no auth yet) and no API key configured
+        # Check if this is first run (no OAuth credentials in container)
         env_file = Path(__file__).parent / ".env"
-        has_api_key = self._has_api_key(env_file)
         first_run = self._check_first_run()
 
-        if first_run and not has_api_key:
+        # Always perform OAuth on first run (API key alone may not work for all features)
+        if first_run:
             logger.info("")
             logger.info("=" * 60)
             logger.info("  FIRST RUN - Authentication Required")
@@ -691,62 +693,51 @@ class GeminiLauncher:
             f.write(env_content)
 
     def _perform_oauth_authorization(self) -> bool:
-        """Perform OAuth authorization interactively with retries."""
+        """Perform OAuth authorization keeping single process alive.
+
+        OAuth PKCE requires the same process throughout - code_challenge is tied
+        to the session. We keep the process alive, get user input, then send it.
+
+        Returns True if authorization succeeded, False otherwise.
+        """
         logger.info("")
         logger.info("Starting authorization process...")
         logger.info("")
 
+        # First verify Gemini CLI is accessible
         for attempt in range(self.docker_manager.MAX_RETRIES):
             try:
-                # Run gemini auth command and capture output to get URL
-                # We need to run it in a way that we can see the URL and provide input
-
-                auth_cmd = [
+                version_cmd = [
                     "docker", "exec", "-i",
                     self.docker_manager.CONTAINER_NAME,
                     "sudo", "-u", "gemini", "-E",
                     "HOME=/home/gemini",
-                    "gemini", "--version"  # First just check if gemini works
+                    "gemini", "--version"
                 ]
-
-                # Check if gemini is accessible with retry
-                result = subprocess.run(auth_cmd, capture_output=True, text=True, timeout=30)
-                if result.returncode != 0:
-                    if attempt < self.docker_manager.MAX_RETRIES - 1:
-                        wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
-                        logger.warning(f"Gemini CLI not accessible, retrying in {wait_time}s... ({attempt + 1}/{self.docker_manager.MAX_RETRIES})")
-                        time.sleep(wait_time)
-                        continue
+                result = subprocess.run(version_cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    logger.info(f"Gemini CLI version: {result.stdout.strip()}")
+                    break
+                if attempt < self.docker_manager.MAX_RETRIES - 1:
+                    wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
+                    logger.warning(f"Gemini CLI not accessible, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
                     logger.error("Gemini CLI not accessible in container")
                     return False
-
-                # Success - break out of retry loop
-                break
-
             except subprocess.TimeoutExpired:
-                if attempt < self.docker_manager.MAX_RETRIES - 1:
-                    wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
-                    logger.warning(f"Timeout checking Gemini CLI, retrying in {wait_time}s... ({attempt + 1}/{self.docker_manager.MAX_RETRIES})")
-                    time.sleep(wait_time)
-                    continue
-                logger.error("Timeout accessing Gemini CLI")
-                return False
+                if attempt >= self.docker_manager.MAX_RETRIES - 1:
+                    logger.error("Timeout accessing Gemini CLI")
+                    return False
+                time.sleep(self.docker_manager.RETRY_DELAY)
             except Exception as e:
-                if attempt < self.docker_manager.MAX_RETRIES - 1:
-                    wait_time = self.docker_manager.RETRY_DELAY * (attempt + 1)
-                    logger.warning(f"Error: {e}, retrying in {wait_time}s... ({attempt + 1}/{self.docker_manager.MAX_RETRIES})")
-                    time.sleep(wait_time)
-                    continue
-                logger.error(f"Failed to access Gemini CLI: {e}")
-                return False
-
-        logger.info(f"Gemini CLI version: {result.stdout.strip()}")
-        logger.info("")
+                if attempt >= self.docker_manager.MAX_RETRIES - 1:
+                    logger.error(f"Failed to access Gemini CLI: {e}")
+                    return False
+                time.sleep(self.docker_manager.RETRY_DELAY)
 
         try:
-            # Now run the actual auth - this is tricky because we need interactive input
-            # We'll use a workaround: run gemini, capture the URL, then provide the code
-
+            # Run Gemini with stdin kept open for auth code input
             auth_cmd = [
                 "docker", "exec", "-i",
                 self.docker_manager.CONTAINER_NAME,
@@ -755,7 +746,6 @@ class GeminiLauncher:
                 "gemini"
             ]
 
-            # Start the process
             process = subprocess.Popen(
                 auth_cmd,
                 stdin=subprocess.PIPE,
@@ -766,103 +756,129 @@ class GeminiLauncher:
             )
 
             url_found = False
-            auth_url = ""
-
-            # Read output until we see the URL
-            import threading
-            import queue
-
+            waiting_for_code = False
             output_queue = queue.Queue()
 
-            def read_output(proc, q):
+            def read_output(proc: subprocess.Popen, q: queue.Queue) -> None:
+                """Read process output in background thread."""
                 try:
                     for line in iter(proc.stdout.readline, ''):
                         if line:
                             q.put(line)
                         if proc.poll() is not None:
                             break
-                except:
+                except Exception:
                     pass
 
             reader_thread = threading.Thread(target=read_output, args=(process, output_queue))
             reader_thread.daemon = True
             reader_thread.start()
 
-            # Wait for URL with timeout
+            # Read output until we see the auth code prompt or process exits
             start_time = time.time()
-            collected_output = []
-
-            while time.time() - start_time < 60:  # 60 second timeout
+            while time.time() - start_time < 30:
                 try:
-                    line = output_queue.get(timeout=1)
-                    collected_output.append(line)
+                    line = output_queue.get(timeout=0.5)
                     print(line, end='', flush=True)
 
                     if "accounts.google.com" in line:
-                        auth_url = line.strip()
                         url_found = True
 
-                    if "Enter the authorization code" in line or "authorization code:" in line.lower():
+                    if "authorization code" in line.lower():
+                        waiting_for_code = True
                         break
 
                 except queue.Empty:
                     if process.poll() is not None:
+                        # Process exited - drain remaining output
+                        while not output_queue.empty():
+                            try:
+                                line = output_queue.get_nowait()
+                                print(line, end='', flush=True)
+                                if "accounts.google.com" in line:
+                                    url_found = True
+                                if "authorization code" in line.lower():
+                                    waiting_for_code = True
+                            except queue.Empty:
+                                break
                         break
-                    continue
 
             if not url_found:
-                # Maybe already authorized?
-                process.terminate()
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
                 logger.info("No authorization URL found - may already be authorized.")
                 return True
 
-            # Now get the code from user
+            # Get auth code from user
             logger.info("")
             logger.info("=" * 60)
-            logger.info("Open the URL above in your browser, log in, and copy the code.")
+            logger.info("  Open the URL above in your browser and authorize access.")
+            logger.info("  Then paste the authorization code below.")
             logger.info("=" * 60)
 
-            auth_code = input("\nPaste authorization code here: ").strip()
+            auth_code = input("\nAuthorization code: ").strip()
 
             if not auth_code:
                 logger.error("No authorization code provided")
-                process.terminate()
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
                 return False
 
-            # Send the code to the process
-            try:
-                process.stdin.write(auth_code + "\n")
-                process.stdin.flush()
-            except:
-                pass
+            # Send auth code to the SAME process (important for PKCE!)
+            logger.info("Submitting authorization code...")
 
-            # Wait for process to complete
-            try:
-                # Read remaining output
-                remaining_start = time.time()
-                while time.time() - remaining_start < 30:
-                    try:
-                        line = output_queue.get(timeout=1)
-                        print(line, end='', flush=True)
-                        if "successfully" in line.lower() or "authenticated" in line.lower():
-                            break
-                    except queue.Empty:
-                        if process.poll() is not None:
-                            break
+            if process.poll() is None:
+                # Process still alive - send code directly
+                try:
+                    process.stdin.write(auth_code + "\n")
+                    process.stdin.flush()
 
+                    # Read response with timeout
+                    response_start = time.time()
+                    while time.time() - response_start < 30:
+                        try:
+                            line = output_queue.get(timeout=1)
+                            print(line, end='', flush=True)
+                            if "success" in line.lower() or "authenticated" in line.lower():
+                                break
+                            if "error" in line.lower() or "failed" in line.lower():
+                                break
+                        except queue.Empty:
+                            if process.poll() is not None:
+                                break
+
+                    process.stdin.close()
+                except Exception as e:
+                    logger.debug(f"Error sending auth code: {e}")
+            else:
+                # Process already exited - this is the problem case
+                # Gemini CLI exits without TTY before we can send the code
+                logger.warning("Process exited before auth code could be sent.")
+                logger.info("Gemini CLI requires an interactive terminal for OAuth.")
+                logger.info("")
+                logger.info("Alternative: Run authorization manually:")
+                logger.info(f"  docker exec -it {self.docker_manager.CONTAINER_NAME} sudo -u gemini gemini")
+                return False
+
+            # Wait for process to finish
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
                 process.terminate()
-            except:
-                pass
 
-            # Verify auth was successful
+            # Verify authorization succeeded
             time.sleep(2)
             if not self._check_first_run():
                 logger.info("")
                 logger.info("Authorization successful!")
                 return True
             else:
-                logger.warning("Authorization may not have completed. Will retry on next run.")
-                return True  # Let it continue anyway
+                logger.warning("Authorization may not have completed.")
+                return False
 
         except Exception as e:
             logger.error(f"Authorization error: {e}")
