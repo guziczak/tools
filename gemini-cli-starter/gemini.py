@@ -566,23 +566,7 @@ class GeminiLauncher:
                             docker_cmd.extend(["-e", f"GEMINI_API_KEY={api_key}"])
                         break
 
-        # Run gemini directly (namespace-launcher loses TTY on Windows)
-        # docker_project_path is like /c/Users/... so we need /host_c/Users/...
-        if docker_project_path.startswith("/c/"):
-            container_path = "/host_c" + docker_project_path[2:]  # Remove /c, keep /Users/...
-        elif docker_project_path.startswith("/d/"):
-            container_path = "/host_d" + docker_project_path[2:]
-        else:
-            container_path = docker_project_path
-
-        docker_cmd.extend([
-            self.docker_manager.CONTAINER_NAME,
-            "sudo", "-u", "gemini", "-E", "HOME=/home/gemini",
-            "sh", "-c", f"cd '{container_path}' && exec gemini"
-        ])
-
         # Check if this is first run (no OAuth credentials in container)
-        env_file = Path(__file__).parent / ".env"
         first_run = self._check_first_run()
 
         # Always perform OAuth on first run (API key alone may not work for all features)
@@ -608,9 +592,8 @@ class GeminiLauncher:
                     if api_key:
                         self._save_api_key(env_file, api_key)
                         logger.info("API key saved! Continuing...")
-                        # Update docker_cmd to include the API key
-                        docker_cmd.insert(-2, "-e")
-                        docker_cmd.insert(-2, f"GEMINI_API_KEY={api_key}")
+                        # Add API key to docker command
+                        docker_cmd.extend(["-e", f"GEMINI_API_KEY={api_key}"])
                     else:
                         logger.error("No API key provided. Cannot continue without authentication.")
                         sys.exit(1)
@@ -619,6 +602,13 @@ class GeminiLauncher:
                     sys.exit(1)
             logger.info("=" * 60)
             logger.info("")
+
+        # Use namespace-launcher for proper session isolation
+        # The launcher handles mount namespace, session tracking, and security
+        docker_cmd.extend([
+            self.docker_manager.CONTAINER_NAME,
+            "/usr/local/bin/gemini-namespace-launcher"
+        ])
 
         logger.info(f"Starting Gemini session in: {project_path}")
         if self.debug:

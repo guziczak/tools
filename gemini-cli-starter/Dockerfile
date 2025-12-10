@@ -283,6 +283,7 @@ fi
 
 # Export variables for child process (safer than string interpolation)
 export PROJECT_SOURCE
+export GEMINI_API_KEY
 
 # Create mount namespace with private propagation
 # --propagation private prevents mount changes from leaking to parent namespace
@@ -345,7 +346,8 @@ HEARTBEAT_PID=$!
 
 # Run gemini as gemini user
 # Using exec to replace shell, preserving stdin/stdout/stderr
-exec sudo -u gemini -E HOME=/home/gemini gemini
+# Pass GEMINI_API_KEY explicitly as sudo -E may not preserve all env vars
+exec sudo -u gemini -E HOME=/home/gemini GEMINI_API_KEY="$GEMINI_API_KEY" gemini
 NAMESPACE_SCRIPT
 LAUNCHER_EOF
 
