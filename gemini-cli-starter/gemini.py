@@ -566,10 +566,19 @@ class GeminiLauncher:
                             docker_cmd.extend(["-e", f"GEMINI_API_KEY={api_key}"])
                         break
 
-        # Use gemini-namespace-launcher for proper project isolation
+        # Run gemini directly (namespace-launcher loses TTY on Windows)
+        # docker_project_path is like /c/Users/... so we need /host_c/Users/...
+        if docker_project_path.startswith("/c/"):
+            container_path = "/host_c" + docker_project_path[2:]  # Remove /c, keep /Users/...
+        elif docker_project_path.startswith("/d/"):
+            container_path = "/host_d" + docker_project_path[2:]
+        else:
+            container_path = docker_project_path
+
         docker_cmd.extend([
             self.docker_manager.CONTAINER_NAME,
-            "/usr/local/bin/gemini-namespace-launcher"
+            "sudo", "-u", "gemini", "-E", "HOME=/home/gemini",
+            "sh", "-c", f"cd '{container_path}' && exec gemini"
         ])
 
         # Check if this is first run (no OAuth credentials in container)
