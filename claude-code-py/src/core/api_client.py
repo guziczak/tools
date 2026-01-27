@@ -340,11 +340,64 @@ class ClaudeAPIClient:
             "show files",
             "what files",
             "list directory",
+            "obczaj folder",
+            "obczaj ten folder",
+            "obczaj katalog",
+            "obczaj ten katalog",
+            "sprawdz folder",
+            "sprawdź folder",
+            "sprawdz katalog",
+            "sprawdź katalog",
+            "zobacz folder",
+            "zobacz katalog",
+            "pokaz folder",
+            "pokaż folder",
+            "pokaz katalog",
+            "pokaż katalog",
+            "przejrzyj folder",
+            "przejrzyj katalog",
+            "show folder",
+            "check folder",
+            "browse folder",
+            "show directory",
         ]
 
         if any(trigger in message_lower for trigger in list_triggers):
             logger.debug("Intent tier1 match: list_files (exact trigger)")
             return ("list_files", {"type": "tool", "name": "bash"})
+
+        # Keyword-based folder/project intents (word-order invariant)
+        if QUERY_NORMALIZER_AVAILABLE:
+            folder_terms = ["folder", "katalog", "directory", "dir"]
+            project_terms = ["projekt", "project"]
+            verbs = [
+                "obczaj",
+                "sprawdz",
+                "sprawdź",
+                "zobacz",
+                "pokaz",
+                "pokaż",
+                "przejrzyj",
+                "list",
+                "show",
+                "check",
+                "browse",
+                "open",
+            ]
+
+            # Folder listing intent
+            for verb in verbs:
+                for noun in folder_terms:
+                    if QueryNormalizer.contains_keywords(message, [verb, noun]):
+                        logger.debug("Intent tier1 match: list_files (keyword verb+noun)")
+                        return ("list_files", {"type": "tool", "name": "bash"})
+
+            # Project exploration intent
+            for verb in verbs:
+                for noun in project_terms:
+                    if QueryNormalizer.contains_keywords(message, [verb, noun]):
+                        logger.debug("Intent tier1 match: explore_project (keyword verb+noun)")
+                        return ("explore_project", {"type": "tool", "name": "bash"})
 
         # TIER 1.5: Fuzzy matching (catches typos like "widziszi projekt")
         # Uses Levenshtein distance - allows up to 2 character edits

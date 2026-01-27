@@ -250,34 +250,49 @@ class ClaudeAIProxyServer:
         """Convert Anthropic messages format to claude.ai prompt.
 
         Claude.ai expects just the user's message, not the full conversation format.
+        We also need to surface the most recent tool results if they exist.
         """
-        # Get the last user message
+        last_user_text = None
+        last_tool_results = None
+
         for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
+            if msg.get("role") != "user":
+                continue
 
-                if isinstance(content, list):
-                    # Handle structured content (including tool_result blocks)
-                    text_parts = []
-                    for block in content:
-                        if isinstance(block, dict):
-                            # Extract text from different block types
-                            if block.get("type") == "text":
-                                text_parts.append(block.get("text", ""))
-                            elif block.get("type") == "tool_result":
-                                # For tool results, use the content
-                                tool_content = block.get("content", "")
-                                if tool_content:
-                                    text_parts.append(f"Tool result: {tool_content}")
-                        else:
-                            text_parts.append(str(block))
+            content = msg.get("content", "")
 
-                    content = " ".join(text_parts) if text_parts else "Continue"
+            if isinstance(content, list):
+                text_parts = []
+                tool_parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_result":
+                            tool_content = block.get("content", "")
+                            if tool_content:
+                                tool_parts.append(f"Tool result: {tool_content}")
+                    else:
+                        text_parts.append(str(block))
 
-                return content if content else "Continue"
+                if last_user_text is None and text_parts:
+                    last_user_text = " ".join(text_parts).strip()
+                if last_tool_results is None and tool_parts:
+                    last_tool_results = "\n".join(tool_parts).strip()
+            else:
+                if last_user_text is None and content:
+                    last_user_text = str(content)
 
-        # Fallback: if no user message, return "Continue" to keep conversation going
-        return "Continue"
+            if last_user_text and last_tool_results:
+                break
+
+        if not last_user_text:
+            last_user_text = "Continue"
+
+        if last_tool_results:
+            return f"{last_tool_results}\n\n{last_user_text}".strip()
+
+        return last_user_text
 
     def proxy_messages_endpoint(self, anthropic_request: dict):
         """Proxy /v1/messages request to claude.ai.
@@ -514,6 +529,12 @@ class ClaudeAIProxyServer:
             return False
 
         self.app = Flask(__name__)
+        # Reduce noisy werkzeug request logs
+        import logging
+
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        self.app.logger.disabled = True
+        self.app.logger.propagate = False
 
         @self.app.route("/v1/messages", methods=["POST"])
         def messages_endpoint():

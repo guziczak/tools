@@ -151,6 +151,7 @@ class ExploreProjectHandler(IntentHandler):
                         "command": list_cmd,
                         "output_length": len(file_list),
                     },
+                    skip_llm=True,
                 )
             else:
                 # Tool failed, fall back to original message
