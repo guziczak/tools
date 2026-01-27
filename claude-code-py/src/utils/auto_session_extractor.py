@@ -33,7 +33,7 @@ def ensure_selenium_installed() -> bool:
 
     # Install missing packages
     if missing:
-        print(f"  📦 Installing automation tools: {', '.join(missing)}...")
+        print(f"  [*] Installing automation tools: {', '.join(missing)}...")
         print("     (This may take a moment...)")
         try:
             subprocess.check_call(
@@ -41,7 +41,7 @@ def ensure_selenium_installed() -> bool:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            print(f"  ✅ Installed: {', '.join(missing)}")
+            print(f"  [OK] Installed: {', '.join(missing)}")
             return True
         except subprocess.CalledProcessError:
             # Try without --user
@@ -51,10 +51,10 @@ def ensure_selenium_installed() -> bool:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-                print(f"  ✅ Installed: {', '.join(missing)}")
+                print(f"  [OK] Installed: {', '.join(missing)}")
                 return True
             except subprocess.CalledProcessError:
-                print(f"  ❌ Failed to install: {', '.join(missing)}")
+                print(f"  [ERR] Failed to install: {', '.join(missing)}")
                 print(f"     Please run: pip install {' '.join(missing)}")
                 return False
 
@@ -86,16 +86,16 @@ def extract_session_key_auto() -> Optional[str]:
         from selenium.webdriver.support import expected_conditions as EC
         from webdriver_manager.chrome import ChromeDriverManager
     except ImportError as e:
-        print(f"  ❌ Import error: {e}")
+        print(f"  [ERR] Import error: {e}")
         print("     Please restart the script to reload packages")
         return None
 
     print()
     print("=" * 70)
-    print("  🤖 FULL AUTO sessionKey Extraction")
+    print("  FULL AUTO sessionKey Extraction")
     print("=" * 70)
     print()
-    print("  🌐 Opening automated browser...")
+    print("  Opening automated browser...")
     print("     Please sign in when the browser opens")
     print("     Python will AUTOMATICALLY extract sessionKey when done!")
     print()
@@ -110,20 +110,20 @@ def extract_session_key_auto() -> Optional[str]:
         chrome_options.add_experimental_option("useAutomationExtension", False)
 
         # Create driver with auto-downloaded ChromeDriver
-        print("  🔧 Setting up Chrome driver...")
+        print("  [*] Setting up Chrome driver...")
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # Navigate to claude.ai
-        print("  🌐 Opening claude.ai...")
+        print("  [*] Opening claude.ai...")
         driver.get("https://claude.ai/new")
 
         print()
         print("=" * 70)
-        print("  👤 Please sign in to claude.ai in the opened browser")
+        print("  [*] Please sign in to claude.ai in the opened browser")
         print("=" * 70)
         print()
-        print("  ⏳ Waiting for you to sign in...")
+        print("  [...] Waiting for you to sign in...")
         print("     (Python will auto-detect when you're logged in)")
         print()
 
@@ -147,18 +147,18 @@ def extract_session_key_auto() -> Optional[str]:
 
             if session_key:
                 print()
-                print("  ✅ Login detected!")
-                print("  🔑 sessionKey extracted automatically!")
+                print("  [OK] Login detected!")
+                print("  [KEY] sessionKey extracted automatically!")
                 print(f"     {session_key[:20]}...{session_key[-10:]}")
                 break
 
             # Show progress
             if elapsed % 10 == 0:
-                print(f"  ⏳ Still waiting... ({elapsed}s elapsed)")
+                print(f"  [...] Still waiting... ({elapsed}s elapsed)")
 
         if not session_key:
             print()
-            print("  ⏱️  Timeout waiting for login")
+            print("  [TIME]  Timeout waiting for login")
             print("     Please make sure you're fully logged in to claude.ai")
             return None
 
@@ -166,9 +166,9 @@ def extract_session_key_auto() -> Optional[str]:
 
     except Exception as e:
         print()
-        print(f"  ❌ Error during automation: {e}")
+        print(f"  [ERR] Error during automation: {e}")
         print()
-        print("  💡 If Chrome didn't open, you might need to:")
+        print("  [TIP] If Chrome didn't open, you might need to:")
         print("     1. Install Google Chrome")
         print("     2. Try restarting the script")
         return None
@@ -177,7 +177,7 @@ def extract_session_key_auto() -> Optional[str]:
         # Always close browser
         if driver:
             print()
-            print("  🔒 Closing browser...")
+            print("  [*] Closing browser...")
             try:
                 driver.quit()
             except:
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     session_key = extract_session_key_auto()
     if session_key:
         print()
-        print(f"✅ Success! Got sessionKey: {session_key[:20]}...")
+        print(f"[OK] Success! Got sessionKey: {session_key[:20]}...")
     else:
         print()
-        print("❌ Failed to extract sessionKey")
+        print("[ERR] Failed to extract sessionKey")

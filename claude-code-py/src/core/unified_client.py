@@ -5,6 +5,9 @@ from anthropic import Anthropic
 from anthropic.types import MessageStreamEvent
 
 from .oauth_anthropic_client import OAuthAnthropicClient, is_oauth_token
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class UnifiedClaudeClient:
@@ -72,15 +75,17 @@ class UnifiedClaudeClient:
         Yields:
             Event dicts with streaming response
         """
-        print(
-            f"🔀 [UnifiedClient] chat_streaming() called. backend_type={self.backend_type}, backend={type(self.backend).__name__}"
+        logger.debug(
+            "chat_streaming called. backend_type=%s, backend=%s",
+            self.backend_type,
+            type(self.backend).__name__,
         )
 
         # Extract tool_choice from kwargs (state-of-the-art intent classification)
         tool_choice = kwargs.get("tool_choice", None)
 
         if self.backend_type == "oauth":
-            print(f"✅ [UnifiedClient] Using OAuth backend")
+            logger.debug("Using OAuth backend")
             # Use OAuth backend (Bearer auth with tools support)
             yield from self.backend.chat_streaming(
                 messages=messages,

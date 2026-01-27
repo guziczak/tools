@@ -82,13 +82,13 @@ class OAuthAnthropicClient:
         Yields:
             Event dicts with streaming response
         """
-        logger.info(
+        logger.debug(
             "chat_streaming() CALLED! messages=%d, tools=%s",
             len(messages),
             "YES" if tools else "NO",
         )
         if tool_choice:
-            logger.info("tool_choice FORCED: %s", tool_choice)
+            logger.debug("tool_choice forced: %s", tool_choice)
 
         # Build request payload (same format as standard API)
         payload = {

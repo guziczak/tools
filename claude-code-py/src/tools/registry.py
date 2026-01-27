@@ -1,6 +1,9 @@
 """Tool registry for managing available tools."""
 
 from typing import Dict, List, Optional, Any
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 from .base import BaseTool, ToolResult, ToolStatus
 
 
@@ -24,7 +27,7 @@ class ToolRegistry:
         # Register all aliases
         for alias in tool.aliases:
             self._aliases[alias] = tool.name
-            print(f"   📎 Registered alias: {alias} → {tool.name}")
+            logger.debug("Registered alias: %s -> %s", alias, tool.name)
 
     def unregister(self, tool_name: str) -> bool:
         """Unregister a tool.

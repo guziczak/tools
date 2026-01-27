@@ -20,6 +20,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from dataclasses import dataclass, field
 
+from .logging import get_logger
+
+logger = get_logger(__name__)
+
 if TYPE_CHECKING:
     from tools import ToolRegistry
 
@@ -119,7 +123,7 @@ class ExploreProjectHandler(IntentHandler):
         """
         import sys
 
-        print("🎯 [ExploreProjectHandler] Pre-executing directory listing...")
+        logger.debug("ExploreProjectHandler pre-executing directory listing")
 
         # Determine correct command for platform
         is_windows = sys.platform.startswith("win")
@@ -131,7 +135,7 @@ class ExploreProjectHandler(IntentHandler):
 
             if result.status.value == "success":
                 file_list = result.output
-                print(f"   ✅ Got {len(file_list)} chars of output")
+                logger.debug("ExploreProjectHandler got %d chars of output", len(file_list))
 
                 # Return as TOOL RESULT (Anthropic API format - best practice!)
                 return IntentResult(
@@ -150,7 +154,7 @@ class ExploreProjectHandler(IntentHandler):
                 )
             else:
                 # Tool failed, fall back to original message
-                print(f"   ❌ bash failed: {result.error}")
+                logger.warning("ExploreProjectHandler bash failed: %s", result.error)
                 return IntentResult(
                     tool_results=[
                         {
@@ -164,7 +168,7 @@ class ExploreProjectHandler(IntentHandler):
                 )
         else:
             # No tool registry available
-            print("   ⚠️  No tool registry - cannot pre-execute")
+            logger.warning("ExploreProjectHandler no tool registry - cannot pre-execute")
             return IntentResult(metadata={"error": "No tool registry"})
 
 
@@ -193,7 +197,7 @@ class ListFilesHandler(IntentHandler):
         """
         import sys
 
-        print("🎯 [ListFilesHandler] Pre-executing directory listing...")
+        logger.debug("ListFilesHandler pre-executing directory listing")
 
         is_windows = sys.platform.startswith("win")
         list_cmd = "dir" if is_windows else "ls"
@@ -257,7 +261,7 @@ class GitLogHandler(IntentHandler):
         Returns:
             IntentResult with tool_results (zero redundancy!)
         """
-        print("🎯 [GitLogHandler] Pre-executing git log...")
+        logger.debug("GitLogHandler pre-executing git log")
 
         # Execute git log to get recent commits
         if self.tool_registry:
@@ -266,7 +270,7 @@ class GitLogHandler(IntentHandler):
 
             if result.status.value == "success":
                 git_log = result.output
-                print(f"   ✅ Got {len(git_log)} chars of git log")
+                logger.debug("GitLogHandler got %d chars of git log", len(git_log))
 
                 # Return as TOOL RESULT (Anthropic API format - best practice!)
                 return IntentResult(
@@ -285,7 +289,7 @@ class GitLogHandler(IntentHandler):
                 )
             else:
                 # Git failed - maybe not a git repo
-                print(f"   ❌ git log failed: {result.error}")
+                logger.warning("GitLogHandler git log failed: %s", result.error)
 
                 # Return error in tool result format
                 return IntentResult(
@@ -301,7 +305,7 @@ class GitLogHandler(IntentHandler):
                 )
         else:
             # No tool registry available
-            print("   ⚠️  No tool registry - cannot pre-execute")
+            logger.warning("GitLogHandler no tool registry - cannot pre-execute")
             return IntentResult(metadata={"error": "No tool registry"})
 
 
@@ -365,13 +369,17 @@ class AnalyzeChangesHandler(IntentHandler):
             cached = self.context_manager.get_verified("last_commit_hash")
 
             if cached and cached["status"] == "fresh":
-                print(
-                    f"   💾 Using cached commit hash: {cached['value']} (age: {cached['age_seconds']:.0f}s)"
+                logger.debug(
+                    "Using cached commit hash: %s (age: %.0fs)",
+                    cached["value"],
+                    cached["age_seconds"],
                 )
                 return cached["value"]
             elif cached and cached["status"] == "stale":
-                print(
-                    f"   ⚠️  Cached commit changed: {cached['cached_value']} → {cached['live_value']}"
+                logger.warning(
+                    "Cached commit changed: %s -> %s",
+                    cached["cached_value"],
+                    cached["live_value"],
                 )
                 # Return NEW value (auto-updated!)
                 return cached["live_value"]
@@ -389,7 +397,7 @@ class AnalyzeChangesHandler(IntentHandler):
                 match = re.search(r"\b([0-9a-f]{6,40})\b", content, re.IGNORECASE)
                 if match:
                     hash_candidate = match.group(1)
-                    print(f"   🔍 Found potential commit hash: {hash_candidate}")
+                    logger.debug("Found potential commit hash: %s", hash_candidate)
 
                     # Store in cache with verification
                     if self.context_manager:
@@ -402,7 +410,7 @@ class AnalyzeChangesHandler(IntentHandler):
 
                     return hash_candidate
 
-        print("   ⚠️  No commit hash found in recent messages")
+        logger.debug("No commit hash found in recent messages")
         return None
 
     def handle(self, user_message: str, intent: str) -> IntentResult:
@@ -418,37 +426,37 @@ class AnalyzeChangesHandler(IntentHandler):
         Returns:
             IntentResult with tool_results (git show output)
         """
-        print("🎯 [AnalyzeChangesHandler] Pre-executing git show...")
+        logger.debug("AnalyzeChangesHandler pre-executing git show")
 
         # Extract commit hash from conversation
         commit_hash = self._extract_commit_hash()
 
         if not commit_hash:
-            print("   ⚠️  No commit hash in context - trying git log fallback...")
+            logger.debug("No commit hash in context - trying git log fallback")
             # FALLBACK: Check git log for last commit
             if self.tool_registry:
                 result = self.tool_registry.execute_tool("bash", command="git log -1 --format=%H")
                 if result.status.value == "success":
                     commit_hash = result.output.strip()
-                    print(f"   ✅ Got commit hash from git log: {commit_hash[:7]}")
+                    logger.debug("Got commit hash from git log: %s", commit_hash[:7])
                 else:
-                    print(f"   ❌ git log failed: {result.error}")
+                    logger.warning("git log failed: %s", result.error)
                     return IntentResult(
                         metadata={"error": "No commit hash found and git log failed"}
                     )
             else:
-                print("   ❌ No tool registry for fallback")
+                logger.warning("No tool registry for git log fallback")
                 return IntentResult(metadata={"error": "No commit hash found"})
 
         # Execute git show
         if self.tool_registry:
             cmd = f"git show {commit_hash}"
-            print(f"   🔧 Executing: {cmd}")
+            logger.debug("Executing: %s", cmd)
 
             result = self.tool_registry.execute_tool("bash", command=cmd)
 
             if result.status.value == "success":
-                print(f"   ✅ Got {len(result.output)} chars of diff")
+                logger.debug("Got %d chars of diff", len(result.output))
 
                 # Return as TOOL RESULT with analysis instructions in metadata
                 return IntentResult(
@@ -474,7 +482,7 @@ Be specific and practical.""",
                     },
                 )
             else:
-                print(f"   ❌ git show failed: {result.error}")
+                logger.warning("git show failed: %s", result.error)
                 return IntentResult(
                     tool_results=[
                         {
@@ -487,7 +495,7 @@ Be specific and practical.""",
                     metadata={"error": result.error},
                 )
         else:
-            print("   ⚠️  No tool registry - cannot pre-execute")
+            logger.warning("No tool registry - cannot pre-execute")
             return IntentResult(metadata={"error": "No tool registry"})
 
 
@@ -539,16 +547,16 @@ class IntentRouter:
                 context_manager=self.context_manager,  # NEW: Safe memory!
             )
             if handler.can_handle(intent):
-                print(f"🎯 [IntentRouter] Routing '{intent}' to {handler.__class__.__name__}")
+                logger.debug("IntentRouter routing '%s' to %s", intent, handler.__class__.__name__)
                 return handler.handle(user_message, intent)
 
         # Try other handlers
         for handler in self.handlers:
             if handler.can_handle(intent):
-                print(f"🎯 [IntentRouter] Routing '{intent}' to {handler.__class__.__name__}")
+                logger.debug("IntentRouter routing '%s' to %s", intent, handler.__class__.__name__)
                 return handler.handle(user_message, intent)
 
-        print(f"🎯 [IntentRouter] No handler for intent '{intent}'")
+        logger.debug("IntentRouter no handler for intent '%s'", intent)
         return None
 
     def add_handler(self, handler: IntentHandler):

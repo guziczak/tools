@@ -40,13 +40,13 @@ class ColoredFormatter(logging.Formatter):
     }
     RESET = "\033[0m"
 
-    # Emoji prefixes (like current system)
+    # Emoji prefixes removed for cleaner, ASCII-friendly output
     EMOJIS = {
-        "DEBUG": "🔍",
-        "INFO": "ℹ",
-        "WARNING": "⚠️",
-        "ERROR": "❌",
-        "CRITICAL": "🔥",
+        "DEBUG": "",
+        "INFO": "",
+        "WARNING": "",
+        "ERROR": "",
+        "CRITICAL": "",
     }
 
     def format(self, record):
@@ -62,8 +62,11 @@ class ColoredFormatter(logging.Formatter):
         color = self.COLORS.get(record.levelname, self.RESET)
         emoji = self.EMOJIS.get(record.levelname, "")
 
-        # Format: 🔍 [Module] Message
-        log_fmt = f"{emoji} [{record.name}] {record.getMessage()}"
+        # Format: [Module] Message (prefix emoji only if configured)
+        if emoji:
+            log_fmt = f"{emoji} [{record.name}] {record.getMessage()}"
+        else:
+            log_fmt = f"[{record.name}] {record.getMessage()}"
 
         # Add color
         colored_fmt = f"{color}{log_fmt}{self.RESET}"

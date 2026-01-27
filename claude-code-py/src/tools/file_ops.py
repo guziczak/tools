@@ -3,6 +3,9 @@
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 from .base import BaseTool, ToolResult, ToolStatus
 
 
@@ -48,25 +51,33 @@ class ReadTool(BaseTool):
             )
 
         try:
-            print(f"📖 [ReadTool] Executing with file_path='{file_path}'")
+            logger.debug("ReadTool executing with file_path='%s'", file_path)
 
             # Map claude.ai virtual paths to local paths
             # Claude.ai uses /mnt/user-data/outputs/ but we're in working directory
             import os
 
+            if file_path.startswith("/home/claude"):
+                suffix = file_path[len("/home/claude") :].lstrip("/\\")
+                file_path = os.path.join(os.getcwd(), suffix)
+                logger.debug("ReadTool mapped claude.ai /home/claude to: %s", file_path)
             if file_path.startswith("/mnt/user-data/outputs/"):
                 # Extract relative path after /mnt/user-data/outputs/
                 relative_path = file_path[len("/mnt/user-data/outputs/") :]
                 file_path = os.path.join(os.getcwd(), relative_path)
-                print(f"📍 [ReadTool] Mapped claude.ai path to: {file_path}")
+                logger.debug("ReadTool mapped claude.ai path to: %s", file_path)
             elif file_path == "/mnt/user-data/outputs":
                 # User asked about directory - use current working directory
                 file_path = os.getcwd()
-                print(f"📍 [ReadTool] Mapped claude.ai outputs dir to CWD: {file_path}")
+                logger.debug("ReadTool mapped claude.ai outputs dir to CWD: %s", file_path)
+            elif file_path.startswith("/mnt/user-data/"):
+                relative_path = file_path[len("/mnt/user-data/") :]
+                file_path = os.path.join(os.getcwd(), relative_path)
+                logger.debug("ReadTool mapped claude.ai /mnt/user-data to: %s", file_path)
 
             # Resolve path (handles relative paths, ~, etc)
             resolved_path = Path(file_path).expanduser().resolve()
-            print(f"📁 [ReadTool] Resolved to: {resolved_path}")
+            logger.debug("ReadTool resolved to: %s", resolved_path)
 
             # Check if file exists
             if not resolved_path.exists():
@@ -190,21 +201,31 @@ class WriteTool(BaseTool):
             )
 
         try:
-            print(
-                f"📝 [WriteTool] Executing with file_path='{file_path}', content_len={len(content)}"
+            logger.debug(
+                "WriteTool executing with file_path='%s', content_len=%d",
+                file_path,
+                len(content),
             )
 
             # Map claude.ai virtual paths to local paths
             import os
 
+            if file_path.startswith("/home/claude"):
+                suffix = file_path[len("/home/claude") :].lstrip("/\\")
+                file_path = os.path.join(os.getcwd(), suffix)
+                logger.debug("WriteTool mapped claude.ai /home/claude to: %s", file_path)
             if file_path.startswith("/mnt/user-data/outputs/"):
                 relative_path = file_path[len("/mnt/user-data/outputs/") :]
                 file_path = os.path.join(os.getcwd(), relative_path)
-                print(f"📍 [WriteTool] Mapped claude.ai path to: {file_path}")
+                logger.debug("WriteTool mapped claude.ai path to: %s", file_path)
+            elif file_path.startswith("/mnt/user-data/"):
+                relative_path = file_path[len("/mnt/user-data/") :]
+                file_path = os.path.join(os.getcwd(), relative_path)
+                logger.debug("WriteTool mapped claude.ai /mnt/user-data to: %s", file_path)
 
             # Resolve path
             resolved_path = Path(file_path).expanduser().resolve()
-            print(f"📁 [WriteTool] Resolved to: {resolved_path}")
+            logger.debug("WriteTool resolved to: %s", resolved_path)
 
             # Create parent directories if they don't exist
             resolved_path.parent.mkdir(parents=True, exist_ok=True)
@@ -291,21 +312,32 @@ class EditTool(BaseTool):
             )
 
         try:
-            print(
-                f"✏️  [EditTool] Executing with file_path='{file_path}', old_text_len={len(old_text)}, new_text_len={len(new_text)}"
+            logger.debug(
+                "EditTool executing with file_path='%s', old_text_len=%d, new_text_len=%d",
+                file_path,
+                len(old_text),
+                len(new_text),
             )
 
             # Map claude.ai virtual paths to local paths
             import os
 
+            if file_path.startswith("/home/claude"):
+                suffix = file_path[len("/home/claude") :].lstrip("/\\")
+                file_path = os.path.join(os.getcwd(), suffix)
+                logger.debug("EditTool mapped claude.ai /home/claude to: %s", file_path)
             if file_path.startswith("/mnt/user-data/outputs/"):
                 relative_path = file_path[len("/mnt/user-data/outputs/") :]
                 file_path = os.path.join(os.getcwd(), relative_path)
-                print(f"📍 [EditTool] Mapped claude.ai path to: {file_path}")
+                logger.debug("EditTool mapped claude.ai path to: %s", file_path)
+            elif file_path.startswith("/mnt/user-data/"):
+                relative_path = file_path[len("/mnt/user-data/") :]
+                file_path = os.path.join(os.getcwd(), relative_path)
+                logger.debug("EditTool mapped claude.ai /mnt/user-data to: %s", file_path)
 
             # Resolve path
             resolved_path = Path(file_path).expanduser().resolve()
-            print(f"📁 [EditTool] Resolved to: {resolved_path}")
+            logger.debug("EditTool resolved to: %s", resolved_path)
 
             # Check if file exists
             if not resolved_path.exists():

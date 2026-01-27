@@ -10,6 +10,9 @@ from rich.text import Text
 from rich.prompt import Prompt
 from rich.rule import Rule
 import sys
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class TerminalUI:
@@ -83,7 +86,7 @@ class TerminalUI:
     def print_thinking(self, content: str, is_start: bool = False):
         """Print thinking content with collapsible /thinking toggle."""
         if is_start:
-            print(f"🐛 [DEBUG print_thinking] is_start=True, creating new Live")
+            logger.debug("print_thinking start: creating new Live")
             self.thinking_buffer = []
             self.thinking_token_count = 0
             self.thinking_done_flag = False  # Reset flag for new thinking session
@@ -103,7 +106,11 @@ class TerminalUI:
             if self.thinking_live:
                 # More realistic time estimate: ~50 tokens/sec for thinking
                 seconds = max(1, self.thinking_token_count // 50)
-                print(f"🐛 [DEBUG print_thinking] Updating Live: {seconds}s · {self.thinking_token_count} tokens")
+                logger.debug(
+                    "print_thinking update: %ss, %d tokens",
+                    seconds,
+                    self.thinking_token_count,
+                )
                 self.thinking_live.update(
                     Text(
                         f"∴ Thinking... {seconds}s · {self.thinking_token_count} tokens (type '/thinking' to show)",
@@ -215,12 +222,12 @@ class TerminalUI:
             content = event["content"]
 
             if event_type == "thinking_start":
-                print(f"🐛 [DEBUG] thinking_start received! in_thinking={in_thinking}")
+                logger.debug("thinking_start received (in_thinking=%s)", in_thinking)
                 in_thinking = True
                 self.print_thinking("", is_start=True)
 
             elif event_type == "thinking" and in_thinking:
-                print(f"🐛 [DEBUG] thinking delta! len={len(content) if content else 0}")
+                logger.debug("thinking delta len=%d", len(content) if content else 0)
                 self.print_thinking(content)
 
             elif event_type == "text_start":
@@ -309,12 +316,12 @@ class TerminalUI:
             content = event.get("content", "")
 
             if event_type == "thinking_start":
-                print(f"🐛 [DEBUG] thinking_start received! in_thinking={in_thinking}")
+                logger.debug("thinking_start received (in_thinking=%s)", in_thinking)
                 in_thinking = True
                 self.print_thinking("", is_start=True)
 
             elif event_type == "thinking" and in_thinking:
-                print(f"🐛 [DEBUG] thinking delta! len={len(content) if content else 0}")
+                logger.debug("thinking delta len=%d", len(content) if content else 0)
                 self.print_thinking(content)
 
             elif event_type == "text_start":

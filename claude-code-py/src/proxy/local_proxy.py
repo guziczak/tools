@@ -15,6 +15,9 @@ import json
 from typing import Optional, Dict, Any
 from pathlib import Path
 import threading
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 try:
     from flask import Flask, request, Response, stream_with_context
@@ -58,7 +61,7 @@ class ClaudeAIProxyServer:
             )
             # Disable auto-decompression for streaming
             # CloudScraper/requests might be eating the stream
-            print("⚙️  Configuring session for streaming...")
+            logger.debug("Configuring session for streaming")
         else:
             # Fallback to requests
             import requests
@@ -104,10 +107,10 @@ class ClaudeAIProxyServer:
                 rfc2109=False,
             )
             self.session.cookies.set_cookie(cookie)
-            print(f"✅ Using sessionKey authentication (claude.ai)")
+            logger.debug("Using sessionKey authentication (claude.ai)")
         else:
             # OAuth token handling
-            print(f"⚠️  Token doesn't look like sessionKey, trying anyway...")
+            logger.warning("Token doesn't look like sessionKey, trying anyway")
 
         self.base_url = "https://claude.ai"
 
@@ -117,18 +120,20 @@ class ClaudeAIProxyServer:
     def _warmup_session(self) -> None:
         """Pre-warm session by visiting homepage to get Cloudflare cookies."""
         try:
-            print("🔥 Warming up session (bypassing Cloudflare)...")
+            logger.debug("Warming up session (bypassing Cloudflare)")
             # Visit homepage first to get Cloudflare clearance cookies
             response = self.session.get(f"{self.base_url}/chats")
             if response.status_code == 200:
-                print("✅ Session warmed up - Cloudflare cookies acquired")
+                logger.debug("Session warmed up - Cloudflare cookies acquired")
                 # Debug: show cookies
                 cookie_names = [cookie.name for cookie in self.session.cookies]
-                print(f"   Cookies: {', '.join(cookie_names) if cookie_names else 'none'}")
+                logger.debug(
+                    "Cookies: %s", ", ".join(cookie_names) if cookie_names else "none"
+                )
             else:
-                print(f"⚠️  Warmup got status {response.status_code} (may still work)")
+                logger.warning("Warmup got status %s (may still work)", response.status_code)
         except Exception as e:
-            print(f"⚠️  Session warmup failed: {e} (continuing anyway)")
+            logger.warning("Session warmup failed: %s (continuing anyway)", e)
 
     def _get_organization_id(self) -> Optional[str]:
         """Get organization ID from OAuth token."""
@@ -183,6 +188,63 @@ class ClaudeAIProxyServer:
                     continue
 
         return None
+
+    def _convert_document(self, file_content: bytes, file_name: str) -> Optional[str]:
+        """Convert document/audio to text using claude.ai upload API.
+
+        Args:
+            file_content: Raw file bytes
+            file_name: Original filename (for mime type detection)
+
+        Returns:
+            Extracted text content or None on failure
+        """
+        org_id = self._get_organization_id()
+        if not org_id:
+            logger.warning("Cannot convert document - no organization ID")
+            return None
+
+        try:
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(file_name)
+            if not mime_type:
+                mime_type = "audio/wav" if file_name.endswith(".wav") else "application/octet-stream"
+
+            # Format from st1vms/unofficial-claude-api
+            files = {
+                "file": (file_name, file_content, mime_type),
+                "orgUuid": (None, org_id),
+            }
+
+            # Remove Content-Type header so requests sets multipart boundary
+            headers = dict(self.session.headers)
+            if "Content-Type" in headers:
+                del headers["Content-Type"]
+
+            logger.debug(
+                "Uploading %s (%d bytes, %s)", file_name, len(file_content), mime_type
+            )
+
+            response = self.session.post(
+                f"{self.base_url}/api/{org_id}/upload",
+                headers=headers,
+                files=files,
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                resp_data = response.json()
+                logger.debug("Upload success: %s", list(resp_data.keys()))
+                # Try various field names that claude.ai might return
+                return resp_data.get("extracted_content") or resp_data.get("content") or resp_data.get("text") or str(resp_data)
+            else:
+                logger.warning(
+                    "Upload failed: %s - %s", response.status_code, response.text[:300]
+                )
+                return None
+        except Exception as e:
+            logger.warning("Upload error: %s", e)
+            return None
 
     def _convert_messages_to_prompt(self, messages: list) -> str:
         """Convert Anthropic messages format to claude.ai prompt.
@@ -259,7 +321,9 @@ class ClaudeAIProxyServer:
         is_first_message = user_message_count == 1
         if system and is_first_message:
             prompt = f"{system}\n\n---\n\n{user_prompt}"
-            print(f"📋 [Proxy] Including system prompt in first message ({len(system)} chars)")
+            logger.debug(
+                "Including system prompt in first message (%d chars)", len(system)
+            )
         else:
             prompt = user_prompt
 
@@ -278,8 +342,9 @@ class ClaudeAIProxyServer:
         # We'll intercept tool_use blocks and execute locally with our tools
         # This is the Interceptor Pattern for tool execution
         if tools:
-            print(
-                f"ℹ️  [Proxy] Interceptor mode: {len(tools)} local tools available (not sending to claude.ai)"
+            logger.debug(
+                "Interceptor mode: %d local tools available (not sending to claude.ai)",
+                len(tools),
             )
 
         try:
@@ -303,7 +368,7 @@ class ClaudeAIProxyServer:
                 error_text = ""
                 try:
                     error_text = response.text[:500]
-                    print(f"❌ Error response: {error_text}")
+                    logger.warning("Error response: %s", error_text)
                 except:
                     pass
 
@@ -375,8 +440,10 @@ class ClaudeAIProxyServer:
                                     if event_type == "content_block_start":
                                         cb = data.get("content_block", {})
                                         if cb.get("type") == "tool_use":
-                                            print(
-                                                f"🔍 [Proxy] tool_use detected: {cb.get('name', 'unknown')} (id: {cb.get('id', 'N/A')})"
+                                            logger.debug(
+                                                "tool_use detected: %s (id: %s)",
+                                                cb.get("name", "unknown"),
+                                                cb.get("id", "N/A"),
                                             )
 
                                     # Claude.ai already sends Anthropic SSE format!
@@ -443,7 +510,7 @@ class ClaudeAIProxyServer:
     def start_server(self):
         """Start Flask proxy server in background thread."""
         if not FLASK_AVAILABLE:
-            print("⚠️  Flask not available - proxy cannot start")
+            logger.error("Flask not available - proxy cannot start")
             return False
 
         self.app = Flask(__name__)
@@ -464,6 +531,24 @@ class ClaudeAIProxyServer:
             """Health check endpoint."""
             return Response(json.dumps({"status": "ok"}), content_type="application/json")
 
+        @self.app.route("/convert", methods=["POST"])
+        def convert_endpoint():
+            """Convert audio/document to text using claude.ai."""
+            if 'file' not in request.files:
+                return Response(json.dumps({"error": "No file part"}), status=400, content_type="application/json")
+
+            file = request.files['file']
+            if file.filename == '':
+                return Response(json.dumps({"error": "No selected file"}), status=400, content_type="application/json")
+
+            content = file.read()
+            text = self._convert_document(content, file.filename)
+
+            if text is not None:
+                return Response(json.dumps({"text": text}), content_type="application/json")
+            else:
+                return Response(json.dumps({"error": "Conversion failed"}), status=500, content_type="application/json")
+
         # Run in background thread
         def run():
             self.app.run(host="127.0.0.1", port=self.port, debug=False, use_reloader=False)
@@ -471,7 +556,7 @@ class ClaudeAIProxyServer:
         self.server_thread = threading.Thread(target=run, daemon=True)
         self.server_thread.start()
 
-        print(f"✅ Proxy server started on http://127.0.0.1:{self.port}")
+        logger.debug("Proxy server started on http://127.0.0.1:%s", self.port)
         return True
 
 
@@ -494,7 +579,7 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
     # DON'T reuse existing instance - each CLI session needs its own conversation
     # Try to find available port if default is busy
     if _proxy_instance:
-        print("ℹ️  [Proxy] Previous proxy detected - finding free port for new CLI instance")
+        logger.debug("Previous proxy detected - finding free port for new CLI instance")
 
     # Try ports 8765, 8766, 8767... until we find one available
     original_port = port
@@ -512,15 +597,17 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
             # Port is available!
             port = try_port
             if attempt > 0:
-                print(f"   Found available port: {port}")
+                logger.debug("Found available port: %s", port)
             break
         except OSError:
             # Port busy, try next
             sock.close()
             continue
     else:
-        print(
-            f"❌ [Proxy] Could not find available port (tried {original_port}-{original_port+max_attempts-1})"
+        logger.error(
+            "Could not find available port (tried %d-%d)",
+            original_port,
+            original_port + max_attempts - 1,
         )
         return (False, 0)
 
@@ -541,13 +628,13 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
         try:
             response = requests.get(f"http://127.0.0.1:{port}/health", timeout=1)
             if response.status_code == 200:
-                print(f"✅ Proxy health check passed - ready to accept requests")
+                logger.debug("Proxy health check passed - ready to accept requests")
                 return (True, port)
         except:
             pass
         time.sleep(0.1)
 
-    print(f"⚠️  Proxy health check timeout - may not be ready")
+    logger.warning("Proxy health check timeout - may not be ready")
     return (True, port)  # Continue anyway
 
 

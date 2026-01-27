@@ -14,7 +14,7 @@ Best Practices:
 
 from abc import ABC, abstractmethod
 from typing import Optional, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import sys
 import re
 
@@ -32,6 +32,7 @@ class ValidationResult:
     is_valid: bool
     transformed_command: Optional[str] = None
     error_message: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
 
 
 class CommandValidator(ABC):
@@ -65,11 +66,14 @@ class CommandValidator(ABC):
         command_to_pass = result.transformed_command or command
 
         if self.next_validator:
-            # Pass to next validator in chain
-            return self.next_validator.validate(command_to_pass)
-        else:
-            # End of chain
-            return result
+            # Pass to next validator in chain and merge warnings
+            next_result = self.next_validator.validate(command_to_pass)
+            if result.warnings:
+                next_result.warnings = result.warnings + next_result.warnings
+            return next_result
+
+        # End of chain
+        return result
 
     @abstractmethod
     def _validate_impl(self, command: str) -> ValidationResult:
@@ -85,16 +89,22 @@ class CommandValidator(ABC):
 
 
 class ClaudeAIPathBlocker(CommandValidator):
-    """Blocks claude.ai Linux paths like /home/claude and /mnt.
+    """Normalize claude.ai Linux paths to local paths and block unknown Linux paths.
 
-    These paths exist in claude.ai's Linux environment but NOT on local machine.
-    This validator detects them and provides helpful error message.
+    Claude.ai uses virtual paths like /home/claude and /mnt/user-data.
+    On Windows, we map these to local working directory when safe.
+    Unknown Linux absolute paths remain blocked with a helpful message.
     """
 
-    BLOCKED_PATHS = ["/home/claude", "/mnt/user-data", "/mnt/"]
+    PATH_MAP = {
+        "/home/claude": ".",
+        "/mnt/user-data/outputs/": "./",
+        "/mnt/user-data/uploads/": "./",
+        "/mnt/user-data/": "./",
+    }
 
     def _validate_impl(self, command: str) -> ValidationResult:
-        """Block claude.ai Linux paths.
+        """Normalize known claude.ai Linux paths and block unknown ones.
 
         Args:
             command: Command to validate
@@ -102,17 +112,26 @@ class ClaudeAIPathBlocker(CommandValidator):
         Returns:
             ValidationResult (invalid if claude.ai path detected)
         """
-        # Check if command contains any blocked paths
-        for blocked_path in self.BLOCKED_PATHS:
-            if blocked_path in command:
-                error = (
-                    f"Command contains '{blocked_path}' which is claude.ai's Linux environment, not your local machine!\n"
-                    f"You are running on a local Windows machine.\n"
-                    f"Use relative paths (e.g., 'wierszyk.txt') or Windows paths instead."
-                )
-                return ValidationResult(is_valid=False, error_message=error)
+        transformed = command
+        warnings = []
 
-        return ValidationResult(is_valid=True, transformed_command=command)
+        # Replace known claude.ai virtual roots with local-relative paths
+        for source, target in self.PATH_MAP.items():
+            if source in transformed:
+                transformed = transformed.replace(source, target)
+                warnings.append(f"Rewrote claude.ai path '{source}' to '{target}'")
+
+        # Block remaining Linux absolute paths that are not safe to map
+        if "/home/" in transformed or "/mnt/" in transformed:
+            error = (
+                "Linux path detected in command; this environment is Windows. "
+                "Use relative paths (e.g., 'wierszyk.txt') or Windows paths instead."
+            )
+            return ValidationResult(is_valid=False, error_message=error, warnings=warnings)
+
+        return ValidationResult(
+            is_valid=True, transformed_command=transformed, warnings=warnings
+        )
 
 
 class UnixCommandBlocker(CommandValidator):

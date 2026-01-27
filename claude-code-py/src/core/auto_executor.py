@@ -12,6 +12,9 @@ Best Practices:
 
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from dataclasses import dataclass
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from tools import ToolRegistry
@@ -70,21 +73,21 @@ class AutoExecutor:
                 success=False, error="No tool registry available", command=command
             )
 
-        print(f"🤖 [AutoExecutor] Auto-executing: {command}")
+        logger.debug("AutoExecutor auto-executing: %s", command)
 
         try:
             # Execute via bash tool (goes through CommandValidator chain)
             result = self.tool_registry.execute_tool("bash", command=command)
 
             if result.status.value == "success":
-                print(f"   ✅ Success: {len(result.output)} chars output")
+                logger.debug("AutoExecutor success: %d chars output", len(result.output))
                 return ExecutionResult(success=True, output=result.output, command=command)
             else:
-                print(f"   ❌ Failed: {result.error}")
+                logger.warning("AutoExecutor failed: %s", result.error)
                 return ExecutionResult(success=False, error=result.error, command=command)
 
         except Exception as e:
-            print(f"   ❌ Exception: {e}")
+            logger.warning("AutoExecutor exception: %s", e)
             return ExecutionResult(success=False, error=str(e), command=command)
 
     def should_auto_execute(self, command: str) -> bool:
@@ -124,7 +127,7 @@ class AutoExecutor:
 
         for prefix in dangerous_prefixes:
             if command_lower.startswith(prefix) or f" {prefix}" in command_lower:
-                print(f"   ⚠️  [AutoExecutor] Blocking dangerous command: {command}")
+                logger.warning("AutoExecutor blocking dangerous command: %s", command)
                 return False
 
         # Safe to execute (read-only commands)

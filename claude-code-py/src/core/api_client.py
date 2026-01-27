@@ -11,6 +11,12 @@ from anthropic.types import (
     ContentBlock,
     TextBlock,
 )
+from tools.base import ToolResult, ToolStatus
+
+# Logging
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 # Import unified client for OAuth support
 try:
@@ -72,6 +78,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from tools import ToolRegistry
+    from tools.base import ToolResult
 
 
 class ClaudeAPIClient:
@@ -109,15 +116,17 @@ class ClaudeAPIClient:
         if not self.api_key:
             raise ValueError("API key or OAuth token not found")
 
-        # DEBUG: Check token detection
-        print(f"🔍 [API Client INIT] api_key starts with: {self.api_key[:20]}...")
-        print(
-            f"   OAUTH_SUPPORT={OAUTH_SUPPORT}, is_oauth_token={'AVAILABLE' if is_oauth_token else 'NONE'}"
+        # Debug: token detection
+        logger.debug("API key starts with: %s...", self.api_key[:20])
+        logger.debug(
+            "OAUTH_SUPPORT=%s, is_oauth_token=%s",
+            OAUTH_SUPPORT,
+            "AVAILABLE" if is_oauth_token else "NONE",
         )
 
         # Detect token type and initialize appropriate client
         self.is_oauth = OAUTH_SUPPORT and is_oauth_token and is_oauth_token(self.api_key)
-        print(f"   is_oauth={self.is_oauth}")
+        logger.debug("is_oauth=%s", self.is_oauth)
 
         if self.is_oauth:
             # Use unified client for OAuth support
@@ -153,37 +162,37 @@ class ClaudeAPIClient:
             from .memory import ContextManager
 
             self.context_manager = ContextManager(tool_registry)
-            print("💾 [API Client] ContextManager initialized (safe memory with verification)")
+            logger.debug("ContextManager initialized")
         except ImportError:
-            print("⚠️  [API Client] ContextManager not available")
+            logger.debug("ContextManager not available")
 
         # Intent router (STATE OF THE ART: Strategy Pattern with Dependency Injection)
         # Routes user intents to pre-execution handlers
         self.intent_router = None
         if INTENT_HANDLERS_AVAILABLE and tool_registry:
             self.intent_router = IntentRouter(tool_registry, context_manager=self.context_manager)
-            print("🎯 [API Client] IntentRouter initialized (Strategy Pattern enabled)")
+            logger.debug("IntentRouter initialized")
 
         # Command validator (Chain of Responsibility Pattern)
         # Validates and transforms commands for platform compatibility
         self.command_validator = None
         if COMMAND_VALIDATOR_AVAILABLE:
             self.command_validator = create_default_validator_chain()
-            print("🔧 [API Client] CommandValidator chain initialized")
+            logger.debug("CommandValidator chain initialized")
 
         # Response analyzer (Strategy Pattern)
         # Detects when Claude asks user to paste command output
         self.response_analyzer = None
         if RESPONSE_ANALYZER_AVAILABLE:
             self.response_analyzer = ResponseAnalyzer()
-            print("🔍 [API Client] ResponseAnalyzer initialized (paste detection enabled)")
+            logger.debug("ResponseAnalyzer initialized")
 
         # Auto executor (Command Pattern)
         # Automatically executes commands when Claude asks for paste
         self.auto_executor = None
         if AUTO_EXECUTOR_AVAILABLE and tool_registry:
             self.auto_executor = AutoExecutor(tool_registry)
-            print("🤖 [API Client] AutoExecutor initialized (auto-execution enabled)")
+            logger.debug("AutoExecutor initialized")
 
         # Conversation history
         self.messages: List[Dict[str, Any]] = []
@@ -243,7 +252,12 @@ class ClaudeAPIClient:
         for trigger in triggers:
             distance = self._levenshtein_distance(query_lower, trigger)
             if distance <= max_distance:
-                print(f"🎯 [Fuzzy] Match! '{query_lower}' ~= '{trigger}' (distance={distance})")
+                logger.debug(
+                    "Fuzzy match: '%s' ~= '%s' (distance=%d)",
+                    query_lower,
+                    trigger,
+                    distance,
+                )
                 return True
 
         return False
@@ -315,7 +329,7 @@ class ClaudeAPIClient:
         ]
 
         if any(trigger in message_lower for trigger in explore_triggers):
-            print("🎯 [Intent] Tier 1 match: explore_project (exact trigger)")
+            logger.debug("Intent tier1 match: explore_project (exact trigger)")
             return ("explore_project", {"type": "tool", "name": "bash"})
 
         # Intent: List files
@@ -329,17 +343,17 @@ class ClaudeAPIClient:
         ]
 
         if any(trigger in message_lower for trigger in list_triggers):
-            print("🎯 [Intent] Tier 1 match: list_files (exact trigger)")
+            logger.debug("Intent tier1 match: list_files (exact trigger)")
             return ("list_files", {"type": "tool", "name": "bash"})
 
         # TIER 1.5: Fuzzy matching (catches typos like "widziszi projekt")
         # Uses Levenshtein distance - allows up to 2 character edits
         if self._fuzzy_match(message, explore_triggers, max_distance=2):
-            print("🎯 [Intent] Tier 1.5 match: explore_project (fuzzy - caught typo!)")
+            logger.debug("Intent tier1.5 match: explore_project (fuzzy)")
             return ("explore_project", {"type": "tool", "name": "bash"})
 
         if self._fuzzy_match(message, list_triggers, max_distance=2):
-            print("🎯 [Intent] Tier 1.5 match: list_files (fuzzy - caught typo!)")
+            logger.debug("Intent tier1.5 match: list_files (fuzzy)")
             return ("list_files", {"type": "tool", "name": "bash"})
 
         # Intent: Git log / commits (WORD-ORDER INVARIANT!)
@@ -350,21 +364,21 @@ class ClaudeAPIClient:
             # Keyword-based matching (bag of words)
             # Polish: ostatni/ostatniego + commit/commita
             if QueryNormalizer.contains_keywords(message, ["ostatni", "commit"]):
-                print("🎯 [Intent] Tier 1 match: git_log (keyword: ostatni+commit)")
+                logger.debug("Intent tier1 match: git_log (keyword: ostatni+commit)")
                 return ("git_log", None)
 
             # English: last/recent + commit/commits
             if QueryNormalizer.contains_keywords(
                 message, ["last", "commit"]
             ) or QueryNormalizer.contains_keywords(message, ["recent", "commit"]):
-                print("🎯 [Intent] Tier 1 match: git_log (keyword: last/recent+commit)")
+                logger.debug("Intent tier1 match: git_log (keyword: last/recent+commit)")
                 return ("git_log", None)
 
             # git log / git history
             if QueryNormalizer.contains_keywords(
                 message, ["git", "log"]
             ) or QueryNormalizer.contains_keywords(message, ["git", "history"]):
-                print("🎯 [Intent] Tier 1 match: git_log (keyword: git+log/history)")
+                logger.debug("Intent tier1 match: git_log (keyword: git+log/history)")
                 return ("git_log", None)
 
             # Intent: Analyze changes (CONTEXT-AWARE + AGGRESSIVE!)
@@ -380,8 +394,8 @@ class ClaudeAPIClient:
                 or QueryNormalizer.contains_keywords(message, ["pokaż"])
                 or QueryNormalizer.contains_keywords(message, ["szczegóły"])
             ):
-                print(
-                    "🎯 [Intent] Tier 1 match: analyze_changes (keyword: przeanalizuj/analyze/show)"
+                logger.debug(
+                    "Intent tier1 match: analyze_changes (keyword: przeanalizuj/analyze/show)"
                 )
                 return ("analyze_changes", None)
         else:
@@ -399,11 +413,11 @@ class ClaudeAPIClient:
             ]
 
             if any(trigger in message_lower for trigger in git_triggers):
-                print("🎯 [Intent] Tier 1 match: git_log (exact trigger)")
+                logger.debug("Intent tier1 match: git_log (exact trigger)")
                 return ("git_log", None)
 
             if self._fuzzy_match(message, git_triggers, max_distance=2):
-                print("🎯 [Intent] Tier 1.5 match: git_log (fuzzy - caught typo!)")
+                logger.debug("Intent tier1.5 match: git_log (fuzzy)")
                 return ("git_log", None)
 
         # TIER 2: Semantic similarity matching
@@ -418,60 +432,73 @@ class ClaudeAPIClient:
 
         similarity = self._get_semantic_similarity(message, explore_references)
         if similarity > 0.4:  # Threshold tuned for balance
-            print(f"🎯 [Intent] Tier 2 match: explore_project (similarity={similarity:.2f})")
+            logger.debug("Intent tier2 match: explore_project (similarity=%.2f)", similarity)
             return ("explore_project", {"type": "tool", "name": "bash"})
 
         # TIER 3: Let Claude decide (general query)
-        print("🎯 [Intent] Tier 3: general (Claude decides)")
+        logger.debug("Intent tier3: general")
         return ("general", None)
 
-    def _fix_tool_input(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
-        """Fix Claude's bad habits from claude.ai before executing tools.
+    def _prepare_tool_input(
+        self, tool_name: str, tool_input: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], Optional[str], List[str]]:
+        """Validate and normalize tool input before execution.
 
         Uses CommandValidator chain (Chain of Responsibility Pattern) for:
-        - Blocking Unix-specific commands on Windows
+        - Blocking unsupported commands
         - Transforming Unix syntax to PowerShell
-        - Fixing virtual paths from claude.ai
+        - Fixing claude.ai virtual paths
 
         Args:
             tool_name: Name of the tool being called
             tool_input: Original tool input from Claude
 
         Returns:
-            Fixed tool input (or original if validation failed)
+            Tuple of (fixed tool input, validation_error, warnings)
         """
-        # Only fix bash tool
+        # Only normalize bash tool inputs
         if tool_name != "bash" and tool_name != "bash_tool":
-            return tool_input
+            return tool_input, None, []
 
-        # Get command
-        cmd = tool_input.get("command", "")
-        if not cmd:
-            return tool_input
+        fixed_input = tool_input
+        warnings: List[str] = []
+        validation_error: Optional[str] = None
 
-        # Use CommandValidator chain if available
-        if self.command_validator:
+        # Validate and normalize command
+        cmd = fixed_input.get("command", "")
+        if cmd and self.command_validator:
             result = self.command_validator.validate(cmd)
+            warnings.extend(result.warnings)
 
             if result.is_valid:
-                # Validation passed, use transformed command
                 if result.transformed_command and result.transformed_command != cmd:
-                    print(f"   🔧 [CommandValidator] Fixed command:")
-                    print(f"      Before: {cmd}")
-                    print(f"      After:  {result.transformed_command}")
-                    return {**tool_input, "command": result.transformed_command}
-                else:
-                    # No transformation needed
-                    return tool_input
+                    logger.debug(
+                        "CommandValidator transformed command. Before: %s | After: %s",
+                        cmd,
+                        result.transformed_command,
+                    )
+                    fixed_input = {**fixed_input, "command": result.transformed_command}
             else:
-                # Validation failed - command is blocked
-                print(f"   ❌ [CommandValidator] Command blocked: {result.error_message}")
-                # Return original input - it will fail when executed, with helpful error
-                # Alternatively, we could inject the error into tool_input
-                return {**tool_input, "command": f"echo 'Error: {result.error_message}'"}
-        else:
-            # Fallback: no validator available, return original
-            return tool_input
+                logger.warning("Command blocked by validator: %s", result.error_message)
+                validation_error = result.error_message
+
+        # Normalize cwd if it uses claude.ai virtual paths
+        cwd_value = fixed_input.get("cwd")
+        if isinstance(cwd_value, str) and cwd_value:
+            normalized_cwd = cwd_value
+            if cwd_value.startswith("/home/claude"):
+                suffix = cwd_value[len("/home/claude") :].lstrip("/\\")
+                normalized_cwd = os.path.join(os.getcwd(), suffix)
+                warnings.append("Rewrote cwd from /home/claude to local working directory")
+            elif cwd_value.startswith("/mnt/user-data"):
+                suffix = cwd_value[len("/mnt/user-data") :].lstrip("/\\")
+                normalized_cwd = os.path.join(os.getcwd(), suffix)
+                warnings.append("Rewrote cwd from /mnt/user-data to local working directory")
+
+            if normalized_cwd != cwd_value:
+                fixed_input = {**fixed_input, "cwd": normalized_cwd}
+
+        return fixed_input, validation_error, warnings
 
     def chat(
         self,
@@ -492,12 +519,12 @@ class ClaudeAPIClient:
         # If tool_choice not provided, classify intent
         # (This happens when chat() is called directly, not via chat_with_tools())
         if tool_choice is None:
-            print("🎯 [Intent] Classifying in chat() (direct call, not from chat_with_tools)")
+            logger.debug(
+                "Classifying intent in chat() (direct call, not from chat_with_tools)"
+            )
             intent, tool_choice = self._classify_query_intent(user_message)
         else:
-            print(
-                "🎯 [Intent] Using pre-classified tool_choice from chat_with_tools() (no re-classification)"
-            )
+            logger.debug("Using pre-classified tool_choice from chat_with_tools()")
 
         # Add user message to history (original, not preprocessed)
         self.add_message("user", user_message)
@@ -505,7 +532,7 @@ class ClaudeAPIClient:
         # Use appropriate backend
         if self.backend_type == "oauth":
             # Use unified client (OAuth backend)
-            print(f"🔧 [API Client] OAuth path! self.client type: {type(self.client).__name__}")
+            logger.debug("OAuth path. Client type: %s", type(self.client).__name__)
             assistant_message = []
 
             for event in self.client.chat_streaming(
@@ -623,8 +650,10 @@ class ClaudeAPIClient:
         Yields:
             Events containing response chunks and tool execution info
         """
-        print(
-            f"🎬 [API Client] chat_with_tools() CALLED! backend_type={self.backend_type}, has_tools={bool(self.tools)}"
+        logger.debug(
+            "chat_with_tools called. backend_type=%s, has_tools=%s",
+            self.backend_type,
+            bool(self.tools),
         )
 
         # STATE OF THE ART: Pre-execution based on intent (Strategy Pattern)
@@ -641,8 +670,9 @@ class ClaudeAPIClient:
             if intent_result:
                 # NEW: Check if handler returned tool_results (best practice!)
                 if intent_result.tool_results:
-                    print(
-                        f"📝 [API Client] Got {len(intent_result.tool_results)} pre-executed tool results"
+                    logger.debug(
+                        "Got %d pre-executed tool results",
+                        len(intent_result.tool_results),
                     )
 
                     # Inject tool results as fake tool_use + tool_result messages
@@ -651,39 +681,42 @@ class ClaudeAPIClient:
                         # Check if it's an error
                         is_error = tool_res.get("is_error", False)
 
-                        if not is_error:
-                            # Fake assistant tool call (Anthropic API format - content is list of blocks)
-                            self.messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": f"pre-exec-{i}",
-                                            "name": tool_res["tool_name"],
-                                            "input": tool_res["tool_input"],
-                                        }
-                                    ],
-                                }
-                            )
+                        # Fake assistant tool call (Anthropic API format - content is list of blocks)
+                        self.messages.append(
+                            {
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": f"pre-exec-{i}",
+                                        "name": tool_res["tool_name"],
+                                        "input": tool_res["tool_input"],
+                                    }
+                                ],
+                            }
+                        )
 
-                            # Fake user tool result (Anthropic API format)
-                            self.messages.append(
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "tool_result",
-                                            "tool_use_id": f"pre-exec-{i}",
-                                            "content": tool_res["tool_output"],
-                                        }
-                                    ],
-                                }
-                            )
+                        # Fake user tool result (Anthropic API format)
+                        tool_content = tool_res["tool_output"]
+                        if is_error and not str(tool_content).lower().startswith("error"):
+                            tool_content = f"Error: {tool_content}"
+
+                        self.messages.append(
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": f"pre-exec-{i}",
+                                        "content": tool_content,
+                                    }
+                                ],
+                            }
+                        )
 
                     # If handler says skip LLM, return result directly
                     if intent_result.skip_llm:
-                        print("⚡ [API Client] Handler requests skip_llm - formatting tool results")
+                        logger.debug("Handler requests skip_llm - formatting tool results")
                         # Format tool results as text response
                         output_text = "\n\n".join(
                             f"```\n{tr['tool_output']}\n```" for tr in intent_result.tool_results
@@ -700,27 +733,25 @@ class ClaudeAPIClient:
                         # Append instructions to system prompt
                         instructions = intent_result.metadata["analysis_instructions"]
                         system = f"{system}\n\n{instructions}" if system else instructions
-                        print(f"📋 [API Client] Added analysis instructions to system prompt")
+                        logger.debug("Added analysis instructions to system prompt")
 
                 # DEPRECATED: Old enriched_message approach (for backwards compatibility)
                 elif intent_result.enriched_message:
                     message_to_send = intent_result.enriched_message
-                    print(
-                        f"📝 [API Client] Message enriched with pre-executed tool results (deprecated approach)"
+                    logger.debug(
+                        "Message enriched with pre-executed tool results (deprecated approach)"
                     )
 
                     # If handler says skip LLM, return result directly
                     if intent_result.skip_llm:
-                        print(
-                            "⚡ [API Client] Handler requests skip_llm - returning result directly"
-                        )
+                        logger.debug("Handler requests skip_llm - returning result directly")
                         yield {"type": "text", "content": intent_result.enriched_message}
                         yield {"type": "message_done", "content": ""}
                         return
 
         # OAuth backend - tool support with local execution
         if self.backend_type == "oauth":
-            print(f"🌐 [API Client] Entering OAuth tool execution loop")
+            logger.debug("Entering OAuth tool execution loop")
             # Multi-turn tool calling loop
             max_tool_rounds = 5
             tool_round = 0
@@ -769,8 +800,9 @@ class ClaudeAPIClient:
                     paste_request = self.response_analyzer.analyze(full_response)
 
                     if paste_request.detected and paste_request.command:
-                        print(
-                            f"🔍 [AutoExecutor] Detected paste request for: {paste_request.command}"
+                        logger.debug(
+                            "AutoExecutor detected paste request for: %s",
+                            paste_request.command,
                         )
 
                         # Check if safe to auto-execute
@@ -787,122 +819,197 @@ class ClaudeAPIClient:
                             self.add_message("user", followup)
 
                             # Continue loop - Claude will see the result and respond
-                            print(f"🔄 [AutoExecutor] Continuing conversation with command result")
+                            logger.debug("AutoExecutor continuing conversation with command result")
                             tool_round -= 1  # Don't count this as a tool round
                             continue
                         else:
-                            print(
-                                f"⚠️  [AutoExecutor] Command blocked (dangerous): {paste_request.command}"
+                            logger.warning(
+                                "AutoExecutor blocked dangerous command: %s",
+                                paste_request.command,
                             )
 
                 # Check if Claude requested tools
                 if not tool_blocks:
                     # DEBUG: Show assistant_text content
-                    print(f"🔍 [DEBUG] assistant_text length: {len(assistant_text)}, content: {assistant_text[:100] if assistant_text else 'EMPTY'}")
+                    logger.debug("assistant_text length: %d", len(assistant_text))
 
                     # No tools requested, check if Claude actually responded with text
                     if not assistant_text and tool_round > 0:
                         # Claude only sent thinking, no text response!
                         # This is a claude.ai bug - force a text response
-                        print(f"⚠️  [API Client] No text response in round {tool_round}, forcing text response")
+                        logger.warning(
+                            "No text response in round %d, forcing text response", tool_round
+                        )
 
                         # Send a VERY explicit follow-up to force text
-                        self.add_message("user", "Please provide your complete answer in TEXT (not just thinking). Answer my question now.")
+                        self.add_message(
+                            "user",
+                            "Please provide your complete answer in text (not just thinking).",
+                        )
 
                         # Continue loop to get text response
                         tool_round += 1
                         if tool_round >= max_tool_rounds:
-                            print(f"❌ [API Client] Max rounds reached, giving up")
+                            logger.error("Max rounds reached, giving up")
                             break
                         continue
 
                     # No tools and we have text, done
-                    print(f"✅ [API Client] No tools in round {tool_round}, exiting loop")
+                    logger.debug("No tools in round %d, exiting loop", tool_round)
                     break
 
                 # Execute tools locally
                 tool_round += 1
-                print(
-                    f"🔄 [API Client] Starting tool round {tool_round} with {len(tool_blocks)} tools"
+                logger.debug(
+                    "Starting tool round %d with %d tools", tool_round, len(tool_blocks)
                 )
 
                 yield {"type": "tool_round_start", "content": f"Tool execution round {tool_round}"}
 
                 tool_results = []
+                executed_tool_uses = []
+                tool_execution_records = []
                 for tool_block in tool_blocks:
                     tool_name = tool_block.get("name", "")
                     tool_id = tool_block.get("id", "")
                     tool_input = tool_block.get("input", {})
 
-                    print(
-                        f"🔧 [API Client] Executing tool: {tool_name} with input keys: {list(tool_input.keys())}"
+                    logger.debug(
+                        "Executing tool: %s with input keys: %s",
+                        tool_name,
+                        list(tool_input.keys()),
                     )
 
-                    # Fix tool input before execution (interceptor pattern)
-                    # This automatically fixes Claude's bad habits from claude.ai
-                    tool_input = self._fix_tool_input(tool_name, tool_input)
+                    # Validate and normalize tool input before execution
+                    tool_input, validation_error, warnings = self._prepare_tool_input(
+                        tool_name, tool_input
+                    )
 
-                    # Execute tool locally (registry handles alias mapping)
-                    if self.tool_registry:
-                        result = self.tool_registry.execute_tool(tool_name, **tool_input)
-                        print(
-                            f"   Result: status={result.status.value}, output_len={len(result.output) if result.output else 0}"
-                        )
-
-                        # Yield execution event
-                        yield {
-                            "type": "tool_execute",
-                            "tool_name": tool_name,
-                            "tool_input": tool_input,
-                            "result": result,
-                            "content": "",
-                        }
-
-                        # Format result for claude.ai
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_id,
-                                "content": (
-                                    result.output
-                                    if result.status.value == "success"
-                                    else f"Error: {result.error}"
-                                ),
-                            }
-                        )
-
-                # Add assistant message with tool_use to history
-                # TODO: This should include full tool_use blocks, not just text
-                # For now, add properly formatted content with tool_use blocks
-                assistant_message_content = []
-                for tool_block in tool_blocks:
-                    assistant_message_content.append(
+                    executed_tool_uses.append(
                         {
                             "type": "tool_use",
-                            "id": tool_block["id"],
-                            "name": tool_block["name"],
-                            "input": tool_block["input"],
+                            "id": tool_id,
+                            "name": tool_name,
+                            "input": tool_input,
                         }
                     )
 
-                self.messages.append({"role": "assistant", "content": assistant_message_content})
+                    # Execute tool locally (registry handles alias mapping)
+                    if validation_error:
+                        result = ToolResult(
+                            status=ToolStatus.ERROR,
+                            output="",
+                            error=validation_error,
+                        )
+                    elif self.tool_registry:
+                        result = self.tool_registry.execute_tool(tool_name, **tool_input)
+                    else:
+                        result = ToolResult(
+                            status=ToolStatus.ERROR,
+                            output="",
+                            error="Tool registry not available",
+                        )
 
-                # Add tool results as user message
-                # IMPORTANT: Include tool_results AND a STRONG prompt to ensure Claude responds
-                # Sometimes Claude doesn't respond after tools if it thinks it already answered
-                # We FORCE a response by being very explicit
-                tool_results_with_prompt = tool_results + [
+                    logger.debug(
+                        "Tool result: status=%s, output_len=%d",
+                        result.status.value,
+                        len(result.output) if result.output else 0,
+                    )
+
+                    # Yield execution event
+                    yield {
+                        "type": "tool_execute",
+                        "tool_name": tool_name,
+                        "tool_input": tool_input,
+                        "result": result,
+                        "content": "",
+                    }
+
+                    tool_execution_records.append(
+                        {
+                            "tool_name": tool_name,
+                            "tool_id": tool_id,
+                            "tool_input": tool_input,
+                            "result": result,
+                            "warnings": warnings,
+                        }
+                    )
+
+                    # Format result for claude.ai
+                    if result.status.value == "success":
+                        tool_content = result.output
+                    else:
+                        error_text = result.error or "Unknown error"
+                        if result.output and result.output != "(no output)":
+                            tool_content = f"Error: {error_text}\n{result.output}"
+                        else:
+                            tool_content = f"Error: {error_text}"
+
+                    if warnings:
+                        warning_text = "Note: " + " | ".join(warnings)
+                        tool_content = f"{warning_text}\n{tool_content}"
+
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": tool_content,
+                        }
+                    )
+
+                # If all tools failed, return a direct error response (no hallucinations)
+                failed_tools = [
+                    record
+                    for record in tool_execution_records
+                    if record["result"].status == ToolStatus.ERROR
+                ]
+                if failed_tools and len(failed_tools) == len(tool_execution_records):
+                    error_lines = [
+                        f"- {record['tool_name']}: {record['result'].error or 'Unknown error'}"
+                        for record in failed_tools
+                    ]
+                    error_text = (
+                        "Tool execution failed:\n"
+                        + "\n".join(error_lines)
+                        + "\n\nPlease adjust the request or paths and try again."
+                    )
+                    self.add_message("assistant", error_text)
+                    yield {"type": "text", "content": error_text}
+                    yield {"type": "message_done", "content": ""}
+                    return
+
+                # Add assistant message with tool_use to history (use executed inputs)
+                self.messages.append({"role": "assistant", "content": executed_tool_uses})
+
+                # Add tool results as user message with a concise follow-up prompt
+                tool_results_with_prompt = tool_results.copy()
+
+                if failed_tools:
+                    error_summary = "\n".join(
+                        f"- {record['tool_name']}: {record['result'].error or 'Unknown error'}"
+                        for record in failed_tools
+                    )
+                    tool_results_with_prompt.append(
+                        {
+                            "type": "text",
+                            "text": (
+                                "One or more tools failed:\n"
+                                f"{error_summary}\n"
+                                "Acknowledge the errors and ask for the next step."
+                            ),
+                        }
+                    )
+
+                tool_results_with_prompt.append(
                     {
                         "type": "text",
                         "text": (
-                            "\n\n[IMPORTANT] Now that you have the tool results, you MUST:\n"
-                            "1. Analyze the results I provided above\n"
-                            "2. Answer my original question completely\n"
-                            "3. Provide your analysis in normal text (not just thinking)\n\n"
-                            "Please respond now with your complete answer."
-                        )
+                            "Tool results are provided above. "
+                            "Please answer the original question in plain text. "
+                            "If any result contains an error, acknowledge it and ask for the next step."
+                        ),
                     }
-                ]
+                )
                 self.messages.append({"role": "user", "content": tool_results_with_prompt})
 
                 yield {

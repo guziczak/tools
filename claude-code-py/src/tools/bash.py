@@ -20,18 +20,22 @@ class BashTool(BaseTool):
         """Detect available shell based on platform."""
         self.platform = sys.platform
         self.is_windows = self.platform.startswith("win")
+        self.shell_type = "bash"
 
         if self.is_windows:
             # Windows: prefer PowerShell, fallback to cmd
             if shutil.which("pwsh"):  # PowerShell Core
                 self.shell = ["pwsh", "-Command"]
                 self.shell_name = "PowerShell Core"
+                self.shell_type = "powershell"
             elif shutil.which("powershell"):  # Windows PowerShell
                 self.shell = ["powershell", "-Command"]
                 self.shell_name = "PowerShell"
+                self.shell_type = "powershell"
             else:  # CMD fallback
                 self.shell = ["cmd", "/c"]
                 self.shell_name = "CMD"
+                self.shell_type = "cmd"
         else:
             # Linux/Mac: use bash
             self.shell = ["/bin/bash", "-c"]
@@ -94,8 +98,11 @@ class BashTool(BaseTool):
             # Build command based on platform
             # On Windows, prepend chcp 65001 to force UTF-8 encoding
             if sys.platform == "win32":
-                # Wrap command to set UTF-8 codepage
-                command = f"chcp 65001 > nul && {command}"
+                # Wrap command to set UTF-8 codepage per shell type
+                if self.shell_type == "powershell":
+                    command = f"chcp 65001 > $null; {command}"
+                else:
+                    command = f"chcp 65001 > nul && {command}"
 
             full_command = self.shell + [command]
 
@@ -183,7 +190,10 @@ class BashInteractiveTool(BaseTool):
         try:
             # On Windows, prepend chcp 65001 to force UTF-8 encoding
             if sys.platform == "win32":
-                command = f"chcp 65001 > nul && {command}"
+                if self.bash_tool.shell_type == "powershell":
+                    command = f"chcp 65001 > $null; {command}"
+                else:
+                    command = f"chcp 65001 > nul && {command}"
 
             full_command = self.bash_tool.shell + [command]
 
