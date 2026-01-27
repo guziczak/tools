@@ -533,6 +533,12 @@ class ClaudeAIProxyServer:
         import logging
 
         logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        try:
+            import flask.cli
+
+            flask.cli.show_server_banner = lambda *args, **kwargs: None
+        except Exception:
+            pass
         self.app.logger.disabled = True
         self.app.logger.propagate = False
 

@@ -15,6 +15,7 @@ from tools.base import ToolResult, ToolStatus
 
 # Logging
 from .logging import get_logger
+from .listing_formatter import format_listing_output
 
 logger = get_logger(__name__)
 
@@ -340,6 +341,32 @@ class ClaudeAPIClient:
             "show files",
             "what files",
             "list directory",
+            "co tu widzisz",
+            "co tutaj widzisz",
+            "co tu jest",
+            "co tutaj jest",
+            "co jest w tym folderze",
+            "co jest w tym katalogu",
+            "co jest w projekcie",
+            "co masz w tym folderze",
+            "co masz w folderze",
+            "co masz w tym katalogu",
+            "co masz w katalogu",
+            "co masz w projekcie",
+            "co masz tu",
+            "co masz tutaj",
+            "pokaż zawartość",
+            "pokaz zawartość",
+            "pokaz zawartosc",
+            "zawartość folderu",
+            "zawartość katalogu",
+            "zawartość projektu",
+            "what's here",
+            "what is here",
+            "what's in this folder",
+            "what is in this folder",
+            "show directory contents",
+            "list directory contents",
             "obczaj folder",
             "obczaj ten folder",
             "obczaj katalog",
@@ -368,9 +395,15 @@ class ClaudeAPIClient:
 
         # Keyword-based folder/project intents (word-order invariant)
         if QUERY_NORMALIZER_AVAILABLE:
-            folder_terms = ["folder", "katalog", "directory", "dir"]
-            project_terms = ["projekt", "project"]
+            folder_terms = ["folder", "folderze", "katalog", "katalogu", "directory", "dir"]
+            project_terms = ["projekt", "projekcie", "project"]
+            location_terms = ["tu", "tutaj", "here"]
             verbs = [
+                "widzisz",
+                "see",
+                "masz",
+                "have",
+                "got",
                 "obczaj",
                 "sprawdz",
                 "sprawdź",
@@ -391,6 +424,22 @@ class ClaudeAPIClient:
                     if QueryNormalizer.contains_keywords(message, [verb, noun]):
                         logger.debug("Intent tier1 match: list_files (keyword verb+noun)")
                         return ("list_files", {"type": "tool", "name": "bash"})
+
+            for verb in verbs:
+                for loc in location_terms:
+                    if QueryNormalizer.contains_keywords(message, [verb, loc]):
+                        logger.debug("Intent tier1 match: list_files (keyword verb+location)")
+                        return ("list_files", {"type": "tool", "name": "bash"})
+
+            # "co masz/what is" + folder/project
+            if QueryNormalizer.contains_keywords(message, ["co", "folder"]) or QueryNormalizer.contains_keywords(
+                message, ["co", "katalog"]
+            ):
+                logger.debug("Intent tier1 match: list_files (keyword co+folder)")
+                return ("list_files", {"type": "tool", "name": "bash"})
+            if QueryNormalizer.contains_keywords(message, ["co", "projekt"]):
+                logger.debug("Intent tier1 match: explore_project (keyword co+project)")
+                return ("explore_project", {"type": "tool", "name": "bash"})
 
             # Project exploration intent
             for verb in verbs:
@@ -770,10 +819,18 @@ class ClaudeAPIClient:
                     # If handler says skip LLM, return result directly
                     if intent_result.skip_llm:
                         logger.debug("Handler requests skip_llm - formatting tool results")
-                        # Format tool results as text response
-                        output_text = "\n\n".join(
-                            f"```\n{tr['tool_output']}\n```" for tr in intent_result.tool_results
-                        )
+
+                        if intent in ("explore_project", "list_files") and intent_result.tool_results:
+                            listing_output = intent_result.tool_results[0].get("tool_output", "")
+                            output_text = format_listing_output(
+                                listing_output, user_message, platform=sys.platform
+                            )
+                        else:
+                            # Format tool results as text response
+                            output_text = "\n\n".join(
+                                f"```\n{tr['tool_output']}\n```" for tr in intent_result.tool_results
+                            )
+
                         yield {"type": "text", "content": output_text}
                         yield {"type": "message_done", "content": ""}
                         return
@@ -801,6 +858,29 @@ class ClaudeAPIClient:
                         yield {"type": "text", "content": intent_result.enriched_message}
                         yield {"type": "message_done", "content": ""}
                         return
+
+        # Fallback: direct local execution for simple listing intents
+        if intent in ("explore_project", "list_files") and self.tool_registry:
+            # If no handler produced tool results, execute directly to avoid LLM guesswork
+            if not intent_result or not intent_result.tool_results:
+                is_windows = sys.platform.startswith("win")
+                list_cmd = "dir" if is_windows else "ls"
+                result = self.tool_registry.execute_tool("bash", command=list_cmd)
+
+                if result.status.value == "success":
+                    output_text = format_listing_output(
+                        result.output, user_message, platform=sys.platform
+                    )
+                else:
+                    output_text = f"Error: {result.error or 'Unknown error'}"
+
+                # Record in history to keep context
+                self.add_message("user", user_message)
+                self.add_message("assistant", output_text)
+
+                yield {"type": "text", "content": output_text}
+                yield {"type": "message_done", "content": ""}
+                return
 
         # OAuth backend - tool support with local execution
         if self.backend_type == "oauth":

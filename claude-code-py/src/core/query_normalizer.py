@@ -109,7 +109,7 @@ class QueryNormalizer:
         # Polish genitive/accusative endings (order matters - longest first!)
         # "ostatniego" → "ostatni" (remove "ego")
         # "commita" → "commit" (remove "a")
-        for ending in ["ego", "ów", "em", "ach", "ie", "a", "u"]:
+        for ending in ["ego", "ów", "ze", "em", "ach", "ie", "a", "u"]:
             if word.endswith(ending) and len(word) > len(ending) + 2:
                 return word[: -len(ending)]
 
