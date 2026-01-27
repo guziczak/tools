@@ -15,7 +15,14 @@ Example:
 """
 
 from .strategies import IntentClassifier, IntentMatch, MatcherStrategy
-from .matchers import ExactMatcher, FuzzyMatcher, KeywordMatcher, SemanticMatcher
+from .matchers import (
+    ExactMatcher,
+    FuzzyMatcher,
+    KeywordMatcher,
+    SemanticMatcher,
+    NormalizedKeywordMatcher,
+)
+from .config import load_intent_config, create_classifier_from_config
 
 
 def create_default_classifier() -> IntentClassifier:
@@ -95,5 +102,8 @@ __all__ = [
     "FuzzyMatcher",
     "KeywordMatcher",
     "SemanticMatcher",
+    "NormalizedKeywordMatcher",
     "create_default_classifier",
+    "load_intent_config",
+    "create_classifier_from_config",
 ]

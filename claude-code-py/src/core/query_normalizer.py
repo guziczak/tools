@@ -11,6 +11,7 @@ Best Practices:
 
 from typing import List, Set
 import re
+import unicodedata
 
 
 class QueryNormalizer:
@@ -62,6 +63,15 @@ class QueryNormalizer:
     }
 
     STOP_WORDS = POLISH_STOP_WORDS | ENGLISH_STOP_WORDS
+    STOP_WORDS_NORMALIZED = {
+        unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode("ascii")
+        for w in STOP_WORDS
+    } | STOP_WORDS
+
+    @staticmethod
+    def strip_accents(text: str) -> str:
+        """Remove diacritics to make matching robust to missing accents."""
+        return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
 
     @staticmethod
     def tokenize(text: str) -> List[str]:
@@ -74,7 +84,7 @@ class QueryNormalizer:
             List of lowercase tokens
         """
         # Lowercase and split on whitespace/punctuation
-        text = text.lower()
+        text = QueryNormalizer.strip_accents(text.lower())
         # Remove punctuation except hyphens (for git-related terms)
         text = re.sub(r"[^\w\s-]", " ", text)
         tokens = text.split()
@@ -90,7 +100,7 @@ class QueryNormalizer:
         Returns:
             Filtered list without stop words
         """
-        return [t for t in tokens if t not in QueryNormalizer.STOP_WORDS]
+        return [t for t in tokens if t not in QueryNormalizer.STOP_WORDS_NORMALIZED]
 
     @staticmethod
     def simple_stem(word: str) -> str:

@@ -16,6 +16,7 @@ from tools.base import ToolResult, ToolStatus
 # Logging
 from .logging import get_logger
 from .listing_formatter import format_listing_output
+from .intent import create_classifier_from_config
 
 logger = get_logger(__name__)
 
@@ -174,6 +175,9 @@ class ClaudeAPIClient:
             self.intent_router = IntentRouter(tool_registry, context_manager=self.context_manager)
             logger.debug("IntentRouter initialized")
 
+        # Config-driven intent classifier (data-driven, robust to wording/typos)
+        self.intent_classifier, self.intent_confidence_threshold = create_classifier_from_config()
+
         # Command validator (Chain of Responsibility Pattern)
         # Validates and transforms commands for platform compatibility
         self.command_validator = None
@@ -317,6 +321,19 @@ class ClaudeAPIClient:
             - tool_choice_config: Dict for API tool_choice parameter, or None
         """
         message_lower = message.lower().strip()
+
+        # Tier 0: Config-driven classifier (data-driven, robust to ambiguous prompts)
+        if self.intent_classifier:
+            match = self.intent_classifier.classify(
+                message, confidence_threshold=self.intent_confidence_threshold
+            )
+            if match and match.intent != "general":
+                tool_choice = (
+                    {"type": "tool", "name": "bash"}
+                    if match.intent in ("explore_project", "list_files")
+                    else None
+                )
+                return (match.intent, tool_choice)
 
         # TIER 1: Exact trigger matching (O(1) - fast path)
         # Intent: Explore project (Polish + English)

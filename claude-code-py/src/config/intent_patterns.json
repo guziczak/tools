@@ -1,0 +1,93 @@
+{
+  "thresholds": {
+    "confidence": 0.6,
+    "fuzzy": 82,
+    "semantic": 0.35
+  },
+  "intents": {
+    "explore_project": {
+      "exact": [
+        "widzisz projekt",
+        "czy widzisz projekt",
+        "do you see project",
+        "show me the project",
+        "show project",
+        "what is in this project",
+        "co jest w projekcie",
+        "co masz w projekcie"
+      ],
+      "fuzzy": [
+        "widzisz projekt",
+        "show project"
+      ],
+      "keywords": [
+        ["widzisz", "projekt"],
+        ["co", "projekt"],
+        ["poka", "projekt"],
+        ["pokaz", "projekt"],
+        ["zobacz", "projekt"],
+        ["show", "project"]
+      ],
+      "references": [
+        "show project files",
+        "what is in this project",
+        "list project contents"
+      ]
+    },
+    "list_files": {
+      "exact": [
+        "jakie pliki",
+        "list files",
+        "show files",
+        "co tu widzisz",
+        "co tutaj widzisz",
+        "co tu jest",
+        "co tutaj jest",
+        "co jest w tym folderze",
+        "co jest w tym katalogu",
+        "co masz w tym folderze",
+        "co masz w tym katalogu",
+        "pokaż zawartość",
+        "pokaz zawartosc",
+        "pokaż wszystko",
+        "pokaz wszystko",
+        "what's here",
+        "what is here",
+        "show directory contents",
+        "list directory contents"
+      ],
+      "fuzzy": [
+        "jakie pliki",
+        "poka zawartosc",
+        "zawartosc folderu"
+      ],
+      "keywords": [
+        ["zawartosc", ["folder", "katalog", "dir", "directory", "projekt"]],
+        ["zawartosc", ["tu", "tutaj", "here"]],
+        ["co", ["tu", "tutaj", "here"]],
+        ["co", ["folder", "katalog", "dir", "directory"]],
+        ["poka", ["folder", "katalog", "dir", "directory", "projekt"]],
+        ["pokaz", ["folder", "katalog", "dir", "directory", "projekt"]],
+        ["obczaj", ["folder", "katalog", "dir", "directory"]],
+        ["sprawdz", ["folder", "katalog", "dir", "directory"]],
+        ["sprawdz", "zawartosc"],
+        ["zobacz", ["folder", "katalog", "dir", "directory"]],
+        ["gdzie", "jestes"]
+      ],
+      "references": [
+        "show me what is in this folder",
+        "list files in current directory",
+        "what is inside this folder",
+        "show current directory contents"
+      ]
+    },
+    "git_log": {
+      "keywords": [
+        ["ostatni", "commit"],
+        ["last", "commit"],
+        ["git", "log"],
+        ["git", "history"]
+      ]
+    }
+  }
+}

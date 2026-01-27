@@ -11,8 +11,12 @@ Best Practices:
 - Immutability: Matchers are stateless and thread-safe
 """
 
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set, Union
 from .strategies import MatcherStrategy, IntentMatch
+from core.query_normalizer import QueryNormalizer
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ExactMatcher(MatcherStrategy):
@@ -104,8 +108,10 @@ class FuzzyMatcher(MatcherStrategy):
             self.available = True
         except ImportError:
             self.available = False
-            print("⚠️  [FuzzyMatcher] fuzzywuzzy not installed - fuzzy matching disabled")
-            print("   Install with: pip install fuzzywuzzy python-Levenshtein")
+            logger.debug(
+                "FuzzyMatcher unavailable (missing fuzzywuzzy). "
+                "Install with: pip install fuzzywuzzy python-Levenshtein"
+            )
 
     def match(self, query: str) -> Optional[IntentMatch]:
         """Try fuzzy matching against triggers.
@@ -277,3 +283,46 @@ class SemanticMatcher(MatcherStrategy):
 
     def get_name(self) -> str:
         return "SemanticMatcher"
+
+
+class NormalizedKeywordMatcher(MatcherStrategy):
+    """Keyword matcher using QueryNormalizer (accent-stripping + stemming).
+
+    Supports keyword sets with alternative groups, e.g.:
+      ["zawartosc", ["folder", "katalog", "dir"]]
+    which means zawartosc AND (folder OR katalog OR dir).
+    """
+
+    def __init__(self, keyword_map: Dict[str, List[List[Union[str, List[str]]]]]):
+        self.keyword_map = keyword_map
+
+    def _normalize_token(self, token: str) -> str:
+        stripped = QueryNormalizer.strip_accents(token.lower())
+        return QueryNormalizer.simple_stem(stripped)
+
+    def _matches_set(self, normalized: Set[str], keyword_set: List[Union[str, List[str]]]) -> bool:
+        for kw in keyword_set:
+            if isinstance(kw, list):
+                if not any(self._normalize_token(item) in normalized for item in kw):
+                    return False
+            else:
+                if self._normalize_token(kw) not in normalized:
+                    return False
+        return True
+
+    def match(self, query: str) -> Optional[IntentMatch]:
+        normalized = QueryNormalizer.normalize(query)
+
+        for intent, keyword_sets in self.keyword_map.items():
+            for keyword_set in keyword_sets:
+                if self._matches_set(normalized, keyword_set):
+                    return IntentMatch(
+                        intent=intent,
+                        confidence=0.85,
+                        metadata={"keywords": keyword_set, "method": "normalized_keyword"},
+                    )
+
+        return None
+
+    def get_name(self) -> str:
+        return "NormalizedKeywordMatcher"
