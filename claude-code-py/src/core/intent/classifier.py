@@ -6,7 +6,6 @@ No external LLM calls (they fail through proxy).
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, Optional, Tuple
 
 from core.logging import get_logger
@@ -40,6 +39,7 @@ _INTENT_KEYWORDS: Dict[str, list] = {
     ],
     "explore_project": [
         {"projekt"},
+        {"projekci"},
         {"project"},
     ],
     "git_log": [
@@ -69,15 +69,10 @@ class ConfigDrivenClassifier:
     def classify(self, message: str) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Classify intent via keyword matching."""
         msg = message.lower()
-        # Remove punctuation for cleaner matching
-        words = set(re.findall(r'\w+', msg))
 
         for intent, keyword_sets in _INTENT_KEYWORDS.items():
             for kw_set in keyword_sets:
-                if all(
-                    any(kw in word for word in words)
-                    for kw in kw_set
-                ):
+                if all(kw in msg for kw in kw_set):
                     logger.debug("Classified %r -> %s (keywords: %s)", message[:40], intent, kw_set)
                     return (intent, _TOOL_CHOICES.get(intent))
 
