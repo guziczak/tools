@@ -12,60 +12,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dotenv import load_dotenv
 from core.api_client import ClaudeAPIClient
 from core.auth import AuthManager, AuthenticationError
+from core.logging import get_logger
 from ui.terminal import TerminalUI
 from tools import create_default_registry, ToolRegistry
 from agents import AgentRegistry, AgentRouter
 from agents.prebuilt import create_default_agents
 from agents.thinking import detect_thinking_level
+from auth.proxy_manager import ensure_proxy_dependencies, start_proxy_if_needed
 from utils import check_and_setup, automatic_claude_max_setup
 
-
-def _ensure_proxy_dependencies():
-    """Ensure Flask and cloudscraper are installed for proxy functionality."""
-    missing = []
-
-    # Check Flask
-    try:
-        import flask
-    except ImportError:
-        missing.append("flask")
-
-    # Check cloudscraper
-    try:
-        import cloudscraper
-    except ImportError:
-        missing.append("cloudscraper")
-
-    # Install missing packages
-    if missing:
-        import subprocess
-
-        print(f"📦 Installing missing dependencies: {', '.join(missing)}...")
-        print("   (This may take a moment...)")
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--user", *missing],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            print(f"✅ Successfully installed: {', '.join(missing)}")
-            return True
-        except subprocess.CalledProcessError:
-            # Try without --user flag
-            try:
-                subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", *missing],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                print(f"✅ Successfully installed: {', '.join(missing)}")
-                return True
-            except subprocess.CalledProcessError:
-                print(f"⚠️  Failed to auto-install: {', '.join(missing)}")
-                print(f"   Please run: pip install {' '.join(missing)}")
-                return False
-
-    return True
+logger = get_logger(__name__)
 
 
 class ClaudeCodePy:
@@ -422,41 +378,10 @@ Be direct, use tools proactively, and NEVER ask user to manually run commands.""
 
             self.agent_router = AgentRouter(self.agent_registry, Anthropic(api_key=api_key))
 
-        # REVOLUTIONARY: Auto-start proxy for OAuth tokens and sessionKeys!
-        if api_key.startswith("sk-ant-oat") or api_key.startswith("sk-ant-sid01-"):
-            if api_key.startswith("sk-ant-sid01-"):
-                self.ui.print_info("🚀 sessionKey detected - starting local proxy...")
-            else:
-                self.ui.print_info("🚀 OAuth token detected - starting local proxy...")
-
-            # Ensure proxy dependencies are installed
-            _ensure_proxy_dependencies()
-
-            try:
-                from proxy import start_proxy_server, get_proxy_base_url
-
-                # Start proxy in background (returns tuple: success, port)
-                proxy_started, proxy_port = start_proxy_server(api_key, port=8765)
-                if proxy_started:
-                    self.ui.print_info("✅ Proxy server started!")
-                    self.ui.print_info("   OAuth → claude.ai translation active")
-
-                    # Use proxy URL as base for API client (with actual port used)
-                    import os
-
-                    proxy_url = get_proxy_base_url(proxy_port)
-                    os.environ["ANTHROPIC_BASE_URL"] = proxy_url
-                    self.ui.print_info(f"   Set ANTHROPIC_BASE_URL={proxy_url}")
-
-                    # Give proxy time to start
-                    import time
-
-                    time.sleep(1)
-                else:
-                    self.ui.print_error("❌ Failed to start proxy - OAuth may not work")
-            except Exception as e:
-                self.ui.print_error(f"⚠️  Proxy error: {e}")
-                self.ui.print_info("   Continuing anyway...")
+        # Auto-start proxy for OAuth tokens and sessionKeys
+        proxy_url = start_proxy_if_needed(api_key)
+        if proxy_url:
+            self.ui.print_info(f"Proxy started at {proxy_url}")
 
         try:
             self.client = ClaudeAPIClient(

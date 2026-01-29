@@ -18,6 +18,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import hashlib
 
+from core.logging import get_logger
+
+logger = get_logger(__name__)
+
+MAX_CONTEXT_ENTRIES = 50
+
 
 @dataclass
 class ContextEntry:
@@ -105,13 +111,15 @@ class ContextManager:
         # → If changed, returns None + warning
     """
 
-    def __init__(self, tool_registry=None):
+    def __init__(self, tool_registry=None, max_entries: int = MAX_CONTEXT_ENTRIES):
         """Initialize context manager.
 
         Args:
             tool_registry: Tool registry for verification commands
+            max_entries: Maximum number of context entries to keep
         """
         self.tool_registry = tool_registry
+        self.max_entries = max_entries
         self.entries: Dict[str, ContextEntry] = {}
         self.verification_strategies: Dict[str, VerificationStrategy] = {
             "exact": ExactMatchStrategy(),
@@ -141,8 +149,23 @@ class ContextManager:
             verification_command=verification_cmd,
         )
         self.entries[key] = entry
+        self._evict_if_needed()
 
-        print(f"📝 [ContextManager] Stored '{key}' (TTL: {ttl_seconds}s)")
+        logger.debug("Stored '%s' (TTL: %ds)", key, ttl_seconds)
+
+    def _evict_if_needed(self) -> None:
+        """Evict oldest expired entries if over max_entries."""
+        if len(self.entries) <= self.max_entries:
+            return
+        # Remove expired entries first
+        expired = [k for k, v in self.entries.items() if v.is_expired()]
+        for k in expired:
+            del self.entries[k]
+        # If still over limit, remove oldest
+        while len(self.entries) > self.max_entries:
+            oldest_key = min(self.entries, key=lambda k: self.entries[k].timestamp)
+            del self.entries[oldest_key]
+            logger.debug("Evicted oldest entry '%s' (max_entries=%d)", oldest_key, self.max_entries)
 
     def get(self, key: str, allow_expired: bool = False) -> Optional[Any]:
         """Get value from context (no verification).
@@ -163,9 +186,7 @@ class ContextManager:
             return None
 
         if entry.is_expired() and not allow_expired:
-            print(
-                f"⚠️  [ContextManager] '{key}' expired ({entry.age_seconds():.0f}s > {entry.ttl_seconds}s)"
-            )
+            logger.debug("'%s' expired (%.0fs > %ds)", key, entry.age_seconds(), entry.ttl_seconds)
             return None
 
         return entry.value
@@ -205,9 +226,7 @@ class ContextManager:
 
         # If no verification command, return with warning
         if not entry.verification_command:
-            print(
-                f"⚠️  [ContextManager] '{key}' retrieved without verification (age: {entry.age_seconds():.0f}s)"
-            )
+            logger.debug("'%s' retrieved without verification (age: %.0fs)", key, entry.age_seconds())
             return {
                 "value": entry.value,
                 "status": "unverified",
@@ -218,7 +237,7 @@ class ContextManager:
 
         # Execute verification command
         if not self.tool_registry:
-            print(f"⚠️  [ContextManager] No tool registry - cannot verify '{key}'")
+            logger.debug("No tool registry - cannot verify '%s'", key)
             return {
                 "value": entry.value,
                 "status": "unverified",
@@ -228,13 +247,12 @@ class ContextManager:
             }
 
         # Verify freshness
-        print(f"🔍 [ContextManager] Verifying '{key}' (age: {entry.age_seconds():.0f}s)...")
-        print(f"   Command: {entry.verification_command}")
+        logger.debug("Verifying '%s' (age: %.0fs) cmd: %s", key, entry.age_seconds(), entry.verification_command)
 
         result = self.tool_registry.execute_tool("bash", command=entry.verification_command)
 
         if result.status.value != "success":
-            print(f"   ❌ Verification failed: {result.error}")
+            logger.warning("Verification failed for '%s': %s", key, result.error)
             return {
                 "value": None,
                 "status": "verification_failed",
@@ -248,7 +266,7 @@ class ContextManager:
         strategy = self.verification_strategies.get(verification_strategy, ExactMatchStrategy())
 
         if strategy.verify(entry.value, live_value):
-            print(f"   ✅ Data is FRESH (matches live value)")
+            logger.debug("'%s' is FRESH (matches live value)", key)
             return {
                 "value": entry.value,
                 "status": "fresh",
@@ -257,17 +275,15 @@ class ContextManager:
                 "message": "Verified fresh",
             }
         else:
-            print(f"   ⚠️  Data is STALE!")
-            print(f"      Cached: {entry.value}")
-            print(f"      Live:   {live_value}")
+            logger.info("'%s' is STALE: cached=%s live=%s", key, entry.value, live_value)
             return {
-                "value": live_value,  # Return LIVE value (auto-update!)
+                "value": live_value,
                 "status": "stale",
                 "age_seconds": entry.age_seconds(),
                 "verified": True,
                 "cached_value": entry.value,
                 "live_value": live_value,
-                "message": f"Data changed: {entry.value} → {live_value}",
+                "message": f"Data changed: {entry.value} -> {live_value}",
             }
 
     def clear(self, key: Optional[str] = None) -> None:
@@ -279,7 +295,7 @@ class ContextManager:
         if key:
             if key in self.entries:
                 del self.entries[key]
-                print(f"🗑️  [ContextManager] Cleared '{key}'")
+                logger.debug("Cleared '%s'", key)
         else:
             self.entries.clear()
-            print(f"🗑️  [ContextManager] Cleared all entries")
+            logger.debug("Cleared all entries")

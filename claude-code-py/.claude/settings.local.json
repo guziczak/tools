@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c:*)"
+    ]
+  }
+}

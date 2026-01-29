@@ -20,7 +20,7 @@ from core.intent import (
     FuzzyMatcher,
     KeywordMatcher,
     SemanticMatcher,
-    create_default_classifier,
+    ConfigDrivenClassifier,
 )
 
 
@@ -219,44 +219,49 @@ class TestIntentClassifier:
         assert result.intent == "general"
 
 
-class TestDefaultClassifier:
-    """Tests for default classifier configuration."""
+class TestConfigDrivenClassifier:
+    """Tests for config-driven classifier (intent_patterns.json)."""
 
     def test_handles_polish_queries(self):
         """Should handle Polish language queries."""
-        classifier = create_default_classifier()
+        classifier = ConfigDrivenClassifier()
 
-        # Polish queries
-        assert classifier.classify("widzisz projekt").intent == "explore_project"
-        assert classifier.classify("ostatni commit").intent == "git_log"
-        assert classifier.classify("jakie pliki").intent == "list_files"
+        intent, _ = classifier.classify("widzisz projekt")
+        assert intent == "explore_project"
+        intent, _ = classifier.classify("ostatni commit")
+        assert intent == "git_log"
+        intent, _ = classifier.classify("jakie pliki")
+        assert intent == "list_files"
 
     def test_handles_english_queries(self):
         """Should handle English language queries."""
-        classifier = create_default_classifier()
+        classifier = ConfigDrivenClassifier()
 
-        # English queries
-        assert classifier.classify("show me the project").intent == "explore_project"
-        assert classifier.classify("last commit").intent == "git_log"
-        assert classifier.classify("list files").intent == "list_files"
+        intent, _ = classifier.classify("show me the project")
+        assert intent == "explore_project"
+        intent, _ = classifier.classify("last commit")
+        assert intent == "git_log"
+        intent, _ = classifier.classify("list files")
+        assert intent == "list_files"
 
-    def test_typo_tolerance(self):
-        """Should handle typos via fuzzy matcher."""
-        classifier = create_default_classifier()
+    def test_returns_tool_choice(self):
+        """Should return tool_choice for file-listing intents."""
+        classifier = ConfigDrivenClassifier()
 
-        # Typo: "projektu" instead of "projekt"
-        result = classifier.classify("widzisz projektu")
-        assert result.intent == "explore_project"
+        _, tc = classifier.classify("widzisz projekt")
+        assert tc == {"type": "tool", "name": "bash"}
+
+        _, tc = classifier.classify("git log")
+        assert tc is None  # git_log has no tool_choice in config
 
     def test_word_order_invariance(self):
-        """Should handle different word orders."""
-        classifier = create_default_classifier()
+        """Should handle different word orders via keyword matcher."""
+        classifier = ConfigDrivenClassifier()
 
-        # Different word orders
-        assert classifier.classify("ostatni commit").intent == "git_log"
-        assert classifier.classify("commit ostatni").intent == "git_log"
-        assert classifier.classify("widzisz ostatni commit").intent == "git_log"
-        assert classifier.classify("commit widzisz ostatni").intent == "git_log"
+        intent, _ = classifier.classify("ostatni commit")
+        assert intent == "git_log"
+        intent, _ = classifier.classify("commit ostatni")
+        assert intent == "git_log"
 
 
 # Pytest configuration

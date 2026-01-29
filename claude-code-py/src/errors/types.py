@@ -1,7 +1,4 @@
-"""Error types and categories.
-
-Based on the TypeScript implementation from claude-code-source-code-deobfuscation-main.
-"""
+"""Error types and hierarchy for Claude Code Python."""
 
 from enum import Enum
 from typing import Optional
@@ -25,14 +22,7 @@ class ErrorCategory(Enum):
 
 
 class UserError(Exception):
-    """User-facing error with helpful information.
-
-    Attributes:
-        message: Error message
-        category: Error category
-        resolution: Suggested resolution
-        cause: Original exception that caused this error
-    """
+    """User-facing error with helpful information."""
 
     def __init__(
         self,
@@ -41,14 +31,6 @@ class UserError(Exception):
         resolution: Optional[str] = None,
         cause: Optional[Exception] = None,
     ):
-        """Initialize user error.
-
-        Args:
-            message: Error message
-            category: Error category
-            resolution: Suggested resolution
-            cause: Original exception
-        """
         super().__init__(message)
         self.message = message
         self.category = category
@@ -56,8 +38,57 @@ class UserError(Exception):
         self.cause = cause
 
     def __str__(self) -> str:
-        """Format error as string."""
         result = f"{self.message}"
         if self.resolution:
-            result += f"\n💡 {self.resolution}"
+            result += f"\n  Resolution: {self.resolution}"
         return result
+
+
+# --- Structured error hierarchy ---
+
+
+class ClaudeCodeError(Exception):
+    """Base exception for all Claude Code errors."""
+
+    pass
+
+
+class AuthenticationError(ClaudeCodeError):
+    """Authentication or token errors."""
+
+    pass
+
+
+class ConfigurationError(ClaudeCodeError):
+    """Invalid configuration (missing keys, bad values)."""
+
+    pass
+
+
+class ToolExecutionError(ClaudeCodeError):
+    """Tool execution failure."""
+
+    def __init__(self, message: str, tool_name: str = "", cause: Optional[Exception] = None):
+        super().__init__(message)
+        self.tool_name = tool_name
+        self.cause = cause
+
+
+class APIError(ClaudeCodeError):
+    """API call failure."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        retry_after: Optional[float] = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+
+class IntentClassificationError(ClaudeCodeError):
+    """Intent classification failure."""
+
+    pass

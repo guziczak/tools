@@ -10,8 +10,10 @@
         "widzisz projekt",
         "czy widzisz projekt",
         "do you see project",
+        "do you see the project",
         "show me the project",
         "show project",
+        "what's in the project",
         "what is in this project",
         "co jest w projekcie",
         "co masz w projekcie"
@@ -26,19 +28,27 @@
         ["poka", "projekt"],
         ["pokaz", "projekt"],
         ["zobacz", "projekt"],
-        ["show", "project"]
+        ["show", "project"],
+        ["sprawdz", "projekt"],
+        ["przejrzyj", "projekt"]
       ],
       "references": [
         "show project files",
         "what is in this project",
-        "list project contents"
-      ]
+        "list project contents",
+        "see project",
+        "project structure"
+      ],
+      "tool_choice": {"type": "tool", "name": "bash"}
     },
     "list_files": {
       "exact": [
         "jakie pliki",
+        "jakie są pliki",
         "list files",
         "show files",
+        "what files",
+        "list directory",
         "co tu widzisz",
         "co tutaj widzisz",
         "co tu jest",
@@ -46,15 +56,45 @@
         "co jest w tym folderze",
         "co jest w tym katalogu",
         "co masz w tym folderze",
+        "co masz w folderze",
         "co masz w tym katalogu",
+        "co masz w katalogu",
+        "co masz tu",
+        "co masz tutaj",
         "pokaż zawartość",
+        "pokaz zawartość",
         "pokaz zawartosc",
-        "pokaż wszystko",
-        "pokaz wszystko",
+        "zawartość folderu",
+        "zawartość katalogu",
+        "zawartość projektu",
         "what's here",
         "what is here",
+        "what's in this folder",
+        "what is in this folder",
         "show directory contents",
-        "list directory contents"
+        "list directory contents",
+        "obczaj folder",
+        "obczaj ten folder",
+        "obczaj katalog",
+        "obczaj ten katalog",
+        "sprawdz folder",
+        "sprawdź folder",
+        "sprawdz katalog",
+        "sprawdź katalog",
+        "zobacz folder",
+        "zobacz katalog",
+        "pokaz folder",
+        "pokaż folder",
+        "pokaz katalog",
+        "pokaż katalog",
+        "przejrzyj folder",
+        "przejrzyj katalog",
+        "show folder",
+        "check folder",
+        "browse folder",
+        "show directory",
+        "pokaż wszystko",
+        "pokaz wszystko"
       ],
       "fuzzy": [
         "jakie pliki",
@@ -72,21 +112,57 @@
         ["sprawdz", ["folder", "katalog", "dir", "directory"]],
         ["sprawdz", "zawartosc"],
         ["zobacz", ["folder", "katalog", "dir", "directory"]],
-        ["gdzie", "jestes"]
+        ["gdzie", "jestes"],
+        ["widzisz", ["tu", "tutaj", "here"]],
+        ["widzisz", ["folder", "katalog", "directory"]],
+        ["masz", ["folder", "katalog", "directory"]],
+        ["list", ["folder", "directory"]],
+        ["show", ["folder", "directory"]],
+        ["check", ["folder", "directory"]],
+        ["browse", ["folder", "directory"]],
+        ["przejrzyj", ["folder", "katalog"]]
       ],
       "references": [
         "show me what is in this folder",
         "list files in current directory",
         "what is inside this folder",
         "show current directory contents"
-      ]
+      ],
+      "tool_choice": {"type": "tool", "name": "bash"}
     },
     "git_log": {
+      "exact": [
+        "ostatni commit",
+        "widzisz ostatniego commita",
+        "ostatniego commita",
+        "git log",
+        "git history",
+        "last commit",
+        "recent commits",
+        "show commits",
+        "commit history"
+      ],
+      "fuzzy": [
+        "ostatni commit",
+        "git log"
+      ],
       "keywords": [
         ["ostatni", "commit"],
         ["last", "commit"],
+        ["recent", "commit"],
         ["git", "log"],
         ["git", "history"]
+      ]
+    },
+    "analyze_changes": {
+      "keywords": [
+        ["przeanalizuj"],
+        ["przeanalizuj", "zmiany"],
+        ["analyze"],
+        ["analyze", "changes"],
+        ["show", "details"],
+        ["pokaz", "szczegoly"],
+        ["szczegoly"]
       ]
     }
   }

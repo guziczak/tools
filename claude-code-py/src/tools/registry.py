@@ -112,14 +112,14 @@ class ToolRegistry:
             # Remove claude.ai-specific params
             mapped_params.pop("description", None)
 
-        # Validate parameters (skip validation for now - claude.ai params differ)
-        # is_valid, error = tool.validate_parameters(**mapped_params)
-        # if not is_valid:
-        #     return ToolResult(
-        #         status=ToolStatus.ERROR,
-        #         output="",
-        #         error=f"Invalid parameters: {error}"
-        #     )
+        # Validate parameters
+        is_valid, error = tool.validate_parameters(**mapped_params)
+        if not is_valid:
+            return ToolResult(
+                status=ToolStatus.ERROR,
+                output="",
+                error=f"Invalid parameters: {error}",
+            )
 
         # Execute tool
         try:
