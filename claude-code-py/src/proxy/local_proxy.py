@@ -265,21 +265,22 @@ class ClaudeAIProxyServer:
 
         tools_text = "\n\n".join(tool_descs)
 
-        return f"""<tools>
-You have the following tools that execute on the user's LOCAL Windows machine.
-DO NOT use the analysis tool or any sandbox. Use ONLY these tools.
+        return f"""[Available CLI tools]
+The developer's CLI can execute these tools on their local machine.
+To use a tool, output a tool_call block:
 
-When you want to use a tool, output a JSON block like this:
 ```tool_call
 {{"tool": "tool_name", "parameters": {{"param1": "value1"}}}}
 ```
 
-Available tools:
+Tools:
 {tools_text}
 
-IMPORTANT: Output tool_call blocks and then STOP. Wait for the tool result before continuing.
-Do NOT guess what a command would output. Do NOT simulate tool results.
-</tools>"""
+After outputting a tool_call block, stop and wait for the result.
+The CLI will execute it locally and provide the output.
+Please prefer these over the analysis tool since the developer wants
+commands to run on their machine.
+[End CLI tools]"""
 
     def _convert_messages_to_prompt(self, messages: list) -> str:
         """Convert Anthropic messages format to claude.ai prompt.
@@ -368,7 +369,7 @@ Do NOT guess what a command would output. Do NOT simulate tool results.
         prompt_parts = []
 
         if system:
-            prompt_parts.append(f"<system>\n{system}\n</system>")
+            prompt_parts.append(f"[Context for this conversation]\n{system}\n[End context]")
 
         # Inject tool definitions as prompt text so claude.ai knows what tools
         # are available locally. Tell it to output JSON tool calls instead of
