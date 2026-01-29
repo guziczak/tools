@@ -6,6 +6,7 @@ from anthropic.types import MessageStreamEvent
 
 from .oauth_anthropic_client import OAuthAnthropicClient, is_oauth_token
 from .logging import get_logger
+from client.event_converter import convert_anthropic_event
 
 logger = get_logger(__name__)
 
@@ -143,51 +144,9 @@ class UnifiedClaudeClient:
         # Stream the response
         with self.backend.messages.stream(**request_params) as stream:
             for event in stream:
-                converted_event = self._convert_anthropic_event(event)
-                if converted_event:
-                    yield converted_event
-
-    def _convert_anthropic_event(self, event: MessageStreamEvent) -> Optional[Dict[str, Any]]:
-        """Convert Anthropic event to our standard format.
-
-        Args:
-            event: Event from Anthropic API
-
-        Returns:
-            Converted event or None
-        """
-        # Text delta (main response)
-        if event.type == "content_block_delta":
-            if hasattr(event.delta, "text"):
-                return {"type": "text", "content": event.delta.text}
-            # Thinking delta
-            elif hasattr(event.delta, "thinking"):
-                return {"type": "thinking", "content": event.delta.thinking}
-
-        # Content block start
-        elif event.type == "content_block_start":
-            if hasattr(event.content_block, "type"):
-                if event.content_block.type == "thinking":
-                    return {"type": "thinking_start", "content": ""}
-                elif event.content_block.type == "text":
-                    return {"type": "text_start", "content": ""}
-                elif event.content_block.type == "tool_use":
-                    return {
-                        "type": "tool_use_start",
-                        "content": "",
-                        "tool_name": getattr(event.content_block, "name", "unknown"),
-                        "tool_id": getattr(event.content_block, "id", ""),
-                    }
-
-        # Content block stop
-        elif event.type == "content_block_stop":
-            return {"type": "block_stop", "content": ""}
-
-        # Message complete
-        elif event.type == "message_stop":
-            return {"type": "message_done", "content": ""}
-
-        return None
+                ev = convert_anthropic_event(event)
+                if ev:
+                    yield ev
 
     def get_backend_info(self) -> Dict[str, str]:
         """Get information about active backend.

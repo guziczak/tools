@@ -180,7 +180,7 @@ def extract_session_key_auto() -> Optional[str]:
             print("  [*] Closing browser...")
             try:
                 driver.quit()
-            except:
+            except Exception:
                 pass
 
 

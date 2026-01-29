@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from anthropic import Anthropic
 from core.logging import get_logger
+from .event_converter import convert_anthropic_event
 
 logger = get_logger(__name__)
 
@@ -59,33 +60,6 @@ class AnthropicKeyClient:
 
         with self._client.messages.stream(**params) as stream:
             for event in stream:
-                ev = _process_event(event)
+                ev = convert_anthropic_event(event)
                 if ev:
                     yield ev
-
-
-def _process_event(event) -> Optional[Dict[str, Any]]:
-    if event.type == "content_block_delta":
-        if hasattr(event.delta, "text"):
-            return {"type": "text", "content": event.delta.text}
-        elif hasattr(event.delta, "thinking"):
-            return {"type": "thinking", "content": event.delta.thinking}
-    elif event.type == "content_block_start":
-        if hasattr(event.content_block, "type"):
-            t = event.content_block.type
-            if t == "thinking":
-                return {"type": "thinking_start", "content": ""}
-            elif t == "text":
-                return {"type": "text_start", "content": ""}
-            elif t == "tool_use":
-                return {
-                    "type": "tool_use_start",
-                    "content": "",
-                    "tool_name": getattr(event.content_block, "name", "unknown"),
-                    "tool_id": getattr(event.content_block, "id", ""),
-                }
-    elif event.type == "content_block_stop":
-        return {"type": "block_stop", "content": ""}
-    elif event.type == "message_stop":
-        return {"type": "message_done", "content": ""}
-    return None

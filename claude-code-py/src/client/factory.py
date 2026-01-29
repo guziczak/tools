@@ -25,13 +25,13 @@ def create_client(
     """Create the appropriate LLM client based on token type.
 
     Returns:
-        Either ``AnthropicKeyClient`` or ``OAuthLLMClient``.
+        Either ``AnthropicKeyClient`` or ``UnifiedClaudeClient``.
     """
     if _is_oauth_token(api_key):
-        from .oauth_client import OAuthLLMClient
+        from core.unified_client import UnifiedClaudeClient
 
-        logger.debug("Creating OAuth client")
-        return OAuthLLMClient(
+        logger.debug("Creating OAuth/session client")
+        return UnifiedClaudeClient(
             token=api_key,
             model=model,
             max_tokens=max_tokens,

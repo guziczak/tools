@@ -414,7 +414,7 @@ commands to run on their machine.
                 try:
                     error_text = response.text[:500]
                     logger.warning("Error response: %s", error_text)
-                except:
+                except Exception:
                     pass
 
                 return Response(
@@ -687,7 +687,7 @@ def start_proxy_server(oauth_token: str, port: int = 8765) -> tuple[bool, int]:
             if response.status_code == 200:
                 logger.debug("Proxy health check passed - ready to accept requests")
                 return (True, port)
-        except:
+        except Exception:
             pass
         time.sleep(0.1)
 
