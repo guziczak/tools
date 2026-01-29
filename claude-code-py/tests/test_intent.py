@@ -220,12 +220,33 @@ class TestIntentClassifier:
 
 
 class TestConfigDrivenClassifier:
-    """Tests for config-driven classifier (intent_patterns.json)."""
+    """Tests for LLM-based classifier (mocked)."""
+
+    def _make(self, intent_map):
+        from unittest.mock import MagicMock
+        c = ConfigDrivenClassifier()
+        mock_client = MagicMock()
+        def side_effect(**kwargs):
+            msg = kwargs["messages"][0]["content"]
+            for key, intent in intent_map.items():
+                if key in msg:
+                    resp = MagicMock()
+                    resp.content = [MagicMock(text=intent)]
+                    return resp
+            resp = MagicMock()
+            resp.content = [MagicMock(text="general")]
+            return resp
+        mock_client.messages.create.side_effect = side_effect
+        c._client = mock_client
+        c._init_done = True
+        return c
 
     def test_handles_polish_queries(self):
-        """Should handle Polish language queries."""
-        classifier = ConfigDrivenClassifier()
-
+        classifier = self._make({
+            "widzisz projekt": "explore_project",
+            "ostatni commit": "git_log",
+            "jakie pliki": "list_files",
+        })
         intent, _ = classifier.classify("widzisz projekt")
         assert intent == "explore_project"
         intent, _ = classifier.classify("ostatni commit")
@@ -234,9 +255,11 @@ class TestConfigDrivenClassifier:
         assert intent == "list_files"
 
     def test_handles_english_queries(self):
-        """Should handle English language queries."""
-        classifier = ConfigDrivenClassifier()
-
+        classifier = self._make({
+            "show me the project": "explore_project",
+            "last commit": "git_log",
+            "list files": "list_files",
+        })
         intent, _ = classifier.classify("show me the project")
         assert intent == "explore_project"
         intent, _ = classifier.classify("last commit")
@@ -245,19 +268,20 @@ class TestConfigDrivenClassifier:
         assert intent == "list_files"
 
     def test_returns_tool_choice(self):
-        """Should return tool_choice for file-listing intents."""
-        classifier = ConfigDrivenClassifier()
-
+        classifier = self._make({
+            "widzisz projekt": "explore_project",
+            "git log": "git_log",
+        })
         _, tc = classifier.classify("widzisz projekt")
         assert tc == {"type": "tool", "name": "bash"}
-
         _, tc = classifier.classify("git log")
-        assert tc is None  # git_log has no tool_choice in config
+        assert tc is None
 
     def test_word_order_invariance(self):
-        """Should handle different word orders via keyword matcher."""
-        classifier = ConfigDrivenClassifier()
-
+        classifier = self._make({
+            "ostatni commit": "git_log",
+            "commit ostatni": "git_log",
+        })
         intent, _ = classifier.classify("ostatni commit")
         assert intent == "git_log"
         intent, _ = classifier.classify("commit ostatni")

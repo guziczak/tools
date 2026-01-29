@@ -126,6 +126,7 @@ class OAuthAnthropicClient:
             # Track tool uses for building complete blocks
             current_tool_blocks = []
             all_content_blocks = []
+            all_text_parts = []  # Buffer all text for tool_call parsing
 
             # Parse SSE stream
             line_count = 0
@@ -141,7 +142,13 @@ class OAuthAnthropicClient:
 
                 # Handle [DONE] marker
                 if data_str.strip() == "[DONE]":
-                    # Yield collected tool blocks before finishing
+                    # Check for text-based tool_call blocks (from proxy prompt injection)
+                    if not current_tool_blocks:
+                        full_text = "".join(all_text_parts)
+                        parsed_blocks = self._parse_tool_call_blocks(full_text)
+                        if parsed_blocks:
+                            current_tool_blocks = parsed_blocks
+
                     if current_tool_blocks:
                         logger.debug("Collected %d tool blocks", len(current_tool_blocks))
                         for idx, block in enumerate(current_tool_blocks):
@@ -214,6 +221,10 @@ class OAuthAnthropicClient:
                         delta = event.get("delta", {})
                         delta_type = delta.get("type", "")
 
+                        # Track text for tool_call block parsing
+                        if delta_type == "text_delta":
+                            all_text_parts.append(delta.get("text", ""))
+
                         # ONLY collect input for tool_use blocks that are still being collected
                         if delta_type == "input_json_delta" and current_tool_blocks:
                             # Check if last block is a tool_use and still collecting
@@ -269,6 +280,42 @@ class OAuthAnthropicClient:
                 except json.JSONDecodeError:
                     # Skip malformed JSON
                     continue
+
+    def _parse_tool_call_blocks(self, text: str) -> List[Dict[str, Any]]:
+        """Parse ```tool_call JSON blocks from claude.ai text response.
+
+        When claude.ai can't emit proper tool_use SSE events (via /completion),
+        we inject tool definitions into the prompt and ask it to output
+        ```tool_call blocks. This method parses those.
+
+        Returns list of tool blocks compatible with tool_calls_complete event.
+        """
+        import re
+        import json as json_mod
+        import uuid
+
+        blocks = []
+        # Match ```tool_call ... ``` blocks
+        pattern = r'```tool_call\s*\n(.*?)\n```'
+        matches = re.findall(pattern, text, re.DOTALL)
+
+        for match in matches:
+            try:
+                data = json_mod.loads(match.strip())
+                tool_name = data.get("tool", "")
+                params = data.get("parameters", {})
+                if tool_name:
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": f"text-tool-{uuid.uuid4().hex[:8]}",
+                        "name": tool_name,
+                        "input": params,
+                    })
+                    logger.debug("Parsed text tool_call: %s(%s)", tool_name, list(params.keys()))
+            except (json_mod.JSONDecodeError, KeyError) as e:
+                logger.debug("Failed to parse tool_call block: %s", e)
+
+        return blocks
 
     def _convert_event(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Convert Anthropic API event to standard format.

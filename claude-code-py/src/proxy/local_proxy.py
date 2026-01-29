@@ -246,6 +246,41 @@ class ClaudeAIProxyServer:
             logger.warning("Upload error: %s", e)
             return None
 
+    def _build_tool_prompt(self, tools: list) -> str:
+        """Build a prompt section describing available local tools.
+
+        Tells the model to output structured JSON tool calls instead of
+        using its built-in analysis tool / sandbox.
+        """
+        tool_descs = []
+        for t in tools:
+            name = t.get("name", "")
+            desc = t.get("description", "")
+            params = t.get("input_schema", {}).get("properties", {})
+            param_strs = []
+            for pname, pinfo in params.items():
+                param_strs.append(f"    - {pname}: {pinfo.get('description', pinfo.get('type', ''))}")
+            param_block = "\n".join(param_strs) if param_strs else "    (no parameters)"
+            tool_descs.append(f"  {name}: {desc}\n  Parameters:\n{param_block}")
+
+        tools_text = "\n\n".join(tool_descs)
+
+        return f"""<tools>
+You have the following tools that execute on the user's LOCAL Windows machine.
+DO NOT use the analysis tool or any sandbox. Use ONLY these tools.
+
+When you want to use a tool, output a JSON block like this:
+```tool_call
+{{"tool": "tool_name", "parameters": {{"param1": "value1"}}}}
+```
+
+Available tools:
+{tools_text}
+
+IMPORTANT: Output tool_call blocks and then STOP. Wait for the tool result before continuing.
+Do NOT guess what a command would output. Do NOT simulate tool results.
+</tools>"""
+
     def _convert_messages_to_prompt(self, messages: list) -> str:
         """Convert Anthropic messages format to claude.ai prompt.
 
@@ -329,22 +364,25 @@ class ClaudeAIProxyServer:
         # Convert to claude.ai format
         user_prompt = self._convert_messages_to_prompt(messages)
 
-        # CRITICAL: Prepend system prompt ONLY for first user message
-        # Claude.ai doesn't have separate "system" field, so we add it to first prompt
-        # After that, claude.ai remembers context from conversation
-        user_message_count = sum(1 for m in messages if m.get("role") == "user")
-        is_first_message = user_message_count == 1
-        if system and is_first_message:
-            prompt = f"{system}\n\n---\n\n{user_prompt}"
-            logger.debug(
-                "Including system prompt in first message (%d chars)", len(system)
-            )
-        else:
-            prompt = user_prompt
+        # Build prompt with system instructions and tool definitions
+        prompt_parts = []
+
+        if system:
+            prompt_parts.append(f"<system>\n{system}\n</system>")
+
+        # Inject tool definitions as prompt text so claude.ai knows what tools
+        # are available locally. Tell it to output JSON tool calls instead of
+        # using its built-in analysis tool.
+        if tools:
+            tool_instruction = self._build_tool_prompt(tools)
+            prompt_parts.append(tool_instruction)
+            logger.debug("Injected %d tool definitions into prompt", len(tools))
+
+        prompt_parts.append(user_prompt)
+        prompt = "\n\n".join(prompt_parts)
 
         org_id = self._get_organization_id()
 
-        # Send to claude.ai with all required fields
         claude_request = {
             "prompt": prompt,
             "timezone": "America/New_York",
@@ -352,15 +390,6 @@ class ClaudeAIProxyServer:
             "files": [],
             "rendering_mode": "messages",
         }
-
-        # DON'T send tools to claude.ai - it has its own built-in tools
-        # We'll intercept tool_use blocks and execute locally with our tools
-        # This is the Interceptor Pattern for tool execution
-        if tools:
-            logger.debug(
-                "Interceptor mode: %d local tools available (not sending to claude.ai)",
-                len(tools),
-            )
 
         try:
             # Use the /completion endpoint that we know works (returns 200)

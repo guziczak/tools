@@ -120,7 +120,15 @@
         ["show", ["folder", "directory"]],
         ["check", ["folder", "directory"]],
         ["browse", ["folder", "directory"]],
-        ["przejrzyj", ["folder", "katalog"]]
+        ["przejrzyj", ["folder", "katalog"]],
+        ["jakie", "pliki"],
+        ["widzisz", "pliki"],
+        ["pokaz", "pliki"],
+        ["show", "files"],
+        ["list", "files"],
+        ["what", "files"],
+        ["masz", "pliki"],
+        ["zobacz", "pliki"]
       ],
       "references": [
         "show me what is in this folder",

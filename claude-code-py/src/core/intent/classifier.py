@@ -1,67 +1,96 @@
-"""Config-driven intent classifier.
+"""LLM-based intent classifier.
 
-This is the SINGLE entry point for intent classification. All triggers
-come from ``intent_patterns.json`` - zero hardcoded trigger lists.
+Single LLM call classifies intent. No keyword lists, no fuzzy matching,
+no brittle algorithm that breaks on unexpected wording.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional, Tuple
 
 from core.logging import get_logger
-from .config import create_classifier_from_config, load_intent_config
-from .strategies import IntentClassifier as _StrategyClassifier
 
 logger = get_logger(__name__)
 
+_CLASSIFY_PROMPT = """\
+Classify this user message into exactly one intent. Reply with ONLY the intent name, nothing else.
+
+Intents:
+- explore_project: user wants to see the project structure or contents
+- list_files: user wants to list files in current directory/folder
+- git_log: user wants to see git commit history
+- analyze_changes: user wants to analyze code changes or diffs
+- general: anything else (greeting, question, coding task, conversation, etc.)
+
+Message: {message}
+
+Intent:"""
+
+_VALID_INTENTS = {"explore_project", "list_files", "git_log", "analyze_changes", "general"}
+
+_TOOL_CHOICES: Dict[str, Dict[str, str]] = {
+    "explore_project": {"type": "tool", "name": "bash"},
+    "list_files": {"type": "tool", "name": "bash"},
+}
+
 
 class ConfigDrivenClassifier:
-    """Classifies user intent using ONLY config-driven matchers.
+    """LLM-based intent classifier.
 
-    Replaces the 250+ lines of hardcoded triggers in ``api_client.py``.
-
-    Attributes:
-        classifier: Underlying strategy-based classifier built from JSON config.
-        confidence_threshold: Minimum confidence to accept a match.
-        tool_choice_map: Per-intent tool_choice overrides from config.
+    Creates its own lightweight Anthropic client. Uses ANTHROPIC_BASE_URL
+    from env automatically (works through proxy).
     """
 
     def __init__(self) -> None:
-        self.classifier, self.confidence_threshold = create_classifier_from_config()
-        self.tool_choice_map: Dict[str, Optional[Dict[str, Any]]] = {}
-        self._load_tool_choices()
+        self._client = None
+        self._init_done = False
 
-    def _load_tool_choices(self) -> None:
-        """Load per-intent tool_choice from JSON config."""
-        config = load_intent_config()
-        for intent_name, intent_cfg in config.get("intents", {}).items():
-            tc = intent_cfg.get("tool_choice")
-            if tc:
-                self.tool_choice_map[intent_name] = tc
+    def _ensure_client(self):
+        if self._init_done:
+            return self._client
+        self._init_done = True
+
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+
+        try:
+            from anthropic import Anthropic
+            self._client = Anthropic(api_key=api_key)
+            return self._client
+        except Exception:
+            return None
 
     def classify(self, message: str) -> Tuple[str, Optional[Dict[str, Any]]]:
-        """Classify user query intent.
-
-        Returns:
-            ``(intent_name, tool_choice)`` where tool_choice may be ``None``.
-        """
-        if not self.classifier:
-            logger.debug("No classifier available, falling back to general")
+        """Classify intent via LLM."""
+        if len(message.split()) > 20:
             return ("general", None)
 
-        match = self.classifier.classify(
-            message, confidence_threshold=self.confidence_threshold
-        )
+        client = self._ensure_client()
+        if not client:
+            return ("general", None)
 
-        intent = match.intent if match else "general"
-        tool_choice = self.tool_choice_map.get(intent)
-
-        if intent != "general":
-            logger.debug(
-                "ConfigDrivenClassifier: intent=%s confidence=%.2f method=%s",
-                intent,
-                match.confidence if match else 0,
-                (match.metadata or {}).get("method", "?") if match else "?",
+        try:
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251016",
+                max_tokens=20,
+                temperature=0.0,
+                messages=[{
+                    "role": "user",
+                    "content": _CLASSIFY_PROMPT.format(message=message),
+                }],
             )
+            intent = resp.content[0].text.strip().lower().replace(" ", "_")
 
-        return (intent, tool_choice)
+            if intent not in _VALID_INTENTS:
+                logger.debug("LLM returned unknown intent %r, falling back", intent)
+                intent = "general"
+            else:
+                logger.debug("LLM classified %r -> %s", message[:40], intent)
+
+            return (intent, _TOOL_CHOICES.get(intent))
+
+        except Exception as exc:
+            logger.debug("LLM classify failed: %s", exc)
+            return ("general", None)

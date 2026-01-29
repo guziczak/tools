@@ -73,7 +73,7 @@ class ClaudeAPIClient:
         # Intent router
         self.intent_router = IntentRouter(tool_registry, context_manager=self.context_manager) if tool_registry else None
 
-        # Config-driven intent classifier
+        # LLM-based intent classifier (lazy-inits its own Anthropic client)
         self._classifier = ConfigDrivenClassifier()
 
         # Command validator
