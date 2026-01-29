@@ -287,13 +287,19 @@ class OAuthAnthropicClient:
                     # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
                     if converted_event:
-                        # Check if we've entered a tool_call block
                         full_so_far = "".join(all_text_parts)
                         if "```tool_call" in full_so_far:
-                            # Buffer - don't yield text events, they contain tool_call markup
+                            # Confirmed tool_call - suppress all text events
                             if converted_event.get("type") not in ("text", "text_start"):
                                 yield converted_event
+                        elif full_so_far.rstrip().endswith("```"):
+                            # Might be start of ```tool_call - buffer this event
+                            buffered_events.append(converted_event)
                         else:
+                            # Flush any buffered events (turned out not to be tool_call)
+                            for buf in buffered_events:
+                                yield buf
+                            buffered_events.clear()
                             yield converted_event
 
                 except json.JSONDecodeError:
