@@ -1,18 +1,16 @@
 """Application orchestrator with dependency injection.
 
-This is the thin DI layer that wires together all components.
-``ClaudeCodePy`` in ``main.py`` delegates to this for initialization.
+Wires together all components. ``ClaudeCodePy`` in ``main.py``
+delegates initialization here.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from core.logging import get_logger
 from config.app_config import AppConfig
 from core.conversation import ConversationManager
-from core.intent.classifier import ConfigDrivenClassifier
-from core.pipeline.chat_pipeline import ChatPipeline
 
 logger = get_logger(__name__)
 
@@ -23,17 +21,14 @@ class Application:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.conversation = ConversationManager()
-        self.classifier = ConfigDrivenClassifier()
 
-        # These are set up during ``initialize()``
         self.tool_registry = None
         self.agent_registry = None
         self.agent_router = None
-        self.pipeline: Optional[ChatPipeline] = None
-        self._api_client = None  # legacy ClaudeAPIClient (kept for compat)
+        self._api_client = None
 
     def initialize(self, api_key: str) -> bool:
-        """Initialize tools, agents, client, and pipeline.
+        """Initialize tools, agents, proxy, and API client.
 
         Returns True on success.
         """
@@ -65,7 +60,7 @@ class Application:
         from auth.proxy_manager import start_proxy_if_needed
         start_proxy_if_needed(api_key)
 
-        # API client (legacy, still needed for streaming)
+        # API client (internally creates ChatPipeline)
         try:
             from core.api_client import ClaudeAPIClient
 
@@ -79,28 +74,15 @@ class Application:
                 tools=tools,
                 tool_registry=self.tool_registry,
             )
+            # Share conversation manager
+            self._api_client._conversation = self.conversation
         except Exception as exc:
             logger.error("Failed to initialize API client: %s", exc)
             return False
-
-        # Build pipeline
-        self.pipeline = ChatPipeline(
-            stream_fn=self._api_client.client.chat_streaming
-            if hasattr(self._api_client.client, "chat_streaming")
-            else lambda msgs, sys, tls, tc: self._api_client.chat("", sys, tool_choice=tc),
-            conversation=self.conversation,
-            classifier=self.classifier,
-            tool_registry=self.tool_registry,
-            tools=tools,
-            intent_router=self._api_client.intent_router,
-            command_validator=self._api_client.command_validator,
-            response_analyzer=self._api_client.response_analyzer,
-            auto_executor=self._api_client.auto_executor,
-        )
 
         return True
 
     @property
     def client(self):
-        """Legacy accessor for the API client."""
+        """The API client (thin facade over ChatPipeline)."""
         return self._api_client
