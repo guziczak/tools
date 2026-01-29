@@ -127,6 +127,8 @@ class OAuthAnthropicClient:
             current_tool_blocks = []
             all_content_blocks = []
             all_text_parts = []  # Buffer all text for tool_call parsing
+            buffered_events = []  # Buffer events when tool_call detected
+            buffering = False  # True once we see ```tool_call marker
 
             # Parse SSE stream
             line_count = 0
@@ -148,6 +150,16 @@ class OAuthAnthropicClient:
                         parsed_blocks = self._parse_tool_call_blocks(full_text)
                         if parsed_blocks:
                             current_tool_blocks = parsed_blocks
+                            # Emit cleaned text (without tool_call blocks)
+                            import re
+                            clean = re.sub(
+                                r'```tool_call\s*\n.*?\n```',
+                                '',
+                                full_text,
+                                flags=re.DOTALL,
+                            ).strip()
+                            if clean:
+                                yield {"type": "text", "content": clean}
 
                     if current_tool_blocks:
                         logger.debug("Collected %d tool blocks", len(current_tool_blocks))
@@ -275,7 +287,14 @@ class OAuthAnthropicClient:
                     # Convert to our standard format and yield
                     converted_event = self._convert_event(event)
                     if converted_event:
-                        yield converted_event
+                        # Check if we've entered a tool_call block
+                        full_so_far = "".join(all_text_parts)
+                        if "```tool_call" in full_so_far:
+                            # Buffer - don't yield text events, they contain tool_call markup
+                            if converted_event.get("type") not in ("text", "text_start"):
+                                yield converted_event
+                        else:
+                            yield converted_event
 
                 except json.JSONDecodeError:
                     # Skip malformed JSON
