@@ -147,6 +147,7 @@ class OAuthAnthropicClient:
                     # Check for text-based tool_call blocks (from proxy prompt injection)
                     if not current_tool_blocks:
                         full_text = "".join(all_text_parts)
+                        logger.info("[DONE] Full text (%d chars): %s", len(full_text), full_text[:200])
                         parsed_blocks = self._parse_tool_call_blocks(full_text)
                         if parsed_blocks:
                             current_tool_blocks = parsed_blocks
