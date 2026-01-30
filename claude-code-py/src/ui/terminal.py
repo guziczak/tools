@@ -87,9 +87,10 @@ class ChatApp(App):
 
         # Block submit while streaming — queue the message
         if self._terminal_ui._is_streaming():
-            self._terminal_ui._queued_input = user_input
+            self._terminal_ui._input_queue.append(user_input)
             inp = self.query_one("#user_input", Input)
-            inp.placeholder = f"⏳ Queued: {user_input}"
+            count = len(self._terminal_ui._input_queue)
+            inp.placeholder = f"⏳ Queued ({count}): {user_input}"
             return
 
         self._terminal_ui._write_to_log(f"\n[bold green]You[/bold green]: {user_input}")
@@ -138,8 +139,8 @@ class TerminalUI:
         self._thinking_done_flag: bool = False
         self._thinking_visible: bool = False
 
-        # Queued input (submitted during streaming)
-        self._queued_input: Optional[str] = None
+        # Queued inputs (submitted during streaming)
+        self._input_queue: list[str] = []
 
         # Plaintext log for /cpy
         self._plaintext_log: list[str] = []
@@ -164,16 +165,24 @@ class TerminalUI:
         return not self._stream_done.is_set()
 
     def _drain_queue(self):
-        """Auto-submit queued input after streaming finishes."""
-        queued = self._queued_input
-        if queued is None:
+        """Auto-submit queued inputs after streaming finishes."""
+        if not self._input_queue:
             return
-        self._queued_input = None
+        # Take first queued message
+        queued = self._input_queue.pop(0)
         # Reset input placeholder
         if self._app:
             try:
                 inp = self._app.query_one("#user_input", Input)
-                self._app.call_from_thread(setattr, inp, "placeholder", "Type your message...")
+                if self._input_queue:
+                    remaining = len(self._input_queue)
+                    self._app.call_from_thread(
+                        setattr, inp, "placeholder", f"⏳ {remaining} more queued..."
+                    )
+                else:
+                    self._app.call_from_thread(
+                        setattr, inp, "placeholder", "Type your message..."
+                    )
             except Exception:
                 pass
         self._write_to_log(f"\n[bold green]You[/bold green]: {queued}")
