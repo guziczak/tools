@@ -1,8 +1,7 @@
 """Terminal UI for Claude chat.
 
-Uses prompt_toolkit PromptSession for input (history, Ctrl+C handling).
-Streaming output goes directly to stdout. Prompt is shown only after
-streaming finishes — no patch_stdout, no cursor tricks.
+Uses prompt_toolkit PromptSession with patch_stdout(raw=True) so that
+streaming output appears above the prompt while the user can type freely.
 """
 
 import sys
@@ -12,31 +11,76 @@ from typing import Optional, Iterator, Dict, Any, Callable
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.patch_stdout import patch_stdout
 
 from core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
+class WriteBatcher:
+    """Batches small writes and flushes them periodically.
+
+    Reduces prompt_toolkit redraws from hundreds/s to ~25/s by coalescing
+    tiny SSE chunks into larger batches flushed every ``interval`` seconds.
+    """
+
+    def __init__(self, interval: float = 0.04):
+        self._buf: list[str] = []
+        self._lock = threading.Lock()
+        self._interval = interval
+        self._timer: Optional[threading.Timer] = None
+
+    def write(self, text: str):
+        with self._lock:
+            self._buf.append(text)
+            if self._timer is None:
+                self._timer = threading.Timer(self._interval, self._flush)
+                self._timer.daemon = True
+                self._timer.start()
+
+    def _flush(self):
+        with self._lock:
+            data = "".join(self._buf)
+            self._buf.clear()
+            self._timer = None
+        if data:
+            sys.stdout.write(data)
+            sys.stdout.flush()
+
+    def flush_now(self):
+        """Force-flush remaining buffer. Call on stream end."""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            data = "".join(self._buf)
+            self._buf.clear()
+        if data:
+            sys.stdout.write(data)
+            sys.stdout.flush()
+
+
 class TerminalUI:
-    """Terminal UI: prompt_toolkit input + direct stdout streaming.
+    """Terminal UI: prompt_toolkit input + patch_stdout streaming.
 
     Threading model:
-        - Main thread: run() loop → wait_for_stream → prompt → on_submit
-        - Stream thread: stream_response_with_tools → writes to stdout
-        - _stream_done Event gates prompt display
-        - _print_lock serializes all stdout access
+        - Main thread: run() loop — prompt is always visible
+        - Stream thread: writes go through WriteBatcher → stdout
+        - patch_stdout(raw=True) renders output above the prompt
+        - _stream_done Event gates whether submit is accepted
     """
 
     def __init__(self):
-        self._print_lock = threading.Lock()
         self._session: Optional[PromptSession] = None
+        self._batcher = WriteBatcher()
 
         # Streaming state — _stream_done is set when no stream is active
         self._stream_done = threading.Event()
         self._stream_done.set()
 
-        # Thinking state — guarded by _print_lock
+        # Thinking state
+        self._thinking_lock = threading.Lock()
         self._thinking_buffer: list[str] = []
         self._thinking_token_count: int = 0
         self._thinking_done_flag: bool = False
@@ -58,16 +102,18 @@ class TerminalUI:
         self._on_cancel = callback
 
     def mark_streaming(self):
-        """Mark that streaming is about to start (blocks prompt until done)."""
+        """Mark that streaming is about to start."""
         self._stream_done.clear()
+
+    def _is_streaming(self) -> bool:
+        return not self._stream_done.is_set()
 
     # --- Core output ---
 
     def _write(self, text: str, end: str = "\n"):
-        """Thread-safe write to stdout."""
-        with self._print_lock:
-            sys.stdout.write(text + end)
-            sys.stdout.flush()
+        """Write to stdout. patch_stdout proxy handles rendering above prompt."""
+        sys.stdout.write(text + end)
+        sys.stdout.flush()
 
     # --- High-level print methods ---
 
@@ -116,7 +162,7 @@ class TerminalUI:
 
     def _start_thinking(self):
         """Reset thinking state and print start marker."""
-        with self._print_lock:
+        with self._thinking_lock:
             self._thinking_buffer = []
             self._thinking_token_count = 0
             self._thinking_done_flag = False
@@ -126,16 +172,15 @@ class TerminalUI:
         """Accumulate thinking content (no live output unless visible)."""
         if not content:
             return
-        with self._print_lock:
+        with self._thinking_lock:
             self._thinking_buffer.append(content)
             self._thinking_token_count += self._estimate_tokens(content)
             if self._thinking_visible:
-                sys.stdout.write(content)
-                sys.stdout.flush()
+                self._batcher.write(content)
 
     def _finish_thinking(self):
         """Print thinking summary. Idempotent."""
-        with self._print_lock:
+        with self._thinking_lock:
             if self._thinking_done_flag:
                 return
             self._thinking_done_flag = True
@@ -145,7 +190,7 @@ class TerminalUI:
             self._write(f"∴ Thinking complete ({seconds}s, {total_tokens} tokens)")
 
     def toggle_thinking_visibility(self):
-        with self._print_lock:
+        with self._thinking_lock:
             self._thinking_visible = not self._thinking_visible
             visible = self._thinking_visible
             buffer_copy = list(self._thinking_buffer)
@@ -178,12 +223,9 @@ class TerminalUI:
 
     def stream_response_with_tools(self, events: Iterator[Dict[str, Any]], tool_registry=None,
                                     cancel_event=None, on_complete: Optional[Callable] = None):
-        """Stream Claude's response directly to stdout.
+        """Stream Claude's response to stdout via WriteBatcher.
 
-        Prints "Claude: " only when actual text starts (after thinking).
-        Sets/clears _stream_done so run() knows when to show prompt.
-        on_complete runs after streaming but before _stream_done is set,
-        guaranteeing all output finishes before prompt appears.
+        on_complete runs after streaming but before _stream_done is set.
         """
         self._stream_done.clear()  # idempotent if mark_streaming() already called
         try:
@@ -191,6 +233,7 @@ class TerminalUI:
             if on_complete:
                 on_complete()
         finally:
+            self._batcher.flush_now()
             self._stream_done.set()
 
     def _do_stream(self, events: Iterator[Dict[str, Any]], cancel_event=None):
@@ -227,9 +270,7 @@ class TerminalUI:
                 if not text_started:
                     self._write("\nClaude: ", end="")
                     text_started = True
-                with self._print_lock:
-                    sys.stdout.write(content)
-                    sys.stdout.flush()
+                self._batcher.write(content)
 
             elif event_type == "tool_use_detected":
                 tool_name = event.get("tool_name", "unknown")
@@ -249,21 +290,24 @@ class TerminalUI:
                 self._write("\nStarting tool execution...")
 
             elif event_type == "tool_round_complete":
+                self._batcher.flush_now()
                 self._write(f"Tool execution complete: {content}")
                 message_done = False
                 in_thinking = False
                 text_started = False
-                with self._print_lock:
+                with self._thinking_lock:
                     self._thinking_done_flag = False
 
             elif event_type == "message_done":
                 message_done = True
+                self._batcher.flush_now()
                 if in_thinking:
                     self._finish_thinking()
                     in_thinking = False
                 self._write("")  # final newline
 
             elif event_type == "error":
+                self._batcher.flush_now()
                 self.print_error(content)
                 if in_thinking:
                     self._finish_thinking()
@@ -278,49 +322,48 @@ class TerminalUI:
 
     # --- Main input loop ---
 
-    def _wait_for_stream(self):
-        """Block until streaming finishes. Ctrl+C cancels the stream."""
-        while not self._stream_done.is_set():
-            try:
-                time.sleep(0.1)
-            except KeyboardInterrupt:
-                if self._on_cancel:
-                    self._on_cancel()
-
     def run(self):
         """Run the input loop.
 
-        Waits for streaming to finish before showing prompt.
+        patch_stdout(raw=True) renders streaming output above the prompt.
+        The user can type at any time; submit is rejected while streaming.
         Ctrl+C during streaming cancels it. Double Ctrl+C at prompt exits.
         """
         self._session = PromptSession()
 
-        while True:
-            self._wait_for_stream()
-
-            try:
-                user_input = self._session.prompt(
-                    HTML("<ansigreen><b>You</b></ansigreen>: "),
-                )
-                user_input = user_input.strip() if user_input else ""
-            except KeyboardInterrupt:
-                now = time.monotonic()
-                if now - self._ctrl_c_time < 3.0:
+        with patch_stdout(raw=True):
+            while True:
+                try:
+                    user_input = self._session.prompt(
+                        HTML("<ansigreen><b>You</b></ansigreen>: "),
+                    )
+                    user_input = user_input.strip() if user_input else ""
+                except KeyboardInterrupt:
+                    if self._is_streaming():
+                        if self._on_cancel:
+                            self._on_cancel()
+                        continue
+                    now = time.monotonic()
+                    if now - self._ctrl_c_time < 3.0:
+                        self.print_goodbye()
+                        break
+                    self._ctrl_c_time = now
+                    self._write("\nPress Ctrl+C again to exit (or type 'exit')")
+                    continue
+                except EOFError:
                     self.print_goodbye()
                     break
-                self._ctrl_c_time = now
-                self._write("\nPress Ctrl+C again to exit (or type 'exit')")
-                continue
-            except EOFError:
-                self.print_goodbye()
-                break
 
-            if not user_input:
-                continue
+                if not user_input:
+                    continue
 
-            if user_input.lower() in ("exit", "quit", "q"):
-                self.print_goodbye()
-                break
+                if user_input.lower() in ("exit", "quit", "q"):
+                    self.print_goodbye()
+                    break
 
-            if self._on_submit:
-                self._on_submit(user_input)
+                if self._is_streaming():
+                    self._write("⏳ Please wait for the current response to finish.")
+                    continue
+
+                if self._on_submit:
+                    self._on_submit(user_input)
