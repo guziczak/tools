@@ -85,6 +85,12 @@ class ChatApp(App):
             self._terminal_ui.copy_all()
             return
 
+        # Block submit while streaming — queue the message
+        if self._terminal_ui._is_streaming():
+            self._terminal_ui._queued_input = user_input
+            self._terminal_ui._write_to_log("[dim]⏳ Queued — will send after current response.[/dim]")
+            return
+
         self._terminal_ui._write_to_log(f"\n[bold green]You[/bold green]: {user_input}")
 
         if self._terminal_ui._on_submit:
@@ -131,6 +137,9 @@ class TerminalUI:
         self._thinking_done_flag: bool = False
         self._thinking_visible: bool = False
 
+        # Queued input (submitted during streaming)
+        self._queued_input: Optional[str] = None
+
         # Plaintext log for /cpy
         self._plaintext_log: list[str] = []
 
@@ -152,6 +161,16 @@ class TerminalUI:
 
     def _is_streaming(self) -> bool:
         return not self._stream_done.is_set()
+
+    def _drain_queue(self):
+        """Auto-submit queued input after streaming finishes."""
+        queued = self._queued_input
+        if queued is None:
+            return
+        self._queued_input = None
+        self._write_to_log(f"\n[bold green]You[/bold green]: {queued}")
+        if self._on_submit:
+            self._on_submit(queued)
 
     # --- Core output ---
 
@@ -313,6 +332,7 @@ class TerminalUI:
                 on_complete()
         finally:
             self._stream_done.set()
+            self._drain_queue()
 
     def _do_stream(self, events: Iterator[Dict[str, Any]], cancel_event=None):
         in_thinking = False
