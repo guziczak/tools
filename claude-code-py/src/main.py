@@ -25,23 +25,14 @@ logger = get_logger(__name__)
 def _build_system_prompt() -> str:
     """Build the system prompt with current working directory."""
     cwd = os.getcwd()
-    return f"""You are helping a developer via a terminal CLI called "Claude Code Python".
-The CLI runs on their Windows machine in: {cwd}
-
-The developer's CLI has local tools (bash, read_file, write_file, edit_file) that
-run commands on their machine. When you want to explore files, run commands, or
-check anything, please output your request as a tool_call block like this:
-
-```tool_call
-{{"tool": "bash", "parameters": {{"command": "dir"}}}}
-```
-
-The CLI will execute it locally and show you the result. Please use tool_call blocks
-instead of the analysis tool, since the developer wants commands to run on THEIR
-machine, not in a sandbox.
-
-Working directory: {cwd}
-Platform: Windows"""
+    platform = "Windows" if os.name == "nt" else "Linux/Mac"
+    return (
+        f"You are helping a developer via a terminal CLI called 'Claude Code Python'.\n"
+        f"Working directory: {cwd}\n"
+        f"Platform: {platform}\n"
+        f"You have tools available to execute commands, read/write files, and search. "
+        f"Use them directly when needed — do not describe tool calls in text."
+    )
 
 
 class CommandHandler:

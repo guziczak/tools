@@ -182,10 +182,6 @@ def run_tool_loop(
                 assistant_text.append(event.get("content", ""))
             yield event
 
-        # Add assistant text to history for round > 0
-        if tool_round > 0 and assistant_text:
-            add_message("assistant", "".join(assistant_text))
-
         # Auto-execution check
         if response_analyzer and auto_executor and assistant_text:
             full_response = "".join(assistant_text)
@@ -240,8 +236,12 @@ def run_tool_loop(
             yield {"type": "message_done", "content": ""}
             return
 
-        # Add to history
-        messages.append({"role": "assistant", "content": executed_tool_uses})
+        # Add to history — combine text + tool_use blocks in one assistant message
+        assistant_content: List[Dict[str, Any]] = []
+        if assistant_text:
+            assistant_content.append({"type": "text", "text": "".join(assistant_text)})
+        assistant_content.extend(executed_tool_uses)
+        messages.append({"role": "assistant", "content": assistant_content})
 
         tool_results_with_prompt = tool_results.copy()
         failed_tools = [r for r in execution_records if r["result"].status == ToolStatus.ERROR]
@@ -252,17 +252,8 @@ def run_tool_loop(
             )
             tool_results_with_prompt.append({
                 "type": "text",
-                "text": f"One or more tools failed:\n{error_summary}\nAcknowledge the errors and ask for the next step.",
+                "text": f"Some tools failed:\n{error_summary}\nAcknowledge errors and suggest next steps.",
             })
-
-        tool_results_with_prompt.append({
-            "type": "text",
-            "text": (
-                "Tool results are provided above. "
-                "Please answer the original question in plain text. "
-                "If any result contains an error, acknowledge it and ask for the next step."
-            ),
-        })
         messages.append({"role": "user", "content": tool_results_with_prompt})
 
         yield {"type": "tool_round_complete", "content": f"Completed {len(tool_results)} tool(s)"}
