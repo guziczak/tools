@@ -8,9 +8,7 @@ import os
 from typing import Iterator, Optional, Dict, Any, List, TYPE_CHECKING
 
 from .logging import get_logger
-from .intent.classifier import ConfigDrivenClassifier
 from .conversation import ConversationManager
-from .intent_handlers import IntentRouter
 from .command_validator import create_default_validator_chain
 from .response_analyzer import ResponseAnalyzer
 from .auto_executor import AutoExecutor
@@ -70,12 +68,6 @@ class ClaudeAPIClient:
         from .memory import ContextManager
         self.context_manager = ContextManager(tool_registry)
 
-        # Intent router
-        self.intent_router = IntentRouter(tool_registry, context_manager=self.context_manager) if tool_registry else None
-
-        # LLM-based intent classifier (lazy-inits its own Anthropic client)
-        self._classifier = ConfigDrivenClassifier()
-
         # Command validator
         self.command_validator = create_default_validator_chain()
 
@@ -92,10 +84,8 @@ class ClaudeAPIClient:
         self._pipeline = ChatPipeline(
             stream_fn=self._stream_fn,
             conversation=self._conversation,
-            classifier=self._classifier,
             tool_registry=self.tool_registry,
             tools=self.tools,
-            intent_router=self.intent_router,
             command_validator=self.command_validator,
             response_analyzer=self.response_analyzer,
             auto_executor=self.auto_executor,
