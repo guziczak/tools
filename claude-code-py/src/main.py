@@ -188,15 +188,23 @@ class ClaudeCodePy:
                 self.ui.print_info("Using API key from environment")
             return key
 
-        # Priority 2: Interactive setup
-        self.ui.print_info("=" * 70)
-        self.ui.print_info("  Authentication Setup")
-        self.ui.print_info("=" * 70)
-        self.ui.print_info("")
-        self.ui.print_info("  [1] Claude Max/Pro - AUTO (browser login)")
-        self.ui.print_info("  [2] API Key - Manual")
-        self.ui.print_info("")
-        self.ui.print_info("=" * 70)
+        # Priority 2: Interactive setup (before Textual UI — use print())
+        print()
+        print("=" * 70)
+        print("  Authentication Setup")
+        print("=" * 70)
+        print()
+        print("  [1] Claude Max/Pro (recommended)")
+        print("      Opens browser -> login to claude.ai ->")
+        print("      auto-extracts sessionKey -> ready to go!")
+        print("      Requires: Claude Max/Pro subscription")
+        print()
+        print("  [2] API Key (manual)")
+        print("      Paste your sk-ant-api... key from")
+        print("      console.anthropic.com")
+        print("      Requires: Pay-as-you-go Anthropic account")
+        print()
+        print("=" * 70)
 
         try:
             choice = input("\n  Choose [1/2] (Enter=1): ").strip() or "1"
