@@ -262,10 +262,10 @@ class ClaudeCodePy:
         return True
 
     def run(self):
-        """Run the split-layout UI with non-blocking streaming.
+        """Run the main chat loop.
 
-        Uses prompt_toolkit PromptSession + patch_stdout.
-        User can type while Claude is streaming.
+        Uses prompt_toolkit PromptSession for input. Streaming runs in a
+        background thread; prompt appears only after stream finishes.
         """
         self.ui.print_banner()
 
@@ -284,8 +284,8 @@ class ClaudeCodePy:
         self._stream_thread = None
 
         # Wire up UI callbacks
-        self.ui.on_submit = self._on_user_submit
-        self.ui._cancel_callback = self._on_cancel
+        self.ui.set_submit_callback(self._on_user_submit)
+        self.ui.set_cancel_callback(self._on_cancel)
 
         # Run the input loop (blocking)
         self.ui.run()
@@ -294,8 +294,8 @@ class ClaudeCodePy:
         """Called by UI when user submits input (from main thread).
 
         Slash commands run synchronously (fast).
-        Chat messages cancel any active stream, wait for it to finish,
-        then start a new streaming thread.
+        Chat messages start a new streaming thread. Previous stream
+        is already finished (run() waits via _stream_done).
         """
         if user_input.startswith("/"):
             self._cmd_handler.handle(user_input)
@@ -303,10 +303,8 @@ class ClaudeCodePy:
 
         self.ui.print_separator()
 
-        # Cancel previous stream and wait for it to finish (avoid race on stdout)
-        if self._stream_thread and self._stream_thread.is_alive():
-            self._cancel_event.set()
-            self._stream_thread.join(timeout=5.0)
+        # Block prompt BEFORE starting thread to avoid race with _wait_for_stream
+        self.ui.mark_streaming()
 
         # Start streaming in background
         self._cancel_event = threading.Event()
@@ -318,16 +316,19 @@ class ClaudeCodePy:
         self._stream_thread.start()
 
     def _on_cancel(self) -> bool:
-        """Called when user presses Ctrl+C. Returns True if streaming was cancelled."""
+        """Called when user presses Ctrl+C during streaming."""
         if self._stream_thread and self._stream_thread.is_alive():
             self._cancel_event.set()
             self.ui.print_info("Interrupted")
-            self.ui.set_status("")
             return True
         return False
 
     def _stream_in_background(self, user_input: str, cancel_event: threading.Event):
-        """Run streaming in a background thread."""
+        """Run streaming in a background thread.
+
+        mark_streaming() was called before this thread started,
+        so _stream_done MUST be set in all exit paths.
+        """
         try:
             thinking_level, explicit = detect_thinking_level(user_input)
             if explicit:
@@ -338,8 +339,15 @@ class ClaudeCodePy:
             events = self._app.client.chat_with_tools(
                 user_input, system=self.system_prompt
             )
+
+            def _on_stream_complete():
+                if not cancel_event.is_set():
+                    self.ui.print_separator()
+
             self.ui.stream_response_with_tools(
-                events, self._app.tool_registry, cancel_event=cancel_event
+                events, self._app.tool_registry,
+                cancel_event=cancel_event,
+                on_complete=_on_stream_complete,
             )
         except Exception as e:
             if not cancel_event.is_set():
@@ -347,9 +355,9 @@ class ClaudeCodePy:
                     pass
                 else:
                     self.ui.print_error(f"API error: {e}")
-
-        if not cancel_event.is_set():
-            self.ui.print_separator()
+            # stream_response_with_tools was never called or threw before
+            # its own finally — ensure prompt is unblocked
+            self.ui._stream_done.set()
 
 
 def main():

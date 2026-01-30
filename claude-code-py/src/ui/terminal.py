@@ -1,8 +1,8 @@
 """Terminal UI for Claude chat.
 
-Uses prompt_toolkit PromptSession for input (history, key bindings)
-and plain print() for output. No full-screen mode — terminal scrolls
-normally, text is selectable, no rendering glitches.
+Uses prompt_toolkit PromptSession for input (history, Ctrl+C handling).
+Streaming output goes directly to stdout. Prompt is shown only after
+streaming finishes — no patch_stdout, no cursor tricks.
 """
 
 import sys
@@ -12,7 +12,6 @@ from typing import Optional, Iterator, Dict, Any, Callable
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.patch_stdout import patch_stdout
 
 from core.logging import get_logger
 
@@ -20,36 +19,55 @@ logger = get_logger(__name__)
 
 
 class TerminalUI:
-    """Terminal UI with non-blocking streaming output and prompt_toolkit input."""
+    """Terminal UI: prompt_toolkit input + direct stdout streaming.
+
+    Threading model:
+        - Main thread: run() loop → wait_for_stream → prompt → on_submit
+        - Stream thread: stream_response_with_tools → writes to stdout
+        - _stream_done Event gates prompt display
+        - _print_lock serializes all stdout access
+    """
 
     def __init__(self):
-        self.thinking_buffer = []
-        self.text_buffer = []
-        self.thinking_visible = False
-        self.thinking_token_count = 0
-        self.thinking_done_flag = False
-
         self._print_lock = threading.Lock()
         self._session: Optional[PromptSession] = None
 
-        # Callback set by ClaudeCodePy when user submits input
-        self.on_submit: Optional[Callable[[str], None]] = None
+        # Streaming state — _stream_done is set when no stream is active
+        self._stream_done = threading.Event()
+        self._stream_done.set()
+
+        # Thinking state — guarded by _print_lock
+        self._thinking_buffer: list[str] = []
+        self._thinking_token_count: int = 0
+        self._thinking_done_flag: bool = False
+        self._thinking_visible: bool = False
+
+        # Callbacks — set via public methods
+        self._on_submit: Optional[Callable[[str], None]] = None
+        self._on_cancel: Optional[Callable[[], bool]] = None
 
         # Double Ctrl+C exit
         self._ctrl_c_time: float = 0.0
 
-        # Cancel callback (returns True if cancelled something)
-        self._cancel_callback: Optional[Callable[[], bool]] = None
+    # --- Public callback setters ---
 
-        # Current thinking status (displayed in prompt toolbar)
-        self._thinking_status: str = ""
+    def set_submit_callback(self, callback: Callable[[str], None]):
+        self._on_submit = callback
 
-    def _write(self, text: str, end: str = "\n", flush: bool = True):
+    def set_cancel_callback(self, callback: Callable[[], bool]):
+        self._on_cancel = callback
+
+    def mark_streaming(self):
+        """Mark that streaming is about to start (blocks prompt until done)."""
+        self._stream_done.clear()
+
+    # --- Core output ---
+
+    def _write(self, text: str, end: str = "\n"):
         """Thread-safe write to stdout."""
         with self._print_lock:
             sys.stdout.write(text + end)
-            if flush:
-                sys.stdout.flush()
+            sys.stdout.flush()
 
     # --- High-level print methods ---
 
@@ -81,16 +99,6 @@ class TerminalUI:
         """Write text to output (used by CommandHandler etc.)."""
         self._write(text, end="")
 
-    def set_status(self, text: str):
-        """Update thinking status shown in prompt toolbar."""
-        self._thinking_status = text
-        # Trigger prompt_toolkit to re-render the toolbar
-        if self._session and self._session.app and self._session.app.is_running:
-            try:
-                self._session.app.invalidate()
-            except Exception:
-                pass
-
     def clear_screen(self):
         self._write("\033[2J\033[H", end="")
 
@@ -98,7 +106,7 @@ class TerminalUI:
         self._write("\nGoodbye! 👋")
 
     def get_user_input(self) -> str:
-        """Legacy fallback — not used when run() drives the loop."""
+        """Legacy fallback."""
         return ""
 
     # --- Thinking support ---
@@ -106,40 +114,45 @@ class TerminalUI:
     def _estimate_tokens(self, text: str) -> int:
         return len(text) // 4
 
-    def print_thinking(self, content: str, is_start: bool = False):
-        if is_start:
-            self.thinking_buffer = []
-            self.thinking_token_count = 0
-            self.thinking_done_flag = False
-            self.set_status("∴ Thinking...")
+    def _start_thinking(self):
+        """Reset thinking state and print start marker."""
+        with self._print_lock:
+            self._thinking_buffer = []
+            self._thinking_token_count = 0
+            self._thinking_done_flag = False
+        self._write("∴ Thinking...")
 
-        if content:
-            self.thinking_buffer.append(content)
-            self.thinking_token_count += self._estimate_tokens(content)
-            seconds = max(1, self.thinking_token_count // 50)
-            self.set_status(f"∴ Thinking... {seconds}s · {self.thinking_token_count} tokens")
-
-            if self.thinking_visible:
-                self._write(content, end="")
-
-    def print_thinking_done(self):
-        if self.thinking_done_flag:
+    def _accumulate_thinking(self, content: str):
+        """Accumulate thinking content (no live output unless visible)."""
+        if not content:
             return
-        self.thinking_done_flag = True
+        with self._print_lock:
+            self._thinking_buffer.append(content)
+            self._thinking_token_count += self._estimate_tokens(content)
+            if self._thinking_visible:
+                sys.stdout.write(content)
+                sys.stdout.flush()
 
-        self.set_status("")  # Clear thinking status
-
-        if self.thinking_buffer:
-            total_tokens = sum(self._estimate_tokens(c) for c in self.thinking_buffer)
+    def _finish_thinking(self):
+        """Print thinking summary. Idempotent."""
+        with self._print_lock:
+            if self._thinking_done_flag:
+                return
+            self._thinking_done_flag = True
+            total_tokens = self._thinking_token_count
+        if total_tokens > 0:
             seconds = max(1, total_tokens // 50)
             self._write(f"∴ Thinking complete ({seconds}s, {total_tokens} tokens)")
 
     def toggle_thinking_visibility(self):
-        self.thinking_visible = not self.thinking_visible
-        if self.thinking_visible and self.thinking_buffer:
+        with self._print_lock:
+            self._thinking_visible = not self._thinking_visible
+            visible = self._thinking_visible
+            buffer_copy = list(self._thinking_buffer)
+        if visible and buffer_copy:
             self._write("\n💭 Thinking process:\n")
-            self._write("".join(self.thinking_buffer))
-        elif not self.thinking_visible:
+            self._write("".join(buffer_copy))
+        elif not visible:
             self._write("Thinking hidden")
 
     # --- Tool display ---
@@ -163,12 +176,28 @@ class TerminalUI:
 
     # --- Streaming ---
 
-    def stream_response_with_tools(self, events: Iterator[Dict[str, Any]], tool_registry=None, cancel_event=None):
-        """Stream Claude's response to stdout."""
-        self._write("\nClaude: ", end="")
-        self.text_buffer = []
+    def stream_response_with_tools(self, events: Iterator[Dict[str, Any]], tool_registry=None,
+                                    cancel_event=None, on_complete: Optional[Callable] = None):
+        """Stream Claude's response directly to stdout.
+
+        Prints "Claude: " only when actual text starts (after thinking).
+        Sets/clears _stream_done so run() knows when to show prompt.
+        on_complete runs after streaming but before _stream_done is set,
+        guaranteeing all output finishes before prompt appears.
+        """
+        self._stream_done.clear()  # idempotent if mark_streaming() already called
+        try:
+            self._do_stream(events, cancel_event)
+            if on_complete:
+                on_complete()
+        finally:
+            self._stream_done.set()
+
+    def _do_stream(self, events: Iterator[Dict[str, Any]], cancel_event=None):
+        """Internal streaming logic, separated for clean finally in caller."""
         in_thinking = False
         message_done = False
+        text_started = False
 
         for event in events:
             if cancel_event and cancel_event.is_set():
@@ -181,19 +210,26 @@ class TerminalUI:
 
             if event_type == "thinking_start":
                 in_thinking = True
-                self.print_thinking("", is_start=True)
+                self._start_thinking()
 
             elif event_type == "thinking" and in_thinking:
-                self.print_thinking(content)
+                self._accumulate_thinking(content)
 
             elif event_type == "text_start":
                 if in_thinking:
-                    self.print_thinking_done()
+                    self._finish_thinking()
                     in_thinking = False
+                if not text_started:
+                    self._write("\nClaude: ", end="")
+                    text_started = True
 
             elif event_type == "text":
-                self.text_buffer.append(content)
-                self._write(content, end="")
+                if not text_started:
+                    self._write("\nClaude: ", end="")
+                    text_started = True
+                with self._print_lock:
+                    sys.stdout.write(content)
+                    sys.stdout.flush()
 
             elif event_type == "tool_use_detected":
                 tool_name = event.get("tool_name", "unknown")
@@ -203,7 +239,7 @@ class TerminalUI:
                 tool_name = event["tool_name"]
                 tool_input = event["tool_input"]
                 result = event["result"]
-                self._write(f"⚙️  Executing tool: {tool_name}")
+                self._write(f"\n⚙️  Executing tool: {tool_name}")
                 input_str = str(tool_input)
                 if len(input_str) < 100:
                     self._write(f"  Input: {input_str}")
@@ -213,78 +249,78 @@ class TerminalUI:
                 self._write("\nStarting tool execution...")
 
             elif event_type == "tool_round_complete":
-                self._write(f"Tool execution complete: {content}\n")
+                self._write(f"Tool execution complete: {content}")
                 message_done = False
                 in_thinking = False
-                self.thinking_done_flag = False
+                text_started = False
+                with self._print_lock:
+                    self._thinking_done_flag = False
 
             elif event_type == "message_done":
                 message_done = True
                 if in_thinking:
-                    self.print_thinking_done()
+                    self._finish_thinking()
                     in_thinking = False
-                self._write("")  # newline
+                self._write("")  # final newline
 
             elif event_type == "error":
                 self.print_error(content)
                 if in_thinking:
-                    self.print_thinking_done()
+                    self._finish_thinking()
                     in_thinking = False
                 break
 
         if in_thinking:
-            self.print_thinking_done()
-
-        self.text_buffer = []
+            self._finish_thinking()
 
     def stream_response(self, events: Iterator[Dict[str, Any]], tool_callback=None):
-        """Stream response (simple version without tools)."""
         self.stream_response_with_tools(events)
 
-    # --- Main input loop using prompt_toolkit ---
+    # --- Main input loop ---
 
-    def _get_toolbar(self):
-        """Return bottom toolbar text (thinking status)."""
-        if self._thinking_status:
-            return HTML(f"<style bg='#333333' fg='#88cccc'> {self._thinking_status} </style>")
-        return ""
+    def _wait_for_stream(self):
+        """Block until streaming finishes. Ctrl+C cancels the stream."""
+        while not self._stream_done.is_set():
+            try:
+                time.sleep(0.1)
+            except KeyboardInterrupt:
+                if self._on_cancel:
+                    self._on_cancel()
 
     def run(self):
-        """Run the input loop. Output goes to stdout, input via prompt_toolkit."""
+        """Run the input loop.
+
+        Waits for streaming to finish before showing prompt.
+        Ctrl+C during streaming cancels it. Double Ctrl+C at prompt exits.
+        """
         self._session = PromptSession()
 
-        with patch_stdout():
-            while True:
-                try:
-                    user_input = self._session.prompt(
-                        HTML("<ansigreen><b>You</b></ansigreen>: "),
-                        bottom_toolbar=self._get_toolbar,
-                    )
-                    user_input = user_input.strip() if user_input else ""
-                except KeyboardInterrupt:
-                    now = time.monotonic()
-                    # If streaming, first Ctrl+C cancels it
-                    if self._cancel_callback and self._cancel_callback():
-                        self._ctrl_c_time = now
-                        continue
-                    # Double Ctrl+C within 3s → exit
-                    if now - self._ctrl_c_time < 3.0:
-                        self.print_goodbye()
-                        break
-                    self._ctrl_c_time = now
-                    self._write("\nPress Ctrl+C again to exit (or type 'exit')")
-                    continue
-                except EOFError:
-                    # Ctrl+D → exit immediately
+        while True:
+            self._wait_for_stream()
+
+            try:
+                user_input = self._session.prompt(
+                    HTML("<ansigreen><b>You</b></ansigreen>: "),
+                )
+                user_input = user_input.strip() if user_input else ""
+            except KeyboardInterrupt:
+                now = time.monotonic()
+                if now - self._ctrl_c_time < 3.0:
                     self.print_goodbye()
                     break
+                self._ctrl_c_time = now
+                self._write("\nPress Ctrl+C again to exit (or type 'exit')")
+                continue
+            except EOFError:
+                self.print_goodbye()
+                break
 
-                if not user_input:
-                    continue
+            if not user_input:
+                continue
 
-                if user_input.lower() in ("exit", "quit", "q"):
-                    self.print_goodbye()
-                    break
+            if user_input.lower() in ("exit", "quit", "q"):
+                self.print_goodbye()
+                break
 
-                if self.on_submit:
-                    self.on_submit(user_input)
+            if self._on_submit:
+                self._on_submit(user_input)
