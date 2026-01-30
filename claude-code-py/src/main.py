@@ -128,9 +128,12 @@ Tips:
 class ClaudeCodePy:
     """Main application class - orchestrates UI, auth, and Application."""
 
+    # Root directory of the project (where .env lives)
+    PROJECT_DIR = Path(__file__).resolve().parent.parent
+
     def __init__(self):
         self._ensure_env_file()
-        load_dotenv()
+        load_dotenv(self.PROJECT_DIR / ".env")
 
         self.ui = TerminalUI()
         self.auth_manager = AuthManager()
@@ -147,11 +150,11 @@ class ClaudeCodePy:
 
     def _ensure_env_file(self) -> None:
         """Ensure .env file exists with sensible defaults."""
-        env_path = Path(".env")
+        env_path = self.PROJECT_DIR / ".env"
         if env_path.exists():
             return
 
-        env_example = Path(".env.example")
+        env_example = self.PROJECT_DIR / ".env.example"
         if env_example.exists():
             import shutil
             shutil.copy(env_example, env_path)
