@@ -385,6 +385,10 @@ class TerminalUI:
 
             elif event_type == "text":
                 text_chunks.append(content)
+                # Flush periodically so user sees progress
+                joined = "".join(text_chunks)
+                if "\n\n" in joined or len(joined) > 800:
+                    showed_prefix = self._flush_text(text_chunks, showed_prefix)
 
             elif event_type == "tool_use_detected":
                 showed_prefix = self._flush_text(text_chunks, showed_prefix)
