@@ -14,7 +14,7 @@ class AppConfig:
     """
 
     api_key: str
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-sonnet-4-5-20241022"
     max_tokens: int = 8000
     temperature: float = 1.0
     thinking_enabled: bool = True
@@ -37,7 +37,7 @@ class AppConfig:
 
         return cls(
             api_key=api_key,
-            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20241022"),
             max_tokens=int(os.getenv("CLAUDE_MAX_TOKENS", "8000")),
             temperature=float(os.getenv("CLAUDE_TEMPERATURE", "1.0")),
             thinking_enabled=os.getenv("CLAUDE_THINKING_ENABLED", "true").lower() == "true",

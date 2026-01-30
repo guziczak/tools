@@ -57,7 +57,7 @@ class OAuthAnthropicClient:
     def chat_streaming(
         self,
         messages: List[Dict[str, str]],
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-4-5-20241022",
         max_tokens: int = 8000,
         temperature: float = 1.0,
         system: Optional[str] = None,
@@ -147,7 +147,7 @@ class OAuthAnthropicClient:
                     # Check for text-based tool_call blocks (from proxy prompt injection)
                     if not current_tool_blocks:
                         full_text = "".join(all_text_parts)
-                        logger.info("[DONE] Full text (%d chars): %s", len(full_text), full_text[:200])
+                        logger.debug("[DONE] Full text (%d chars): %s", len(full_text), full_text[:200])
                         parsed_blocks = self._parse_tool_call_blocks(full_text)
                         if parsed_blocks:
                             current_tool_blocks = parsed_blocks

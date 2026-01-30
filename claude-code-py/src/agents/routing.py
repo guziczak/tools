@@ -26,7 +26,7 @@ class AgentRouter:
         task: str,
         context: Optional[str],
         agent_name: str,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-4-5-20241022",
         max_tokens: int = 8000,
     ) -> Iterator[Dict[str, Any]]:
         """Route task to specific agent.

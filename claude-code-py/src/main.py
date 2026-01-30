@@ -173,7 +173,7 @@ class ClaudeCodePy:
                 "# API Key (leave empty to use OAuth)\n"
                 "ANTHROPIC_API_KEY=\n\n"
                 "# Model Configuration\n"
-                "CLAUDE_MODEL=claude-sonnet-4-20250514\n"
+                "CLAUDE_MODEL=claude-sonnet-4-5-20241022\n"
                 "CLAUDE_MAX_TOKENS=8000\n"
                 "CLAUDE_TEMPERATURE=1.0\n\n"
                 "# Extended Thinking\n"
@@ -253,31 +253,16 @@ class ClaudeCodePy:
             return False
 
         self._cmd_handler = CommandHandler(self.ui, self._app, self.auth_manager)
-
-        if self._app.tool_registry:
-            self.ui.print_info(f"Tools enabled ({len(self._app.tool_registry)} tools)")
-        if self._app.agent_registry:
-            self.ui.print_info(f"Agents enabled ({len(self._app.agent_registry)} agents)")
-
         return True
 
     def run(self):
         """Run the main chat loop.
 
-        Uses prompt_toolkit PromptSession for input. Streaming runs in a
-        background thread; prompt appears only after stream finishes.
+        Initialization that prints to UI happens inside _on_ui_mount
+        (after Textual app is running). ui.run() blocks until exit.
         """
-        self.ui.print_banner()
-
         if not self.initialize():
             return
-
-        self.ui.print_info(f"Model: {self.config.model}")
-        if self.config.thinking_enabled:
-            self.ui.print_info(
-                f"Extended Thinking: Enabled (budget: {self.config.thinking_budget} tokens)"
-            )
-        self.ui.print_separator()
 
         # Track current streaming state
         self._cancel_event = threading.Event()
@@ -286,9 +271,24 @@ class ClaudeCodePy:
         # Wire up UI callbacks
         self.ui.set_submit_callback(self._on_user_submit)
         self.ui.set_cancel_callback(self._on_cancel)
+        self.ui._on_mount_callback = self._on_ui_mount
 
-        # Run the input loop (blocking)
+        # Run the TUI (blocking)
         self.ui.run()
+
+    def _on_ui_mount(self):
+        """Called after Textual app is mounted — safe to write to UI."""
+        self.ui.print_banner()
+        self.ui.print_info(f"Model: {self.config.model}")
+        if self.config.thinking_enabled:
+            self.ui.print_info(
+                f"Extended Thinking: Enabled (budget: {self.config.thinking_budget} tokens)"
+            )
+        if self._app and self._app.tool_registry:
+            self.ui.print_info(f"Tools enabled ({len(self._app.tool_registry)} tools)")
+        if self._app and self._app.agent_registry:
+            self.ui.print_info(f"Agents enabled ({len(self._app.agent_registry)} agents)")
+        self.ui.print_separator()
 
     def _on_user_submit(self, user_input: str):
         """Called by UI when user submits input (from main thread).

@@ -53,7 +53,7 @@ class CLIMode:
             # Initialize API client
             self.api_client = ClaudeAPIClient(
                 api_key=api_key,
-                model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+                model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20241022"),
                 max_tokens=int(os.getenv("CLAUDE_MAX_TOKENS", "8000")),
                 thinking_enabled=os.getenv("CLAUDE_THINKING_ENABLED", "true").lower() == "true",
             )

@@ -98,7 +98,7 @@ def setup_logger(
     logger.handlers.clear()
 
     # Console handler with colors
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(ColoredFormatter())
     logger.addHandler(console_handler)
 

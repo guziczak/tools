@@ -345,7 +345,7 @@ commands to run on their machine.
         # Extract parameters
         messages = anthropic_request.get("messages", [])
         system = anthropic_request.get("system", "")  # CRITICAL: Extract system prompt!
-        model = anthropic_request.get("model", "claude-sonnet-4-20250514")
+        model = anthropic_request.get("model", "claude-sonnet-4-5-20241022")
         max_tokens = anthropic_request.get("max_tokens", 4096)
         stream = anthropic_request.get("stream", True)
         tools = anthropic_request.get("tools", None)  # Extract tools if provided
