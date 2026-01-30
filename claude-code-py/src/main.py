@@ -96,19 +96,16 @@ class CommandHandler:
             self._ui.print_info("Agents are not enabled")
             return
 
-        self._ui.console.print("\n[bold cyan]Available Specialized Agents:[/bold cyan]\n")
+        self._ui.print_output("\nAvailable Specialized Agents:\n\n")
         for agent in self._app.agent_registry._agents.values():
-            self._ui.console.print(f"  [bold yellow]{agent.name}[/bold yellow] ({agent.role.value})")
-            self._ui.console.print(f"    {agent.description}")
-            self._ui.console.print(f"    Keywords: {', '.join(agent.keywords[:5])}")
-            self._ui.console.print()
-        self._ui.console.print(
-            "[dim]Claude will automatically choose the right agent for your task![/dim]\n"
-        )
+            self._ui.print_output(f"  {agent.name} ({agent.role.value})\n")
+            self._ui.print_output(f"    {agent.description}\n")
+            self._ui.print_output(f"    Keywords: {', '.join(agent.keywords[:5])}\n\n")
+        self._ui.print_output("Claude will automatically choose the right agent for your task!\n")
 
     def _show_help(self) -> None:
-        self._ui.console.print("""
-[bold cyan]Available Commands:[/bold cyan]
+        self._ui.print_output("""
+Available Commands:
 
   /help      - Show this help message
   /thinking  - Toggle thinking process visibility
@@ -119,22 +116,22 @@ class CommandHandler:
   /logout    - Clear saved authentication
   exit/quit  - Exit the application
 
-[bold cyan]Thinking Levels:[/bold cyan]
+Thinking Levels:
 
   think         - Basic thinking (4K tokens)
   think hard    - Standard thinking (10K tokens)
   think harder  - Deep thinking (20K tokens)
   ultrathink    - Maximum thinking (32K tokens)
 
-[bold cyan]Tips:[/bold cyan]
+Tips:
 
   - Extended thinking is enabled with real-time token counter
   - Use /thinking to show/hide thinking process after each response
   - Specialized agents available for tests, reviews, debugging, refactoring
   - All messages are kept in conversation history
-  - Use Ctrl+C to interrupt at any time
+  - Use Ctrl+C to interrupt streaming
   - First run will open browser for authentication
-        """)
+""")
 
 
 class ClaudeCodePy:
@@ -265,10 +262,10 @@ class ClaudeCodePy:
         return True
 
     def run(self):
-        """Run the main chat loop with non-blocking streaming.
+        """Run the split-layout UI with non-blocking streaming.
 
-        Streaming runs in a background thread so the user can type
-        while Claude is still generating output.
+        Uses prompt_toolkit PromptSession + patch_stdout.
+        User can type while Claude is streaming.
         """
         self.ui.print_banner()
 
@@ -285,69 +282,49 @@ class ClaudeCodePy:
         # Track current streaming state
         self._cancel_event = threading.Event()
         self._stream_thread = None
-        self._streaming_lock = threading.Lock()
 
-        try:
-            from prompt_toolkit import PromptSession
-            from prompt_toolkit.formatted_text import HTML
-            session = PromptSession()
-        except ImportError:
-            session = None
+        # Wire up UI callbacks
+        self.ui.on_submit = self._on_user_submit
+        self.ui._cancel_callback = self._on_cancel
 
-        while True:
-            try:
-                # Wait for streaming to finish (with short timeout for Ctrl+C)
-                if self._stream_thread and self._stream_thread.is_alive():
-                    while self._stream_thread.is_alive():
-                        self._stream_thread.join(timeout=0.1)
+        # Run the input loop (blocking)
+        self.ui.run()
 
-                if session:
-                    try:
-                        sys.stdout.write("\n")
-                        sys.stdout.flush()
-                        user_input = session.prompt(
-                            HTML("<ansigreen><b>You</b></ansigreen>: ")
-                        )
-                        user_input = user_input.strip() if user_input else ""
-                    except KeyboardInterrupt:
-                        # Ctrl+C at prompt: exit
-                        self.ui.print_goodbye()
-                        break
-                    except EOFError:
-                        continue
-                else:
-                    user_input = self.ui.get_user_input()
+    def _on_user_submit(self, user_input: str):
+        """Called by UI when user submits input (from main thread).
 
-                if not user_input:
-                    continue
-                if user_input.lower() in ("exit", "quit", "q"):
-                    self._cancel_event.set()
-                    self.ui.print_goodbye()
-                    break
+        Slash commands run synchronously (fast).
+        Chat messages cancel any active stream, wait for it to finish,
+        then start a new streaming thread.
+        """
+        if user_input.startswith("/"):
+            self._cmd_handler.handle(user_input)
+            return
 
-                if user_input.startswith("/"):
-                    self._cmd_handler.handle(user_input)
-                    continue
+        self.ui.print_separator()
 
-                self.ui.print_separator()
+        # Cancel previous stream and wait for it to finish (avoid race on stdout)
+        if self._stream_thread and self._stream_thread.is_alive():
+            self._cancel_event.set()
+            self._stream_thread.join(timeout=5.0)
 
-                # Start streaming in background
-                self._cancel_event = threading.Event()
-                self._stream_thread = threading.Thread(
-                    target=self._stream_in_background,
-                    args=(user_input, self._cancel_event),
-                    daemon=True,
-                )
-                self._stream_thread.start()
+        # Start streaming in background
+        self._cancel_event = threading.Event()
+        self._stream_thread = threading.Thread(
+            target=self._stream_in_background,
+            args=(user_input, self._cancel_event),
+            daemon=True,
+        )
+        self._stream_thread.start()
 
-            except KeyboardInterrupt:
-                # Ctrl+C during streaming: cancel and continue
-                self._cancel_event.set()
-                self.ui.print_info("\nInterrupted")
-                continue
-            except Exception as e:
-                logger.exception("Unexpected error")
-                self.ui.print_error(f"Unexpected error: {e}")
+    def _on_cancel(self) -> bool:
+        """Called when user presses Ctrl+C. Returns True if streaming was cancelled."""
+        if self._stream_thread and self._stream_thread.is_alive():
+            self._cancel_event.set()
+            self.ui.print_info("Interrupted")
+            self.ui.set_status("")
+            return True
+        return False
 
     def _stream_in_background(self, user_input: str, cancel_event: threading.Event):
         """Run streaming in a background thread."""
