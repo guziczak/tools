@@ -3,6 +3,7 @@
 
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -264,7 +265,11 @@ class ClaudeCodePy:
         return True
 
     def run(self):
-        """Run the main chat loop."""
+        """Run the main chat loop with non-blocking streaming.
+
+        Streaming runs in a background thread so the user can type
+        while Claude is still generating output.
+        """
         self.ui.print_banner()
 
         if not self.initialize():
@@ -277,12 +282,44 @@ class ClaudeCodePy:
             )
         self.ui.print_separator()
 
+        # Track current streaming state
+        self._cancel_event = threading.Event()
+        self._stream_thread = None
+        self._streaming_lock = threading.Lock()
+
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.formatted_text import HTML
+            session = PromptSession()
+        except ImportError:
+            session = None
+
         while True:
             try:
-                user_input = self.ui.get_user_input()
+                # Wait for any active streaming to finish before showing prompt
+                if self._stream_thread and self._stream_thread.is_alive():
+                    self._stream_thread.join()
+
+                if session:
+                    try:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        user_input = session.prompt(
+                            HTML("<ansigreen><b>You</b></ansigreen>: ")
+                        )
+                        user_input = user_input.strip() if user_input else ""
+                    except KeyboardInterrupt:
+                        self.ui.print_goodbye()
+                        break
+                    except EOFError:
+                        continue
+                else:
+                    user_input = self.ui.get_user_input()
+
                 if not user_input:
                     continue
                 if user_input.lower() in ("exit", "quit", "q"):
+                    self._cancel_event.set()
                     self.ui.print_goodbye()
                     break
 
@@ -291,35 +328,53 @@ class ClaudeCodePy:
                     continue
 
                 self.ui.print_separator()
-                try:
-                    thinking_level, explicit = detect_thinking_level(user_input)
-                    if explicit:
-                        self.ui.print_info(
-                            f"Thinking level: {thinking_level.name} ({thinking_level.budget:,} tokens)"
-                        )
 
-                    # Always use chat_with_tools (pipeline handles both paths)
-                    events = self._app.client.chat_with_tools(
-                        user_input, system=self.system_prompt
-                    )
-                    self.ui.stream_response_with_tools(events, self._app.tool_registry)
-                except KeyboardInterrupt:
-                    self.ui.print_info("\nInterrupted by user (Ctrl+C)")
-                    raise
-                except AttributeError as e:
-                    if "output_tokens" not in str(e):
-                        self.ui.print_error(f"API error: {e}")
-                except Exception as e:
-                    self.ui.print_error(f"API error: {e}")
+                # Cancel any previous streaming
+                self._cancel_event.set()
+                if self._stream_thread and self._stream_thread.is_alive():
+                    self._stream_thread.join(timeout=2.0)
 
-                self.ui.print_separator()
+                # Start new streaming in background
+                self._cancel_event = threading.Event()
+                self._stream_thread = threading.Thread(
+                    target=self._stream_in_background,
+                    args=(user_input, self._cancel_event),
+                    daemon=True,
+                )
+                self._stream_thread.start()
 
             except KeyboardInterrupt:
-                self.ui.print_goodbye()
-                break
+                self._cancel_event.set()
+                self.ui.print_info("\nInterrupted")
+                continue
             except Exception as e:
                 logger.exception("Unexpected error")
                 self.ui.print_error(f"Unexpected error: {e}")
+
+    def _stream_in_background(self, user_input: str, cancel_event: threading.Event):
+        """Run streaming in a background thread."""
+        try:
+            thinking_level, explicit = detect_thinking_level(user_input)
+            if explicit:
+                self.ui.print_info(
+                    f"Thinking level: {thinking_level.name} ({thinking_level.budget:,} tokens)"
+                )
+
+            events = self._app.client.chat_with_tools(
+                user_input, system=self.system_prompt
+            )
+            self.ui.stream_response_with_tools(
+                events, self._app.tool_registry, cancel_event=cancel_event
+            )
+        except Exception as e:
+            if not cancel_event.is_set():
+                if isinstance(e, AttributeError) and "output_tokens" in str(e):
+                    pass
+                else:
+                    self.ui.print_error(f"API error: {e}")
+
+        if not cancel_event.is_set():
+            self.ui.print_separator()
 
 
 def main():

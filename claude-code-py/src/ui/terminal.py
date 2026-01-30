@@ -295,12 +295,13 @@ class TerminalUI:
         """Clear the terminal screen."""
         self.console.clear()
 
-    def stream_response_with_tools(self, events: Iterator[Dict[str, Any]], tool_registry=None):
+    def stream_response_with_tools(self, events: Iterator[Dict[str, Any]], tool_registry=None, cancel_event=None):
         """Stream and display Claude's response with tool execution support.
 
         Args:
             events: Iterator of event dictionaries from API client
             tool_registry: Tool registry for executing tools (optional)
+            cancel_event: Threading event to signal cancellation (optional)
         """
         self.console.print("[bold blue]Claude[/bold blue]:", end=" ")
         self.text_buffer = []
@@ -309,6 +310,9 @@ class TerminalUI:
         message_done = False
 
         for event in events:
+            # Check for cancellation
+            if cancel_event and cancel_event.is_set():
+                break
             # Skip any events after message is done
             if message_done:
                 continue
