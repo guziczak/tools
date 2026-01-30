@@ -296,9 +296,10 @@ class ClaudeCodePy:
 
         while True:
             try:
-                # Wait for any active streaming to finish before showing prompt
+                # Wait for streaming to finish (with short timeout for Ctrl+C)
                 if self._stream_thread and self._stream_thread.is_alive():
-                    self._stream_thread.join()
+                    while self._stream_thread.is_alive():
+                        self._stream_thread.join(timeout=0.1)
 
                 if session:
                     try:
@@ -309,6 +310,7 @@ class ClaudeCodePy:
                         )
                         user_input = user_input.strip() if user_input else ""
                     except KeyboardInterrupt:
+                        # Ctrl+C at prompt: exit
                         self.ui.print_goodbye()
                         break
                     except EOFError:
@@ -329,12 +331,7 @@ class ClaudeCodePy:
 
                 self.ui.print_separator()
 
-                # Cancel any previous streaming
-                self._cancel_event.set()
-                if self._stream_thread and self._stream_thread.is_alive():
-                    self._stream_thread.join(timeout=2.0)
-
-                # Start new streaming in background
+                # Start streaming in background
                 self._cancel_event = threading.Event()
                 self._stream_thread = threading.Thread(
                     target=self._stream_in_background,
@@ -344,6 +341,7 @@ class ClaudeCodePy:
                 self._stream_thread.start()
 
             except KeyboardInterrupt:
+                # Ctrl+C during streaming: cancel and continue
                 self._cancel_event.set()
                 self.ui.print_info("\nInterrupted")
                 continue
