@@ -365,10 +365,13 @@ class TerminalUI:
         for event in events:
             if cancel_event and cancel_event.is_set():
                 break
+            event_type = event["type"]
+
+            # Reset message_done when tool execution starts a new round
+            if event_type == "tool_round_start":
+                message_done = False
             if message_done:
                 continue
-
-            event_type = event["type"]
             content = event.get("content", "")
 
             if event_type == "thinking_start":

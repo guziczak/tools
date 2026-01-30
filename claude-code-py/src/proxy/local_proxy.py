@@ -265,21 +265,24 @@ class ClaudeAIProxyServer:
 
         tools_text = "\n\n".join(tool_descs)
 
-        return f"""[Available CLI tools]
-The developer's CLI can execute these tools on their local machine.
-To use a tool, output a tool_call block:
+        return f"""[IMPORTANT: Local CLI tools]
+You MUST use these local tools instead of any built-in analysis/sandbox tools.
+The developer needs commands to run on THEIR machine, not in a sandbox.
+
+To call a tool, output EXACTLY this format (no other text before/after the block):
 
 ```tool_call
 {{"tool": "tool_name", "parameters": {{"param1": "value1"}}}}
 ```
 
-Tools:
+Available tools:
 {tools_text}
 
-After outputting a tool_call block, stop and wait for the result.
-The CLI will execute it locally and provide the output.
-Please prefer these over the analysis tool since the developer wants
-commands to run on their machine.
+RULES:
+- Output the ```tool_call block and STOP. Do not add any text after it.
+- Do NOT describe what you're going to do — just call the tool.
+- Do NOT use the analysis tool or code sandbox. Use these local tools instead.
+- Wait for the CLI to return the result before continuing.
 [End CLI tools]"""
 
     def _convert_messages_to_prompt(self, messages: list) -> str:

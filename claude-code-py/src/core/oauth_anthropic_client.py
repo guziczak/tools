@@ -46,7 +46,7 @@ class OAuthAnthropicClient:
             self._http_client = httpx.Client(
                 base_url=self.api_base,
                 headers={
-                    "Authorization": f"Bearer {self.oauth_token[:20]}...",
+                    "Authorization": f"Bearer {self.oauth_token}",
                     "Content-Type": "application/json",
                     "anthropic-version": "2023-06-01",
                 },
@@ -125,6 +125,8 @@ class OAuthAnthropicClient:
 
             # Track tool uses for building complete blocks
             current_tool_blocks = []
+            all_text_parts = []  # Buffer text for tool_call parsing (proxy path)
+            buffered_events = []  # Buffer events when potential tool_call detected
 
             # Parse SSE stream
             line_count = 0
@@ -140,6 +142,23 @@ class OAuthAnthropicClient:
 
                 # Handle [DONE] marker
                 if data_str.strip() == "[DONE]":
+                    # Check for text-based tool_call blocks (proxy/sessionKey path)
+                    if not current_tool_blocks:
+                        full_text = "".join(all_text_parts)
+                        parsed_blocks = self._parse_tool_call_blocks(full_text)
+                        if parsed_blocks:
+                            current_tool_blocks = parsed_blocks
+                            # Emit cleaned text (without tool_call blocks)
+                            import re
+                            clean = re.sub(
+                                r'```tool_call\s*\n.*?\n```',
+                                '',
+                                full_text,
+                                flags=re.DOTALL,
+                            ).strip()
+                            if clean:
+                                yield {"type": "text", "content": clean}
+
                     if current_tool_blocks:
                         logger.debug("Collected %d tool blocks", len(current_tool_blocks))
                         for idx, block in enumerate(current_tool_blocks):
@@ -212,6 +231,10 @@ class OAuthAnthropicClient:
                         delta = event.get("delta", {})
                         delta_type = delta.get("type", "")
 
+                        # Track text for tool_call block parsing (proxy path)
+                        if delta_type == "text_delta":
+                            all_text_parts.append(delta.get("text", ""))
+
                         # ONLY collect input for tool_use blocks that are still being collected
                         if delta_type == "input_json_delta" and current_tool_blocks:
                             # Check if last block is a tool_use and still collecting
@@ -260,13 +283,60 @@ class OAuthAnthropicClient:
                                 )
 
                     # Convert to our standard format and yield
+                    # Suppress text events when tool_call block detected (proxy path)
                     converted_event = self._convert_event(event)
                     if converted_event:
-                        yield converted_event
+                        full_so_far = "".join(all_text_parts)
+                        if "```tool_call" in full_so_far:
+                            # Confirmed tool_call — suppress all text events, discard buffer
+                            buffered_events.clear()
+                            if converted_event.get("type") not in ("text", "text_start"):
+                                yield converted_event
+                        elif full_so_far.rstrip().endswith("```") or full_so_far.rstrip().endswith("```t") or "```tool" in full_so_far:
+                            # Might be start of ```tool_call — buffer this event
+                            buffered_events.append(converted_event)
+                        else:
+                            # Not a tool_call — flush any buffered events
+                            for buf in buffered_events:
+                                yield buf
+                            buffered_events.clear()
+                            yield converted_event
 
                 except json.JSONDecodeError:
                     # Skip malformed JSON
                     continue
+
+    def _parse_tool_call_blocks(self, text: str) -> List[Dict[str, Any]]:
+        """Parse ```tool_call JSON blocks from text response.
+
+        Used when proxy injects tool definitions into the prompt and Claude
+        outputs ```tool_call blocks instead of native tool_use.
+        """
+        import re
+        import json as json_mod
+        import uuid
+
+        blocks = []
+        pattern = r'```tool_call\s*\n(.*?)\n```'
+        matches = re.findall(pattern, text, re.DOTALL)
+
+        for match in matches:
+            try:
+                data = json_mod.loads(match.strip())
+                tool_name = data.get("tool", "")
+                params = data.get("parameters", {})
+                if tool_name:
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": f"text-tool-{uuid.uuid4().hex[:8]}",
+                        "name": tool_name,
+                        "input": params,
+                    })
+                    logger.debug("Parsed text tool_call: %s(%s)", tool_name, list(params.keys()))
+            except (json_mod.JSONDecodeError, KeyError) as e:
+                logger.debug("Failed to parse tool_call block: %s", e)
+
+        return blocks
 
     def _convert_event(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Convert Anthropic API event to standard format.
@@ -313,9 +383,8 @@ class OAuthAnthropicClient:
         elif event_type == "content_block_stop":
             return {"type": "block_stop", "content": ""}
 
-        # Message complete
-        elif event_type == "message_stop" or event_type == "message_delta":
-            return {"type": "message_done", "content": ""}
+        # message_stop / message_delta — do NOT emit message_done here.
+        # The [DONE] handler emits it after processing tool_call blocks.
 
         return None
 
