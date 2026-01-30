@@ -88,7 +88,8 @@ class ChatApp(App):
         # Block submit while streaming — queue the message
         if self._terminal_ui._is_streaming():
             self._terminal_ui._queued_input = user_input
-            self._terminal_ui._write_to_log("[dim]⏳ Queued — will send after current response.[/dim]")
+            inp = self.query_one("#user_input", Input)
+            inp.placeholder = f"⏳ Queued: {user_input}"
             return
 
         self._terminal_ui._write_to_log(f"\n[bold green]You[/bold green]: {user_input}")
@@ -168,6 +169,13 @@ class TerminalUI:
         if queued is None:
             return
         self._queued_input = None
+        # Reset input placeholder
+        if self._app:
+            try:
+                inp = self._app.query_one("#user_input", Input)
+                self._app.call_from_thread(setattr, inp, "placeholder", "Type your message...")
+            except Exception:
+                pass
         self._write_to_log(f"\n[bold green]You[/bold green]: {queued}")
         if self._on_submit:
             self._on_submit(queued)
@@ -194,14 +202,19 @@ class TerminalUI:
 
     def copy_all(self):
         """Copy entire plaintext log to clipboard."""
+        import sys
         text = "\n".join(self._plaintext_log)
         try:
             import subprocess
-            process = subprocess.Popen(
-                ["clip.exe"] if __import__("sys").platform == "win32" else ["xclip", "-selection", "clipboard"],
-                stdin=subprocess.PIPE,
-            )
-            process.communicate(text.encode("utf-8"))
+            if sys.platform == "win32":
+                # clip.exe expects UTF-16LE on Windows
+                process = subprocess.Popen(["clip.exe"], stdin=subprocess.PIPE)
+                process.communicate(text.encode("utf-16le"))
+            else:
+                process = subprocess.Popen(
+                    ["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE
+                )
+                process.communicate(text.encode("utf-8"))
             self._write_to_log("[dim]✓ Copied all output to clipboard[/dim]")
         except Exception as e:
             self._write_to_log(f"[bold red]Failed to copy:[/bold red] {e}")
