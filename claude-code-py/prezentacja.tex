@@ -239,11 +239,11 @@
             \color{codegray}\textit{Na biurku siedzi rudy kot,}\\
             \color{codegray}\textit{Patrzy w~ekran uwa\.znie.}\\
             \color{codegray}\textit{\L{}apk\k{a} dotyka klawiatury,}\\
-            \color{white}\textit{Kod pisze noc\k{a} dzielnie.}\\[3pt]
-            \color{white}\textit{Gdy commit nagle si\k{e} psuje,}\\
-            \color{white}\textit{Mruczy do monitora.}\\
-            \color{white}\textit{Refactor robi z~zapa\l{}em,}\\
-            \color{white}\textit{I~merge'uje do rana.}%
+            \color{white}\textit{Debuguje p\k{e}tle i~tablice.}\\[3pt]
+            \color{white}\textit{W~testach szuka b\l{}\k{e}d\'ow tkwi,}\\
+            \color{white}\textit{Przegl\k{a}da logi uwa\.znie.}\\
+            \color{white}\textit{Refaktoryzuje kod stary,}\\
+            \color{white}\textit{I~komituje zadowolony.}%
         }
 
         \vspace{0.15cm}
@@ -258,40 +258,48 @@
 % ══════════════════════════════════════════════════════════════════════════
 % SLAJD 5 — Zastosowanie: Debugowanie + komendy systemowe
 % ══════════════════════════════════════════════════════════════════════════
-\begin{frame}{Autonomiczne debugowanie}
-    \begin{center}
-        \terminal{0.88\textwidth}{claude-code-py}{%
-            \color{promptgreen}\textbf{You:} \color{white}Uruchom testy i~napraw te kt\'ore nie przechodz\k{a}\\
-            \separator\\[2pt]
-            \color{codegray}$\therefore$ Thinking complete (1s, 85 tokens)\\[2pt]
-            \toolicon Executing tool:\color{white}bash\\
-            \color{codegray}\quad Input: \color{white}pytest tests/ -v\\
-            \toolok\color{white}Tool result (success):\\
-            \color{codered}\quad FAILED \color{white}tests/test\_auth.py::test\_token\_refresh\\[2pt]
-            \toolicon Executing tool:\color{white}read\_file\\
-            \toolok\color{white}Tool result (success)\\[2pt]
-            \toolicon Executing tool:\color{white}edit\_file\\
-            \toolok\color{white}Tool result (success)\\[2pt]
-            \toolicon Executing tool:\color{white}bash\\
-            \color{codegray}\quad Input: \color{white}pytest tests/test\_auth.py -v\\
-            \toolok\color{white}Tool result (success):\\
-            \color{codegreen}\quad PASSED \color{white}all tests\\[2pt]
-            \color{cyan}\textbf{Claude:} \color{white}Test naprawiony --- mock nie uwzgl\k{e}dnia\l{} nowego parametru.%
-        }
-    \end{center}
-
-    \vspace{0.2cm}
+\begin{frame}{Autonomiczne naprawianie bug\'ow}
     \begin{columns}[T]
         \column{0.48\textwidth}
-        \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
-            \item Cykl: uruchom $\rightarrow$ przeanalizuj $\rightarrow$ napraw $\rightarrow$ zweryfikuj
-            \item Cross-platform: Bash / PowerShell / CMD
-        \end{itemize}
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{promptgreen}\textbf{You:} \color{white}Napraw buga\\
+            w~calculate\_total()\\
+            \separator\\[2pt]
+            \color{codegray}$\therefore$ Thinking complete (1s, 85)\\[1pt]
+            \toolicon Executing tool:\color{white}glob\\
+            \color{codegray}\quad \color{white}*.py\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \color{codegray}$\therefore$ Thinking complete (1s, 29)\\[1pt]
+            \toolicon Executing tool:\color{white}grep\\
+            \color{codegray}\quad \color{white}calculate\_total\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \toolicon Executing tool:\color{white}read\_file\\
+            \color{codegray}\quad \color{white}demo\_billing.py\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \toolicon Executing tool:\color{white}edit\_file\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \toolicon Executing tool:\color{white}read\_file\\
+            \toolok\color{white}Tool result (success)%
+        }
 
         \column{0.48\textwidth}
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{cyan}\textbf{Claude:} \color{white}Bug Fixed!\\[3pt]
+            \color{codered}Root cause: \color{white}\texttt{None} check\\
+            \color{white}\texttt{total - discount} crashes\\
+            when \texttt{discount=None}\\[3pt]
+            \color{codegreen}Fix:\color{white}\\
+            \texttt{if discount is not None:}\\
+            \texttt{~~~~total = total - discount}\\[3pt]
+            \color{codegray}+ test cases\\
+            + prevention strategies%
+        }
+
+        \vspace{0.15cm}
         \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
-            \item Wiele narzędzi w~jednej rundzie
-            \item Automatyczna iteracja do sukcesu
+            \item Szuka $\rightarrow$ czyta $\rightarrow$ naprawia $\rightarrow$ weryfikuje
+            \item Agent Bug Fixer wzmacnia prompt
+            \item 5~narz\k{e}dzi w~jednym zapytaniu
         \end{itemize}
     \end{columns}
 \end{frame}
