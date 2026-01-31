@@ -1,0 +1,445 @@
+\documentclass[aspectratio=169]{beamer}
+
+% ── Kodowanie i język ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+
+% ── Pakiety ──
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{fontawesome5}
+\usepackage{hyperref}
+
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit, calc}
+
+% ── Motyw ──
+\usetheme{Madrid}
+\usecolortheme{whale}
+
+\definecolor{claudepurple}{RGB}{100, 65, 165}
+\definecolor{codebg}{RGB}{30, 30, 46}
+\definecolor{titlebarbg}{RGB}{50, 50, 66}
+\definecolor{codegreen}{RGB}{80, 200, 120}
+\definecolor{codeyellow}{RGB}{250, 189, 47}
+\definecolor{codered}{RGB}{243, 95, 116}
+\definecolor{codegray}{RGB}{130, 130, 160}
+\definecolor{promptgreen}{RGB}{166, 227, 161}
+
+% ── Makra pomocnicze ──
+\newcommand{\separator}{\color{codegray}\rule{\linewidth}{0.3pt}}
+\newcommand{\toolicon}{\color{codegray}\faCog\ }
+\newcommand{\toolok}{\color{codegreen}\faCheck\ }
+\newcommand{\toolfail}{\color{codered}\faTimes\ }
+\newcommand{\infoicon}{\color{codegray}\faInfoCircle\ }
+\newcommand{\bannerline}{\color{cyan}\rule{\linewidth}{0.5pt}}
+
+% ── Makro terminala ──
+\newcommand{\terminal}[3]{% {szerokość}{tytuł}{treść}
+\begin{tikzpicture}
+    \node[
+        fill=codebg,
+        rounded corners=4pt,
+        inner sep=0pt,
+        minimum width=#1,
+        draw=titlebarbg,
+        line width=0.5pt
+    ] (term) {%
+        \begin{minipage}{#1}
+            % pasek tytułowy
+            \begin{tikzpicture}
+                \fill[titlebarbg, rounded corners=4pt]
+                    (0,0) rectangle (\linewidth, 0.45cm);
+                % nie zaokrąglaj dołu
+                \fill[titlebarbg]
+                    (0,0) rectangle (\linewidth, 0.15cm);
+                % kropki macOS
+                \fill[codered] (0.3,0.225) circle (0.08cm);
+                \fill[codeyellow] (0.65,0.225) circle (0.08cm);
+                \fill[codegreen] (1.0,0.225) circle (0.08cm);
+                % tytuł
+                \node[anchor=center, font=\tiny\sffamily, text=codegray]
+                    at (0.5\linewidth, 0.225) {#2};
+            \end{tikzpicture}\\[-2pt]
+            % treść
+            \vspace{4pt}
+            \hspace{6pt}\begin{minipage}{\dimexpr#1-14pt}
+                \color{white}\ttfamily\tiny\raggedright
+                #3
+            \end{minipage}
+            \vspace{6pt}
+        \end{minipage}
+    };
+\end{tikzpicture}
+}
+
+\setbeamercolor{title}{fg=white, bg=claudepurple}
+\setbeamercolor{frametitle}{fg=white, bg=claudepurple}
+\setbeamercolor{structure}{fg=claudepurple}
+\setbeamercolor{block title}{bg=claudepurple, fg=white}
+
+% ── Listings ──
+\lstset{
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{codebg},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{cyan},
+    stringstyle=\color{orange},
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{claudepurple},
+    showstringspaces=false
+}
+
+% ── Metadane ──
+\title{Claude Code Python}
+\subtitle{Terminalowy asystent AI do programowania}
+\author{Zastosowanie Metod Sztucznej Inteligencji}
+\date{\today}
+\institute{}
+
+% ==========================================================================
+\begin{document}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 1 — Tytuł
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}
+    \titlepage
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 2 — Cel projektu + technologie
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{O~projekcie}
+    \begin{columns}[T]
+        \column{0.55\textwidth}
+        \begin{block}{Cel}
+            Terminalowy asystent AI wykorzystujący Anthropic API
+            do autonomicznego programowania --- czyta, edytuje pliki
+            i~wykonuje komendy systemowe.
+        \end{block}
+
+        \vspace{0.2cm}
+        \textbf{Kluczowe funkcje:}
+        \begin{itemize}\setlength{\itemsep}{1pt}
+            \item \faRobot\ Konwersacja z~modelem Claude
+            \item \faTools\ Tool calling (6~narzędzi)
+            \item \faBrain\ Extended thinking (4~poziomy)
+            \item \faUsersCog\ System 4~agentów
+            \item \faTerminal\ Tryb REPL + CLI
+        \end{itemize}
+
+        \column{0.42\textwidth}
+        \begin{block}{Technologie}
+            \begin{itemize}\setlength{\itemsep}{1pt}
+                \item \textbf{Python 3.8+}
+                \item \textbf{anthropic} --- SDK
+                \item \textbf{Textual} --- TUI
+                \item \textbf{httpx} --- streaming
+                \item \textbf{Flask} --- OAuth proxy
+            \end{itemize}
+        \end{block}
+
+        \vspace{0.2cm}
+        \begin{block}{API}
+            \texttt{/v1/messages}\\
+            Model: \texttt{claude-sonnet-4-5}\\
+            Auth: API Key / OAuth PKCE
+        \end{block}
+    \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 3 — Zastosowanie: Interaktywny czat + edycja plików
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{Czat z~modelem i~edycja plików}
+    \begin{columns}[T]
+        \column{0.48\textwidth}
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \bannerline\\
+            \color{cyan}Claude Code Python - Sonnet 4.5\\
+            \color{cyan}Extended Thinking Enabled\\
+            \bannerline\\[3pt]
+            \infoicon\color{white}Model: claude-sonnet-4-5\\
+            \infoicon\color{white}Tools enabled (6 tools)\\
+            \separator\\[2pt]
+            \color{promptgreen}\textbf{You:} \color{white}Wyja\'snij wzorzec Observer\\
+            \separator\\[2pt]
+            \color{codegray}$\therefore$ Thinking...\\
+            \color{codegray}$\therefore$ Thinking complete (1s, 60 tokens)\\[2pt]
+            \color{cyan}\textbf{Claude:} \color{white}Wzorzec Observer to\\
+            behawioralny wzorzec projektowy,\\
+            w~kt\'orym obiekt utrzymuje list\k{e}\\
+            obserwator\'ow i~powiadamia ich\\
+            o~ka\.zdej zmianie stanu.%
+        }
+
+        \vspace{0.15cm}
+        \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
+            \item Pe\l{}noekranowy TUI (Textual)
+            \item Streaming w~czasie rzeczywistym
+            \item Widoczny proces my\'slenia
+        \end{itemize}
+
+        \column{0.48\textwidth}
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{promptgreen}\textbf{You:} \color{white}Napraw buga w~calculate\_total()\\
+            \separator\\[2pt]
+            \color{codegray}$\therefore$ Thinking complete (1s, 68 tokens)\\[2pt]
+            \toolicon Executing tool:\color{white}read\_file\\
+            \color{codegray}\quad Input: \color{white}src/billing.py\\
+            \toolok\color{white}Tool result (success)\\[2pt]
+            \toolicon Executing tool:\color{white}edit\_file\\
+            \color{codegray}\quad Input: \color{white}linia 42\\
+            \toolok\color{white}Tool result (success)\\[2pt]
+            \color{cyan}\textbf{Claude:} \color{white}Brakowa\l{}o sprawdzenia\\
+            czy \texttt{discount} nie jest \texttt{None}.%
+        }
+
+        \vspace{0.15cm}
+        \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
+            \item Model sam czyta, szuka, edytuje
+            \item 6~narz\k{e}dzi: Bash, Read, Write, Edit, Grep, Glob
+            \item P\k{e}tla do 5~rund automatycznie
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 4 — Zastosowanie: Czytanie i edycja plików (wierszyk)
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{Czytanie i~edycja plik\'ow}
+    \begin{columns}[T]
+        \column{0.48\textwidth}
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{promptgreen}\textbf{You:} \color{white}widzisz wierszyk?\\
+            zmie\'n wers 4 i~napisz na nowo\\
+            drug\k{a} strof\k{e}\\
+            \separator\\[2pt]
+            \color{codegray}$\therefore$ Thinking complete (1s, 56)\\[1pt]
+            \toolicon Executing tool:\color{white}bash\\
+            \color{codegray}\quad \color{white}Get-ChildItem\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \color{codegray}$\therefore$ Thinking complete (1s, 38)\\[1pt]
+            \toolicon Executing tool:\color{white}read\_file\\
+            \color{codegray}\quad \color{white}wierszyk.txt\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \color{codegray}$\therefore$ Thinking complete (2s, 102)\\[1pt]
+            \toolicon Executing tool:\color{white}write\_file\\
+            \toolok\color{white}Tool result (success)%
+        }
+
+        \column{0.48\textwidth}
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{cyan}\textbf{Claude:} \color{white}Gotowe! Zmieni\l{}em\\
+            wers 4 i~napisa\l{}em now\k{a} strof\k{e}:\\[3pt]
+            \color{codegray}\textit{Na biurku siedzi rudy kot,}\\
+            \color{codegray}\textit{Patrzy w~ekran uwa\.znie.}\\
+            \color{codegray}\textit{\L{}apk\k{a} dotyka klawiatury,}\\
+            \color{white}\textit{Kod pisze noc\k{a} dzielnie.}\\[3pt]
+            \color{white}\textit{Gdy commit nagle si\k{e} psuje,}\\
+            \color{white}\textit{Mruczy do monitora.}\\
+            \color{white}\textit{Refactor robi z~zapa\l{}em,}\\
+            \color{white}\textit{I~merge'uje do rana.}%
+        }
+
+        \vspace{0.15cm}
+        \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
+            \item Jedno polecenie $\rightarrow$ 3~narz\k{e}dzia
+            \item Model sam znajduje, czyta, edytuje
+            \item Kreatywna modyfikacja tre\'sci
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 5 — Zastosowanie: Debugowanie + komendy systemowe
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{Autonomiczne debugowanie}
+    \begin{center}
+        \terminal{0.88\textwidth}{claude-code-py}{%
+            \color{promptgreen}\textbf{You:} \color{white}Uruchom testy i~napraw te kt\'ore nie przechodz\k{a}\\
+            \separator\\[2pt]
+            \color{codegray}$\therefore$ Thinking complete (1s, 85 tokens)\\[2pt]
+            \toolicon Executing tool:\color{white}bash\\
+            \color{codegray}\quad Input: \color{white}pytest tests/ -v\\
+            \toolok\color{white}Tool result (success):\\
+            \color{codered}\quad FAILED \color{white}tests/test\_auth.py::test\_token\_refresh\\[2pt]
+            \toolicon Executing tool:\color{white}read\_file\\
+            \toolok\color{white}Tool result (success)\\[2pt]
+            \toolicon Executing tool:\color{white}edit\_file\\
+            \toolok\color{white}Tool result (success)\\[2pt]
+            \toolicon Executing tool:\color{white}bash\\
+            \color{codegray}\quad Input: \color{white}pytest tests/test\_auth.py -v\\
+            \toolok\color{white}Tool result (success):\\
+            \color{codegreen}\quad PASSED \color{white}all tests\\[2pt]
+            \color{cyan}\textbf{Claude:} \color{white}Test naprawiony --- mock nie uwzgl\k{e}dnia\l{} nowego parametru.%
+        }
+    \end{center}
+
+    \vspace{0.2cm}
+    \begin{columns}[T]
+        \column{0.48\textwidth}
+        \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
+            \item Cykl: uruchom $\rightarrow$ przeanalizuj $\rightarrow$ napraw $\rightarrow$ zweryfikuj
+            \item Cross-platform: Bash / PowerShell / CMD
+        \end{itemize}
+
+        \column{0.48\textwidth}
+        \begin{itemize}\setlength{\itemsep}{0pt}\footnotesize
+            \item Wiele narzędzi w~jednej rundzie
+            \item Automatyczna iteracja do sukcesu
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 6 — Zastosowanie: Extended Thinking + Agenci
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{Extended thinking i~agenci}
+    \begin{columns}[T]
+        \column{0.48\textwidth}
+        {\small\textbf{\faBrain\ Extended Thinking}}
+        \vspace{0.1cm}
+
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{promptgreen}\textbf{You:} \color{white}think deep: wzorce\\
+            projektowe w~tym projekcie?\\
+            \separator\\[2pt]
+            \infoicon\color{white}Thinking level: DEEP (20{,}000)\\[2pt]
+            \color{codegray}$\therefore$ Thinking complete (2s, 120)\\[1pt]
+            \toolicon Executing tool:\color{white}bash\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \color{codegray}$\therefore$ Thinking complete (3s, 176)\\[1pt]
+            \toolicon Executing tool:\color{white}read\_file\\
+            \toolok\color{white}Tool result (success)\\[1pt]
+            \color{codegray}\textit{...12 rund narz\k{e}dzi...}\\[2pt]
+            \color{cyan}\textbf{Claude:} \color{white}Factory, Registry,\\
+            Chain of Responsibility,\\
+            Strategy, Pipeline, DI...%
+        }
+
+        \vspace{0.15cm}
+        \footnotesize
+        Dynamiczny limit rund narz\k{e}dzi:\\
+        BASIC~5, STANDARD~8, DEEP~12, ULTRA~15.\\
+        Graceful fallback przy limicie.
+
+        \column{0.48\textwidth}
+        {\small\textbf{\faUsersCog\ Wyspecjalizowani agenci}}
+        \vspace{0.1cm}
+
+        \terminal{0.95\columnwidth}{claude-code-py}{%
+            \color{promptgreen}\textbf{You:} \color{white}Zr\'ob code review tego kodu\\
+            \separator\\[2pt]
+            \color{codegray}$\therefore$ Thinking...\\
+            \color{codegray}$\therefore$ Thinking complete (3s, 420 tokens)\\[2pt]
+            \toolicon Executing tool: \color{white}read\_file\\
+            \toolok\color{white}Tool result (success)\\[2pt]
+            \color{cyan}\textbf{Claude:} \color{white}Przegl\k{a}d kodu:\\
+            \color{codered}\textbf{!} \color{white}SQL injection (linia 23)\\
+            \color{codeyellow}\textbf{!} \color{white}N+1 query (linia 45)\\
+            \toolok\color{white}Sp\'ojne nazewnictwo%
+        }
+
+        \vspace{0.15cm}
+        \footnotesize
+        Router wewnętrznie wybiera agenta\\
+        (keyword matching + confidence).\\
+        UI pozostaje przezroczyste.
+    \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 6 — Architektura
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{Architektura}
+    \begin{columns}[T]
+        \column{0.48\textwidth}
+        \begin{center}
+        \begin{tikzpicture}[
+            arr/.style={-{Stealth[length=5pt]}, thick, gray}
+        ]
+            \node[draw=claudepurple, fill=purple!8, minimum width=5.5cm, minimum height=0.7cm, rounded corners=3pt, font=\scriptsize]  (ui)   at (0, 4.0) {\textbf{UI} --- Textual TUI};
+            \node[draw=claudepurple, fill=purple!14, minimum width=5.5cm, minimum height=0.7cm, rounded corners=3pt, font=\scriptsize] (app)  at (0, 3.0) {\textbf{Aplikacja} --- Orkiestracja};
+            \node[draw=claudepurple, fill=purple!20, minimum width=5.5cm, minimum height=0.7cm, rounded corners=3pt, font=\scriptsize] (core) at (0, 2.0) {\textbf{Rdzeń} --- ChatPipeline + ToolLoop};
+            \node[draw=claudepurple, fill=purple!26, minimum width=5.5cm, minimum height=0.7cm, rounded corners=3pt, font=\scriptsize] (cli)  at (0, 1.0) {\textbf{Klient} --- API Client + Factory};
+            \node[draw=claudepurple, fill=purple!32, minimum width=5.5cm, minimum height=0.7cm, rounded corners=3pt, font=\scriptsize] (ext)  at (0, 0.0) {\textbf{Infra} --- Auth, Config, Security};
+
+            \draw[arr] (ui)  -- (app);
+            \draw[arr] (app) -- (core);
+            \draw[arr] (core) -- (cli);
+            \draw[arr] (cli) -- (ext);
+        \end{tikzpicture}
+        \end{center}
+
+        \column{0.48\textwidth}
+        \begin{center}
+        {\small\textbf{Przepływ danych}}
+        \vspace{0.2cm}
+
+        \begin{tikzpicture}[
+            box/.style={draw=claudepurple, fill=claudepurple!8, rounded corners, minimum height=0.6cm, minimum width=2.2cm, align=center, font=\tiny},
+            arr/.style={-{Stealth[length=4pt]}, thick, claudepurple},
+            node distance=0.3cm
+        ]
+            \node[box] (input)  {Zapytanie};
+            \node[box, below=of input] (pipe) {ChatPipeline};
+            \node[box, below=of pipe] (api) {Anthropic API};
+            \node[box, below=of api] (stream) {Streaming};
+            \node[box, below=of stream] (tool) {Tool Loop (max 5)};
+            \node[box, below=of tool] (render) {Odpowiedź w~TUI};
+
+            \draw[arr] (input) -- (pipe);
+            \draw[arr] (pipe) -- (api);
+            \draw[arr] (api) -- (stream);
+            \draw[arr] (stream) -- (tool);
+            \draw[arr] (tool) -- (render);
+            \draw[arr, dashed] (tool.west) to[out=180,in=180] node[left, font=\tiny] {wynik} (api.west);
+        \end{tikzpicture}
+        \end{center}
+    \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════════════════
+% SLAJD 7 — Podsumowanie
+% ══════════════════════════════════════════════════════════════════════════
+\begin{frame}{Podsumowanie}
+    \begin{columns}[T]
+        \column{0.48\textwidth}
+        \begin{block}{Zrealizowane funkcje}
+            \begin{itemize}\setlength{\itemsep}{1pt}
+                \item Pełnoekranowy TUI ze streamingiem
+                \item Integracja z~Anthropic API
+                \item Tool calling --- 6~narzędzi
+                \item Extended thinking --- 4~poziomy
+                \item System 4~agentów
+                \item Dual auth (OAuth + API key)
+                \item Tryb interaktywny + CLI
+            \end{itemize}
+        \end{block}
+
+        \column{0.48\textwidth}
+        \begin{block}{Możliwe rozszerzenia}
+            \begin{itemize}\setlength{\itemsep}{1pt}
+                \item Obsługa wielu modeli (Gemini, GPT)
+                \item Persistent historia konwersacji
+                \item Wtyczki / własne narzędzia
+                \item Integracja z~Git
+                \item Web UI
+            \end{itemize}
+        \end{block}
+    \end{columns}
+
+    \vspace{0.4cm}
+    \begin{center}
+        \Large\textbf{Dziękuję za uwagę}
+
+        \vspace{0.2cm}
+    \end{center}
+\end{frame}
+
+\end{document}
