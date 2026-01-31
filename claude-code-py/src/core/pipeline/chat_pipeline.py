@@ -50,14 +50,20 @@ class ChatPipeline:
         self,
         user_message: str,
         system: Optional[str] = None,
+        max_tool_rounds: Optional[int] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Run the full chat pipeline.
+
+        Args:
+            user_message: The user's message.
+            system: System prompt.
+            max_tool_rounds: Override for max tool execution rounds.
 
         Yields:
             Stream events.
         """
         if self._tool_registry and self._tools:
-            yield from self._stream_with_tools(user_message, system)
+            yield from self._stream_with_tools(user_message, system, max_tool_rounds)
         else:
             yield from self._stream_simple(user_message, system)
 
@@ -77,7 +83,7 @@ class ChatPipeline:
         if final:
             self._conversation.add("assistant", final)
 
-    def _stream_with_tools(self, user_message, system):
+    def _stream_with_tools(self, user_message, system, max_tool_rounds=None):
         """Stream with tool execution loop."""
         self._conversation.add("user", user_message)
 
@@ -86,8 +92,14 @@ class ChatPipeline:
                 self._conversation.messages, system, self._tools, None
             )
 
-        yield from run_tool_loop(
+        def _stream_no_tools():
+            return self._stream_fn(
+                self._conversation.messages, system, None, None
+            )
+
+        kwargs = dict(
             stream_fn=_stream_round,
+            stream_fn_no_tools=_stream_no_tools,
             messages=self._conversation.messages,
             tool_registry=self._tool_registry,
             command_validator=self._command_validator,
@@ -95,3 +107,7 @@ class ChatPipeline:
             auto_executor=self._auto_executor,
             add_message=self._conversation.add,
         )
+        if max_tool_rounds is not None:
+            kwargs["max_rounds"] = max_tool_rounds
+
+        yield from run_tool_loop(**kwargs)

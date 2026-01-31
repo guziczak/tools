@@ -144,10 +144,11 @@ class ClaudeAPIClient:
             self._conversation.add("assistant", final)
 
     def chat_with_tools(
-        self, user_message: str, system: Optional[str] = None
+        self, user_message: str, system: Optional[str] = None,
+        max_tool_rounds: Optional[int] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Stream with full tool execution loop - delegates to ChatPipeline."""
-        yield from self._pipeline.chat(user_message, system)
+        yield from self._pipeline.chat(user_message, system, max_tool_rounds=max_tool_rounds)
 
     def chat_simple(self, user_message: str, system: Optional[str] = None) -> str:
         """Non-streaming chat."""

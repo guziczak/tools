@@ -6,17 +6,22 @@ import re
 
 
 class ThinkingLevel(Enum):
-    """Extended thinking levels."""
+    """Extended thinking levels.
 
-    NONE = (0, "No extended thinking")
-    BASIC = (4000, "Basic thinking - quick analysis")
-    STANDARD = (10000, "Standard thinking - thorough analysis")
-    DEEP = (20000, "Deep thinking - comprehensive analysis")
-    ULTRA = (32000, "Ultra thinking - maximum reasoning")
+    Each level defines token budget, description, and max tool rounds.
+    More thinking implies deeper exploration, hence more tool rounds.
+    """
 
-    def __init__(self, budget: int, description: str):
+    NONE = (0, "No extended thinking", 5)
+    BASIC = (4000, "Basic thinking - quick analysis", 5)
+    STANDARD = (10000, "Standard thinking - thorough analysis", 8)
+    DEEP = (20000, "Deep thinking - comprehensive analysis", 12)
+    ULTRA = (32000, "Ultra thinking - maximum reasoning", 15)
+
+    def __init__(self, budget: int, description: str, max_tool_rounds: int):
         self.budget = budget
         self.description = description
+        self.max_tool_rounds = max_tool_rounds
 
 
 # Keywords that trigger different thinking levels

@@ -344,7 +344,8 @@ class ClaudeCodePy:
                 )
 
             events = self._app.client.chat_with_tools(
-                user_input, system=self.system_prompt
+                user_input, system=self.system_prompt,
+                max_tool_rounds=thinking_level.max_tool_rounds,
             )
 
             def _on_stream_complete():

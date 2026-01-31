@@ -145,6 +145,7 @@ def execute_tool_blocks(
 def run_tool_loop(
     *,
     stream_fn,
+    stream_fn_no_tools=None,
     messages: List[Dict[str, Any]],
     tool_registry: "ToolRegistry",
     command_validator: Optional[Any] = None,
@@ -158,6 +159,8 @@ def run_tool_loop(
     Args:
         stream_fn: Callable that streams events from the LLM for a given round.
                    Signature: ``stream_fn(round: int) -> Iterator[Dict[str, Any]]``
+        stream_fn_no_tools: Callable for a final text-only round when tool limit
+                            is reached. If None, falls back to error message.
         messages: Mutable message list (modified in place).
         tool_registry: Registry for executing tools.
         command_validator: Optional command validator.
@@ -259,4 +262,17 @@ def run_tool_loop(
         yield {"type": "tool_round_complete", "content": f"Completed {len(tool_results)} tool(s)"}
 
     if tool_round >= max_rounds:
-        yield {"type": "error", "content": f"Maximum tool rounds ({max_rounds}) reached"}
+        if stream_fn_no_tools is not None:
+            # Graceful fallback: force a text-only response from the model
+            yield {"type": "info", "content": f"Tool limit ({max_rounds}) reached, generating answer..."}
+            add_message("user", "You have used all available tool rounds. Please provide your complete answer now based on the information you have gathered so far. Do not request any more tools.")
+            fallback_text: List[str] = []
+            for event in stream_fn_no_tools():
+                if event.get("type") == "text":
+                    fallback_text.append(event.get("content", ""))
+                yield event
+            final = "".join(fallback_text)
+            if final:
+                add_message("assistant", final)
+        else:
+            yield {"type": "error", "content": f"Maximum tool rounds ({max_rounds}) reached"}
