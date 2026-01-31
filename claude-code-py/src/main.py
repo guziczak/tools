@@ -343,8 +343,16 @@ class ClaudeCodePy:
                     f"Thinking level: {thinking_level.name} ({thinking_level.budget:,} tokens)"
                 )
 
+            # Agent detection — enhance system prompt if a specialist matches
+            system = self.system_prompt
+            if self._app.agent_registry:
+                match = self._app.agent_registry.find_best_agent(user_input)
+                if match:
+                    agent, confidence = match
+                    system = system + "\n\n" + agent.get_enhanced_system_prompt(user_input)
+
             events = self._app.client.chat_with_tools(
-                user_input, system=self.system_prompt,
+                user_input, system=system,
                 max_tool_rounds=thinking_level.max_tool_rounds,
             )
 

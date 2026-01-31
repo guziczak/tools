@@ -3,9 +3,9 @@ Wierszyk o kocie programiście
 Na biurku siedzi rudy kot,
 Patrzy w ekran uważnie.
 Łapką dotyka klawiatury,
-Kod pisze nocą dzielnie.
+Debuguje pętle i tablice.
 
-Gdy commit nagle się psuje,
-Mruczy do monitora.
-Refactor robi z zapałem,
-I merge'uje do rana.
+W testach szuka błędów tkwi,
+Przegląda logi uważnie.
+Refaktoryzuje kod stary,
+I komituje zadowolony.

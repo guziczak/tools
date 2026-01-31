@@ -24,7 +24,6 @@ class Application:
 
         self.tool_registry = None
         self.agent_registry = None
-        self.agent_router = None
         self._api_client = None
 
     def initialize(self, api_key: str) -> bool:
@@ -33,7 +32,7 @@ class Application:
         Returns True on success.
         """
         from tools import create_default_registry
-        from agents import AgentRegistry, AgentRouter
+        from agents import AgentRegistry
         from agents.prebuilt import create_default_agents
 
         # Tools
@@ -41,20 +40,17 @@ class Application:
             self.tool_registry = create_default_registry(self.config.platform)
             logger.info("Tools enabled (%d tools)", len(self.tool_registry))
 
-        # Agents
+        # Agents (used for system prompt enhancement, not as API tools)
         if self.config.agents_enabled:
             self.agent_registry = AgentRegistry()
             for agent in create_default_agents():
                 self.agent_registry.register(agent)
             logger.info("Agents enabled (%d agents)", len(self.agent_registry))
 
-        # Tool definitions for API
+        # Tool definitions for API (agents excluded — they modify system prompt)
         tools = None
         if self.tool_registry:
             tools = self.tool_registry.get_anthropic_tools()
-        if self.agent_registry:
-            agent_tools = self.agent_registry.get_anthropic_tools()
-            tools = (tools or []) + agent_tools
 
         # Proxy
         from auth.proxy_manager import start_proxy_if_needed
