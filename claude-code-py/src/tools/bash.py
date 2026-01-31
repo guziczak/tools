@@ -1,45 +1,40 @@
 """Bash/shell command execution tool (cross-platform)."""
 
-import sys
 import subprocess
-import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
+from config.platform_info import PlatformInfo
 from .base import BaseTool, ToolResult, ToolStatus
 
 
 class BashTool(BaseTool):
     """Tool for executing shell commands (cross-platform)."""
 
-    def __init__(self):
-        """Initialize Bash tool with platform detection."""
-        self._detect_shell()  # Must be called BEFORE super().__init__()
+    def __init__(self, platform: Optional[PlatformInfo] = None):
+        """Initialize Bash tool with platform info.
+
+        Args:
+            platform: Injected PlatformInfo. Falls back to auto-detect
+                      for backward compatibility.
+        """
+        self._platform = platform or PlatformInfo.detect()
         super().__init__()
 
-    def _detect_shell(self):
-        """Detect available shell based on platform."""
-        self.platform = sys.platform
-        self.is_windows = self.platform.startswith("win")
-        self.shell_type = "bash"
+    @property
+    def is_windows(self) -> bool:
+        return self._platform.is_windows
 
-        if self.is_windows:
-            # Windows: prefer PowerShell, fallback to cmd
-            if shutil.which("pwsh"):  # PowerShell Core
-                self.shell = ["pwsh", "-Command"]
-                self.shell_name = "PowerShell Core"
-                self.shell_type = "powershell"
-            elif shutil.which("powershell"):  # Windows PowerShell
-                self.shell = ["powershell", "-Command"]
-                self.shell_name = "PowerShell"
-                self.shell_type = "powershell"
-            else:  # CMD fallback
-                self.shell = ["cmd", "/c"]
-                self.shell_name = "CMD"
-                self.shell_type = "cmd"
-        else:
-            # Linux/Mac: use bash
-            self.shell = ["/bin/bash", "-c"]
-            self.shell_name = "Bash"
+    @property
+    def shell_type(self) -> str:
+        return self._platform.shell_type
+
+    @property
+    def shell_name(self) -> str:
+        return self._platform.shell_name
+
+    @property
+    def shell(self) -> list:
+        return list(self._platform.shell_command)
 
     def get_name(self) -> str:
         return "bash"
@@ -49,10 +44,15 @@ class BashTool(BaseTool):
         return ["bash_tool", "Bash"]
 
     def get_description(self) -> str:
+        if self.is_windows and self._platform.is_powershell:
+            return (
+                f"Execute a command using {self.shell_name}. "
+                f"IMPORTANT: Use PowerShell syntax (Get-ChildItem, Get-Content, "
+                f"Select-String), not CMD syntax (dir, type, findstr)."
+            )
         if self.is_windows:
-            return f"Execute a shell command using {self.shell_name}. Commands are executed in {self.shell_name} environment."
-        else:
-            return "Execute a bash command. Commands are executed in a bash shell."
+            return f"Execute a command using {self.shell_name}."
+        return "Execute a bash command."
 
     def get_parameters(self) -> Dict[str, Any]:
         return {
@@ -97,9 +97,8 @@ class BashTool(BaseTool):
 
             # Build command based on platform
             # On Windows, prepend chcp 65001 to force UTF-8 encoding
-            if sys.platform == "win32":
-                # Wrap command to set UTF-8 codepage per shell type
-                if self.shell_type == "powershell":
+            if self._platform.is_windows:
+                if self._platform.is_powershell:
                     command = f"chcp 65001 > $null; {command}"
                 else:
                     command = f"chcp 65001 > nul && {command}"
@@ -154,10 +153,11 @@ class BashTool(BaseTool):
 class BashInteractiveTool(BaseTool):
     """Tool for executing commands that might need user interaction (advanced)."""
 
-    def __init__(self):
+    def __init__(self, platform: Optional[PlatformInfo] = None):
         """Initialize interactive bash tool."""
+        self._platform = platform or PlatformInfo.detect()
+        self.bash_tool = BashTool(self._platform)
         super().__init__()
-        self.bash_tool = BashTool()
 
     def get_name(self) -> str:
         return "bash_interactive"
@@ -189,8 +189,8 @@ class BashInteractiveTool(BaseTool):
         """
         try:
             # On Windows, prepend chcp 65001 to force UTF-8 encoding
-            if sys.platform == "win32":
-                if self.bash_tool.shell_type == "powershell":
+            if self._platform.is_windows:
+                if self._platform.is_powershell:
                     command = f"chcp 65001 > $null; {command}"
                 else:
                     command = f"chcp 65001 > nul && {command}"

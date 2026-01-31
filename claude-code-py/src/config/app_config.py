@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .platform_info import PlatformInfo
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class AppConfig:
     use_oauth: bool = False
     tools_enabled: bool = True
     agents_enabled: bool = True
+    platform: PlatformInfo = field(default_factory=PlatformInfo.detect)
 
     @classmethod
     def from_env(cls) -> AppConfig:

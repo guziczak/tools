@@ -38,7 +38,7 @@ class Application:
 
         # Tools
         if self.config.tools_enabled:
-            self.tool_registry = create_default_registry()
+            self.tool_registry = create_default_registry(self.config.platform)
             logger.info("Tools enabled (%d tools)", len(self.tool_registry))
 
         # Agents

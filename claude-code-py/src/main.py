@@ -15,6 +15,7 @@ from core.auth import AuthManager, AuthenticationError
 from core.logging import get_logger
 from ui.terminal import TerminalUI
 from config.app_config import AppConfig
+from config.platform_info import PlatformInfo
 from app import Application
 from agents.thinking import detect_thinking_level
 from utils import check_and_setup, automatic_claude_max_setup
@@ -22,14 +23,18 @@ from utils import check_and_setup, automatic_claude_max_setup
 logger = get_logger(__name__)
 
 
-def _build_system_prompt() -> str:
-    """Build the system prompt with current working directory."""
+def _build_system_prompt(platform: PlatformInfo) -> str:
+    """Build the system prompt with current working directory.
+
+    Args:
+        platform: Detected platform/shell info from AppConfig.
+    """
     cwd = os.getcwd()
-    platform = "Windows" if os.name == "nt" else "Linux/Mac"
     return (
         f"You are helping a developer via a terminal CLI called 'Claude Code Python'.\n"
         f"Working directory: {cwd}\n"
-        f"Platform: {platform}\n"
+        f"Platform: {platform.os_name}\n"
+        f"{platform.shell_hint_for_prompt()}\n"
         f"You have tools available to execute commands, read/write files, and search. "
         f"Use them directly when needed — do not describe tool calls in text."
     )
@@ -138,7 +143,7 @@ class ClaudeCodePy:
         self.ui = TerminalUI()
         self.auth_manager = AuthManager()
         self.config = AppConfig.from_env()
-        self.system_prompt = _build_system_prompt()
+        self.system_prompt = _build_system_prompt(self.config.platform)
 
         self._app: Optional[Application] = None
         self._cmd_handler: Optional[CommandHandler] = None

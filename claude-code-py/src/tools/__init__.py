@@ -1,14 +1,20 @@
 """Tool system for Claude Code Python."""
 
+from typing import Optional
+
 from .base import BaseTool, ToolResult, ToolStatus
 from .registry import ToolRegistry
 from .file_ops import ReadTool, WriteTool, EditTool
 from .bash import BashTool, BashInteractiveTool
 from .search import GrepTool, GlobTool
+from config.platform_info import PlatformInfo
 
 
-def create_default_registry() -> ToolRegistry:
+def create_default_registry(platform: Optional[PlatformInfo] = None) -> ToolRegistry:
     """Create a tool registry with all default tools.
+
+    Args:
+        platform: Shared PlatformInfo instance. Auto-detects if None.
 
     Returns:
         ToolRegistry with all default tools registered
@@ -20,8 +26,8 @@ def create_default_registry() -> ToolRegistry:
     registry.register(WriteTool())
     registry.register(EditTool())
 
-    # Register bash tool
-    registry.register(BashTool())
+    # Register bash tool with platform info
+    registry.register(BashTool(platform))
 
     # Register search tools
     registry.register(GrepTool())
