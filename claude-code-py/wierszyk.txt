@@ -1,5 +1,11 @@
-Mały wierszyk
+Wierszyk o kocie programiście
 
-Słońce ś
-DUPA
-:)
+Na biurku siedzi rudy kot,
+Patrzy w ekran uważnie.
+Łapką dotyka klawiatury,
+Kod pisze nocą dzielnie.
+
+Gdy commit nagle się psuje,
+Mruczy do monitora.
+Refactor robi z zapałem,
+I merge'uje do rana.
