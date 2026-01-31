@@ -234,10 +234,8 @@ def run_tool_loop(
                 + "\n".join(error_lines)
                 + "\n\nPlease adjust the request or paths and try again."
             )
-            add_message("assistant", error_text)
-            yield {"type": "text", "content": error_text}
-            yield {"type": "message_done", "content": ""}
-            return
+            yield {"type": "info", "content": error_text}
+            # Don't return — let the model retry with corrected parameters
 
         # Add to history — combine text + tool_use blocks in one assistant message
         assistant_content: List[Dict[str, Any]] = []
